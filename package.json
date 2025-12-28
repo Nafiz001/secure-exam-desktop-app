@@ -1,0 +1,24 @@
+{
+  "name": "secure-exam-desktop-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nafiz001/secure-exam-desktop-app.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Nafiz001/secure-exam-desktop-app/issues"
+  },
+  "homepage": "https://github.com/Nafiz001/secure-exam-desktop-app#readme",
+  "devDependencies": {
+    "electron": "^39.2.7"
+  }
+}
