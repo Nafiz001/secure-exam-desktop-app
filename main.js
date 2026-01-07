@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, ipcMain } = require("electron");
 
 let mainWindow;
 
@@ -11,25 +11,31 @@ function createWindow() {
     maximizable: false,
     closable: false,
     webPreferences: {
+      preload: __dirname + "/preload.js",
       contextIsolation: true
     }
   });
 
   mainWindow.loadFile("index.html");
 
-  // Re-enforce fullscreen if exited
+  // Detect fullscreen exit
   mainWindow.on("leave-full-screen", () => {
     mainWindow.setFullScreen(true);
+    mainWindow.webContents.send("violation", {
+      type: "FULLSCREEN_EXIT"
+    });
   });
 
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  // Detect focus loss (Alt+Tab, app switch)
+  mainWindow.on("blur", () => {
+    mainWindow.webContents.send("violation", {
+      type: "WINDOW_BLUR"
+    });
   });
 }
 
 app.whenReady().then(createWindow);
 
-// Quit app properly
 app.on("window-all-closed", () => {
   app.quit();
 });
