@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, globalShortcut } = require("electron");
 
 let mainWindow;
 let violationCount = 0;
+let examTerminated = false;
 const MAX_VIOLATIONS = 3;
 
 function createWindow() {
@@ -31,36 +32,39 @@ function createWindow() {
 }
 
 function registerViolation(type) {
+  if (examTerminated) return;
+
   violationCount++;
+
   mainWindow.webContents.send("violation", {
     type,
     count: violationCount
   });
 
   if (violationCount >= MAX_VIOLATIONS) {
+    examTerminated = true;
     mainWindow.webContents.send("force-submit");
   }
 }
 
+ipcMain.on("start-exam", () => {
+  if (mainWindow) {
+    examTerminated = false;
+    violationCount = 0;
+    mainWindow.setFullScreen(true);
+  }
+});
+
 app.whenReady().then(() => {
   createWindow();
 
-  // Block Alt+F4
   globalShortcut.register("Alt+F4", () => {
     registerViolation("ALT_F4_BLOCKED");
   });
 
-  // Block F11
   globalShortcut.register("F11", () => {
     registerViolation("F11_BLOCKED");
   });
-});
-
-// Enforce fullscreen when exam starts
-ipcMain.on("start-exam", () => {
-  if (mainWindow) {
-    mainWindow.setFullScreen(true);
-  }
 });
 
 app.on("will-quit", () => {
