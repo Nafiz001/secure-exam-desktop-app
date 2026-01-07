@@ -2,6 +2,6 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
   onViolation: (callback) => ipcRenderer.on("violation", callback),
-  onForceSubmit: (callback) => ipcRenderer.on("force-submit", callback)
+  onForceSubmit: (callback) => ipcRenderer.on("force-submit", callback),
+  startExam: () => ipcRenderer.send("start-exam")
 });
-            

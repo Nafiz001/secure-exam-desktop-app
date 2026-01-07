@@ -28,10 +28,6 @@ function createWindow() {
   mainWindow.on("blur", () => {
     registerViolation("WINDOW_BLUR");
   });
-
-  globalShortcut.register("Alt+F4", () => {
-    registerViolation("ALT_F4_BLOCKED");
-  });
 }
 
 function registerViolation(type) {
@@ -46,7 +42,26 @@ function registerViolation(type) {
   }
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+
+  // Block Alt+F4
+  globalShortcut.register("Alt+F4", () => {
+    registerViolation("ALT_F4_BLOCKED");
+  });
+
+  // Block F11
+  globalShortcut.register("F11", () => {
+    registerViolation("F11_BLOCKED");
+  });
+});
+
+// Enforce fullscreen when exam starts
+ipcMain.on("start-exam", () => {
+  if (mainWindow) {
+    mainWindow.setFullScreen(true);
+  }
+});
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
