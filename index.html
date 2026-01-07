@@ -10,9 +10,28 @@
       color: white;
     }
 
+    .screen {
+      display: none;
+      width: 100vw;
+      height: 100vh;
+      flex-direction: column;
+    }
+
+    .active {
+      display: flex;
+    }
+
+    .center {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+    }
+
     .top-bar {
-      background: #0f172a;
       padding: 10px;
+      background: #0f172a;
       display: flex;
       justify-content: space-between;
     }
@@ -21,46 +40,77 @@
       background: red;
       padding: 10px;
       display: none;
-      text-align: center;
+      margin-bottom: 20px;
     }
 
-    .content {
-      padding: 40px;
-      text-align: center;
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
 
-  <div class="top-bar">
-    <div>Secure Exam</div>
-    <div>Warnings: <span id="count">0</span></div>
+  <!-- LOGIN SCREEN -->
+  <div id="loginScreen" class="screen active">
+    <div class="center">
+      <h1>Secure Exam System</h1>
+      <p>Please login to start the exam</p>
+      <button onclick="startExam()">Login</button>
+    </div>
   </div>
 
-  <div id="warningBox" class="warning">
-    ⚠️ Violation Detected! Do not leave the exam window.
-  </div>
+  <!-- EXAM SCREEN -->
+  <div id="examScreen" class="screen">
+    <div class="top-bar">
+      <div>Exam Running</div>
+      <div>Violations: <span id="count">0</span></div>
+    </div>
 
-  <div class="content">
-    <h1>Exam In Progress</h1>
-    <p>Do not switch tabs or exit fullscreen.</p>
+    <div class="center">
+      <div id="warningBox" class="warning">
+        ⚠️ Violation Detected
+      </div>
+
+      <h2>Exam In Progress</h2>
+      <p>Do not leave the exam window.</p>
+    </div>
   </div>
 
   <script>
     let violations = 0;
+    let examEnded = false;
+
+    function startExam() {
+      examEnded = false;
+      violations = 0;
+      document.getElementById("count").innerText = "0";
+      window.electronAPI.startExam();
+
+      document.getElementById("loginScreen").classList.remove("active");
+      document.getElementById("examScreen").classList.add("active");
+    }
 
     window.electronAPI.onViolation((event, data) => {
-      violations++;
+      if (examEnded) return;
+
+      violations = data.count;
       document.getElementById("count").innerText = violations;
 
       const box = document.getElementById("warningBox");
       box.style.display = "block";
+      setTimeout(() => box.style.display = "none", 3000);
+    });
 
-      setTimeout(() => {
-        box.style.display = "none";
-      }, 3000);
+    window.electronAPI.onForceSubmit(() => {
+      if (examEnded) return;
+      examEnded = true;
 
-      console.log("Violation:", data.type);
+      alert("Exam auto-submitted due to multiple violations.");
+
+      document.getElementById("examScreen").classList.remove("active");
+      document.getElementById("loginScreen").classList.add("active");
     });
   </script>
 
