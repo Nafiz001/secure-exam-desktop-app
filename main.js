@@ -1,6 +1,8 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, globalShortcut } = require("electron");
 
 let mainWindow;
+let violationCount = 0;
+const MAX_VIOLATIONS = 3;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -18,23 +20,37 @@ function createWindow() {
 
   mainWindow.loadFile("index.html");
 
-  // Detect fullscreen exit
   mainWindow.on("leave-full-screen", () => {
     mainWindow.setFullScreen(true);
-    mainWindow.webContents.send("violation", {
-      type: "FULLSCREEN_EXIT"
-    });
+    registerViolation("FULLSCREEN_EXIT");
   });
 
-  // Detect focus loss (Alt+Tab, app switch)
   mainWindow.on("blur", () => {
-    mainWindow.webContents.send("violation", {
-      type: "WINDOW_BLUR"
-    });
+    registerViolation("WINDOW_BLUR");
+  });
+
+  globalShortcut.register("Alt+F4", () => {
+    registerViolation("ALT_F4_BLOCKED");
   });
 }
 
+function registerViolation(type) {
+  violationCount++;
+  mainWindow.webContents.send("violation", {
+    type,
+    count: violationCount
+  });
+
+  if (violationCount >= MAX_VIOLATIONS) {
+    mainWindow.webContents.send("force-submit");
+  }
+}
+
 app.whenReady().then(createWindow);
+
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
+});
 
 app.on("window-all-closed", () => {
   app.quit();
