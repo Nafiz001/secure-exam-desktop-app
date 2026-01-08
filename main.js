@@ -1,4 +1,10 @@
-const { app, BrowserWindow, ipcMain, globalShortcut } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  globalShortcut,
+  screen
+} = require("electron");
 
 let mainWindow;
 let violationCount = 0;
@@ -23,21 +29,22 @@ function createWindow() {
 
   mainWindow.on("leave-full-screen", () => {
     mainWindow.setFullScreen(true);
-    registerViolation("FULLSCREEN_EXIT");
+    registerViolation("FULLSCREEN_EXIT", "high");
   });
 
   mainWindow.on("blur", () => {
-    registerViolation("WINDOW_BLUR");
+    registerViolation("WINDOW_BLUR", "medium");
   });
 }
 
-function registerViolation(type) {
+function registerViolation(type, severity = "low") {
   if (examTerminated) return;
 
   violationCount++;
 
   mainWindow.webContents.send("violation", {
     type,
+    severity,
     count: violationCount
   });
 
@@ -47,24 +54,47 @@ function registerViolation(type) {
   }
 }
 
+function detectDisplays() {
+  const displays = screen.getAllDisplays();
+
+  if (displays.length > 1) {
+    registerViolation("MULTIPLE_MONITORS", "high");
+  }
+}
+
+app.whenReady().then(() => {
+  createWindow();
+
+  // Initial display check
+  detectDisplays();
+
+  // Detect display changes
+  screen.on("display-added", detectDisplays);
+  screen.on("display-removed", detectDisplays);
+  screen.on("display-metrics-changed", () => {
+    registerViolation("DISPLAY_CHANGED", "medium");
+  });
+
+  // Block shortcuts
+  globalShortcut.register("Alt+F4", () => {
+    registerViolation("ALT_F4_BLOCKED", "high");
+  });
+
+  globalShortcut.register("F11", () => {
+    registerViolation("F11_BLOCKED", "medium");
+  });
+
+  globalShortcut.register("Super", () => {
+    // block Windows key silently
+  });
+});
+
 ipcMain.on("start-exam", () => {
   if (mainWindow) {
     examTerminated = false;
     violationCount = 0;
     mainWindow.setFullScreen(true);
   }
-});
-
-app.whenReady().then(() => {
-  createWindow();
-
-  globalShortcut.register("Alt+F4", () => {
-    registerViolation("ALT_F4_BLOCKED");
-  });
-
-  globalShortcut.register("F11", () => {
-    registerViolation("F11_BLOCKED");
-  });
 });
 
 app.on("will-quit", () => {
