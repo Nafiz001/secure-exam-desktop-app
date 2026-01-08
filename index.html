@@ -21,6 +21,13 @@
       display: flex;
     }
 
+    .top-bar {
+      padding: 10px;
+      background: #0f172a;
+      display: flex;
+      justify-content: space-between;
+    }
+
     .center {
       flex: 1;
       display: flex;
@@ -29,90 +36,81 @@
       flex-direction: column;
     }
 
-    .top-bar {
-      padding: 10px;
-      background: #0f172a;
-      display: flex;
-      justify-content: space-between;
+    .warning {
+      padding: 12px;
+      margin-bottom: 20px;
+      border-radius: 5px;
+      display: none;
+      font-weight: bold;
     }
 
-    .warning {
-      background: red;
-      padding: 10px;
-      display: none;
-      margin-bottom: 20px;
-    }
+    .low { background: #334155; }
+    .medium { background: #b45309; }
+    .high { background: #991b1b; }
 
     button {
       padding: 10px 20px;
       font-size: 16px;
-      cursor: pointer;
     }
   </style>
 </head>
 <body>
 
-  <!-- LOGIN SCREEN -->
-  <div id="loginScreen" class="screen active">
-    <div class="center">
-      <h1>Secure Exam System</h1>
-      <p>Please login to start the exam</p>
-      <button onclick="startExam()">Login</button>
-    </div>
+<div id="loginScreen" class="screen active">
+  <div class="center">
+    <h1>Secure Exam System</h1>
+    <button onclick="startExam()">Login</button>
+  </div>
+</div>
+
+<div id="examScreen" class="screen">
+  <div class="top-bar">
+    <div>Exam Running</div>
+    <div>Violations: <span id="count">0</span></div>
   </div>
 
-  <!-- EXAM SCREEN -->
-  <div id="examScreen" class="screen">
-    <div class="top-bar">
-      <div>Exam Running</div>
-      <div>Violations: <span id="count">0</span></div>
-    </div>
-
-    <div class="center">
-      <div id="warningBox" class="warning">
-        ⚠️ Violation Detected
-      </div>
-
-      <h2>Exam In Progress</h2>
-      <p>Do not leave the exam window.</p>
-    </div>
+  <div class="center">
+    <div id="warningBox" class="warning"></div>
+    <h2>Exam In Progress</h2>
+    <p>Do not leave the exam environment.</p>
   </div>
+</div>
 
-  <script>
-    let violations = 0;
-    let examEnded = false;
+<script>
+  let examEnded = false;
 
-    function startExam() {
-      examEnded = false;
-      violations = 0;
-      document.getElementById("count").innerText = "0";
-      window.electronAPI.startExam();
+  function startExam() {
+    examEnded = false;
+    document.getElementById("count").innerText = "0";
+    window.electronAPI.startExam();
 
-      document.getElementById("loginScreen").classList.remove("active");
-      document.getElementById("examScreen").classList.add("active");
-    }
+    document.getElementById("loginScreen").classList.remove("active");
+    document.getElementById("examScreen").classList.add("active");
+  }
 
-    window.electronAPI.onViolation((event, data) => {
-      if (examEnded) return;
+  window.electronAPI.onViolation((event, data) => {
+    if (examEnded) return;
 
-      violations = data.count;
-      document.getElementById("count").innerText = violations;
+    document.getElementById("count").innerText = data.count;
 
-      const box = document.getElementById("warningBox");
-      box.style.display = "block";
-      setTimeout(() => box.style.display = "none", 3000);
-    });
+    const box = document.getElementById("warningBox");
+    box.className = `warning ${data.severity}`;
+    box.innerText = `${data.severity.toUpperCase()} VIOLATION: ${data.type}`;
+    box.style.display = "block";
 
-    window.electronAPI.onForceSubmit(() => {
-      if (examEnded) return;
-      examEnded = true;
+    setTimeout(() => {
+      box.style.display = "none";
+    }, 3000);
+  });
 
-      alert("Exam auto-submitted due to multiple violations.");
+  window.electronAPI.onForceSubmit(() => {
+    examEnded = true;
+    alert("Exam auto-submitted due to critical violations.");
 
-      document.getElementById("examScreen").classList.remove("active");
-      document.getElementById("loginScreen").classList.add("active");
-    });
-  </script>
+    document.getElementById("examScreen").classList.remove("active");
+    document.getElementById("loginScreen").classList.add("active");
+  });
+</script>
 
 </body>
 </html>
