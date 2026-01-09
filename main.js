@@ -6,10 +6,22 @@ const {
   screen
 } = require("electron");
 
+const psList = require("ps-list");
+
 let mainWindow;
 let violationCount = 0;
 let examTerminated = false;
 const MAX_VIOLATIONS = 3;
+
+const FORBIDDEN_PROCESSES = [
+  { name: "chrome", severity: "medium" },
+  { name: "msedge", severity: "medium" },
+  { name: "firefox", severity: "medium" },
+  { name: "obs", severity: "high" },
+  { name: "anydesk", severity: "high" },
+  { name: "teamviewer", severity: "high" },
+  { name: "bandicam", severity: "high" }
+];
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -37,7 +49,7 @@ function createWindow() {
   });
 }
 
-function registerViolation(type, severity = "low") {
+function registerViolation(type, severity) {
   if (examTerminated) return;
 
   violationCount++;
@@ -48,34 +60,41 @@ function registerViolation(type, severity = "low") {
     count: violationCount
   });
 
-  if (violationCount >= MAX_VIOLATIONS) {
+  if (severity === "high" || violationCount >= MAX_VIOLATIONS) {
     examTerminated = true;
     mainWindow.webContents.send("force-submit");
   }
 }
 
-function detectDisplays() {
-  const displays = screen.getAllDisplays();
+async function detectForbiddenProcesses() {
+  if (examTerminated) return;
 
-  if (displays.length > 1) {
-    registerViolation("MULTIPLE_MONITORS", "high");
+  const processes = await psList();
+
+  for (const proc of processes) {
+    for (const forbidden of FORBIDDEN_PROCESSES) {
+      if (proc.name.toLowerCase().includes(forbidden.name)) {
+        registerViolation(
+          `FORBIDDEN_PROCESS:${proc.name}`,
+          forbidden.severity
+        );
+        return;
+      }
+    }
   }
 }
+
+ipcMain.on("start-exam", () => {
+  examTerminated = false;
+  violationCount = 0;
+  mainWindow.setFullScreen(true);
+
+  setInterval(detectForbiddenProcesses, 3000);
+});
 
 app.whenReady().then(() => {
   createWindow();
 
-  // Initial display check
-  detectDisplays();
-
-  // Detect display changes
-  screen.on("display-added", detectDisplays);
-  screen.on("display-removed", detectDisplays);
-  screen.on("display-metrics-changed", () => {
-    registerViolation("DISPLAY_CHANGED", "medium");
-  });
-
-  // Block shortcuts
   globalShortcut.register("Alt+F4", () => {
     registerViolation("ALT_F4_BLOCKED", "high");
   });
@@ -84,17 +103,7 @@ app.whenReady().then(() => {
     registerViolation("F11_BLOCKED", "medium");
   });
 
-  globalShortcut.register("Super", () => {
-    // block Windows key silently
-  });
-});
-
-ipcMain.on("start-exam", () => {
-  if (mainWindow) {
-    examTerminated = false;
-    violationCount = 0;
-    mainWindow.setFullScreen(true);
-  }
+  globalShortcut.register("Super", () => {});
 });
 
 app.on("will-quit", () => {
