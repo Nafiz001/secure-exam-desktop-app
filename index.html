@@ -1,11 +1,51 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" class="light">
 <head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Invigilo</title>
+
+  <!-- ===== GOOGLE FONTS ===== -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet"/>
+
+  <!-- ===== MATERIAL SYMBOLS ===== -->
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700&display=swap" rel="stylesheet"/>
+
+  <!-- ===== TAILWIND ===== -->
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+
+  <!-- ===== TAILWIND CONFIG (AS YOU PROVIDED) ===== -->
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            primary: "#135bec",
+            "background-light": "#f6f6f8",
+            "background-dark": "#101622",
+          },
+          fontFamily: {
+            display: ["Inter", "sans-serif"]
+          },
+          borderRadius: {
+            DEFAULT: "0.25rem",
+            lg: "0.5rem",
+            xl: "0.75rem",
+            full: "9999px"
+          },
+        },
+      },
+    }
+  </script>
+
+  <!-- ===== YOUR ORIGINAL CSS (UNCHANGED) ===== -->
   <style>
     body {
       margin: 0;
-      font-family: Arial;
+      font-family: Inter, Arial, sans-serif;
       background: #020617;
       color: white;
     }
@@ -51,15 +91,84 @@
     }
   </style>
 </head>
+
 <body>
 
+<!-- ================= LOGIN SCREEN (VISUALS REPLACED ONLY) ================= -->
 <div id="loginScreen" class="screen active">
-  <div class="center">
-    <h1>Invigilo</h1>
-    <button onclick="startExam()">Start Exam</button>
+
+  <div class="flex flex-1 w-full min-h-screen bg-background-light text-[#0d121b] font-display">
+
+    <!-- LEFT PANEL -->
+    <div class="hidden lg:flex w-1/2 bg-primary relative overflow-hidden flex-col justify-between p-12 text-white">
+      <div class="flex items-center gap-3">
+        <div class="flex items-center justify-center size-10 bg-white/10 rounded-lg border border-white/20">
+          <span class="material-symbols-outlined text-2xl">verified_user</span>
+        </div>
+        <span class="text-xl font-bold tracking-wide">Invigilo</span>
+      </div>
+
+      <div class="max-w-lg">
+        <h1 class="text-4xl font-bold leading-tight mb-6">
+          Focus on your success.<br/>We'll handle the security.
+        </h1>
+        <p class="text-blue-100 text-lg">
+          A secure, integrity-driven examination environment.
+        </p>
+      </div>
+
+      <p class="text-sm text-blue-200/60">
+        © 2024 Invigilo Secure Exam System
+      </p>
+    </div>
+
+    <!-- RIGHT LOGIN FORM -->
+    <div class="w-full lg:w-1/2 flex flex-col justify-center items-center p-6 sm:p-12 lg:p-24">
+      <div class="w-full max-w-[420px] flex flex-col gap-8">
+
+        <div>
+          <h2 class="text-3xl font-bold tracking-tight">Student Login</h2>
+          <p class="text-[#4c669a] mt-1">Please enter your credentials to access the exam.</p>
+        </div>
+
+        <div class="flex flex-col gap-5">
+          <div>
+            <label class="text-sm font-medium">Username or Student ID</label>
+            <input class="w-full h-12 px-4 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none" />
+          </div>
+
+          <div>
+            <label class="text-sm font-medium">Password</label>
+            <input type="password" class="w-full h-12 px-4 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none" />
+          </div>
+
+          <!-- IMPORTANT: startExam() is unchanged -->
+          <button
+            type="button"
+            onclick="startExam()"
+            class="w-full h-12 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition flex items-center justify-center gap-2"
+          >
+            Log In
+            <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+          </button>
+        </div>
+
+        <div class="flex items-start gap-3 p-4 bg-blue-50 rounded-lg border border-blue-100">
+          <span class="material-symbols-outlined text-primary">lock</span>
+          <div>
+            <p class="text-sm font-semibold">Secure Browser Active</p>
+            <p class="text-xs text-[#4c669a] mt-1">
+              The exam environment will be locked after login.
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </div>
   </div>
 </div>
 
+<!-- ================= EXAM SCREEN (100% UNCHANGED) ================= -->
 <div id="examScreen" class="screen">
   <div class="top-bar">
     <div>Exam Running</div>
@@ -72,6 +181,7 @@
   </div>
 </div>
 
+<!-- ================= SCRIPT (100% UNCHANGED) ================= -->
 <script>
   let examEnded = false;
 
@@ -88,12 +198,10 @@
     if (examEnded) return;
 
     document.getElementById("count").innerText = data.count;
-
     const box = document.getElementById("warningBox");
     box.className = `warning ${data.severity}`;
     box.innerText = `⚠ ${data.severity.toUpperCase()} RISK: ${data.type}`;
     box.style.display = "block";
-
     setTimeout(() => box.style.display = "none", 4000);
   });
 
