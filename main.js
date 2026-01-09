@@ -11,16 +11,19 @@ const psList = require("ps-list");
 let mainWindow;
 let violationCount = 0;
 let examTerminated = false;
+let processScanInterval = null;
+
 const MAX_VIOLATIONS = 3;
 
+// High-risk & medium-risk processes
 const FORBIDDEN_PROCESSES = [
-  { name: "chrome", severity: "medium" },
-  { name: "msedge", severity: "medium" },
-  { name: "firefox", severity: "medium" },
+  { name: "chrome", severity: "high" },
+  { name: "msedge", severity: "high" },
+  { name: "firefox", severity: "high" },
   { name: "obs", severity: "high" },
+  { name: "bandicam", severity: "high" },
   { name: "anydesk", severity: "high" },
-  { name: "teamviewer", severity: "high" },
-  { name: "bandicam", severity: "high" }
+  { name: "teamviewer", severity: "high" }
 ];
 
 function createWindow() {
@@ -39,16 +42,19 @@ function createWindow() {
 
   mainWindow.loadFile("index.html");
 
+  // Detect fullscreen exit
   mainWindow.on("leave-full-screen", () => {
     mainWindow.setFullScreen(true);
     registerViolation("FULLSCREEN_EXIT", "high");
   });
 
+  // Detect app switching
   mainWindow.on("blur", () => {
     registerViolation("WINDOW_BLUR", "medium");
   });
 }
 
+// Central violation handler
 function registerViolation(type, severity) {
   if (examTerminated) return;
 
@@ -61,11 +67,24 @@ function registerViolation(type, severity) {
   });
 
   if (severity === "high" || violationCount >= MAX_VIOLATIONS) {
-    examTerminated = true;
-    mainWindow.webContents.send("force-submit");
+    terminateExam();
   }
 }
 
+// Force exam termination safely
+function terminateExam() {
+  if (examTerminated) return;
+
+  examTerminated = true;
+  mainWindow.webContents.send("force-submit");
+
+  if (processScanInterval) {
+    clearInterval(processScanInterval);
+    processScanInterval = null;
+  }
+}
+
+// Immediate + continuous forbidden process detection
 async function detectForbiddenProcesses() {
   if (examTerminated) return;
 
@@ -84,17 +103,31 @@ async function detectForbiddenProcesses() {
   }
 }
 
-ipcMain.on("start-exam", () => {
+// Start exam (called from UI)
+ipcMain.on("start-exam", async () => {
   examTerminated = false;
   violationCount = 0;
-  mainWindow.setFullScreen(true);
 
-  setInterval(detectForbiddenProcesses, 3000);
+  if (mainWindow) {
+    mainWindow.setFullScreen(true);
+  }
+
+  // Immediate scan (CRITICAL FIX)
+  await detectForbiddenProcesses();
+
+  // Clear previous scanner if exists
+  if (processScanInterval) {
+    clearInterval(processScanInterval);
+  }
+
+  // High-frequency scanning
+  processScanInterval = setInterval(detectForbiddenProcesses, 1000);
 });
 
 app.whenReady().then(() => {
   createWindow();
 
+  // Block system shortcuts
   globalShortcut.register("Alt+F4", () => {
     registerViolation("ALT_F4_BLOCKED", "high");
   });
@@ -103,6 +136,7 @@ app.whenReady().then(() => {
     registerViolation("F11_BLOCKED", "medium");
   });
 
+  // Block Windows key silently
   globalShortcut.register("Super", () => {});
 });
 
