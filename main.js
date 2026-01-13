@@ -1,20 +1,22 @@
 // NOTE:
-// Always-on-top enforces application-level dominance.
-// Kernel-level / admin overlays cannot be overridden.
+// Always-on-top is enabled ONLY during exam mode.
+// Application-level window dominance cannot override
+// kernel-level or admin overlays.
 
 const { app, BrowserWindow, ipcMain, globalShortcut } = require("electron");
 const psList = require("ps-list");
 const fs = require("fs");
 const path = require("path");
 
-let mainWindow;
+let mainWindow = null;
 let violationCount = 0;
-let examTerminated = false;
+let examRunning = false;
 let processScanInterval = null;
 
-const MAX_VIOLATIONS = 3;
 const sessionLog = [];
+const MAX_VIOLATIONS = 3;
 
+// Browsers handled via blur (focus loss)
 const FORBIDDEN_PROCESSES = [
   "obs",
   "bandicam",
@@ -22,6 +24,9 @@ const FORBIDDEN_PROCESSES = [
   "teamviewer"
 ];
 
+/* =========================
+   LOGGING
+========================= */
 function logEvent(type, severity = "info") {
   sessionLog.push({
     type,
@@ -30,48 +35,81 @@ function logEvent(type, severity = "info") {
   });
 }
 
+/* =========================
+   WINDOW CREATION
+========================= */
 function createWindow() {
   mainWindow = new BrowserWindow({
-    fullscreen: true,
-    alwaysOnTop: true,               // 🔴 Z-ORDER
+    fullscreen: false,
     autoHideMenuBar: true,
     resizable: false,
     minimizable: false,
     maximizable: false,
     closable: false,
     focusable: true,
-    skipTaskbar: true,
     webPreferences: {
       preload: __dirname + "/preload.js",
       contextIsolation: true
     }
   });
 
-  mainWindow.setAlwaysOnTop(true, "screen-saver");
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-
   mainWindow.loadFile("index.html");
 
+  // Detect focus loss (browser / overlay usage)
   mainWindow.on("blur", () => {
-    registerViolation("WINDOW_BLUR", "high");
-    refocusWindow();
+    if (!examRunning) return;
+    registerViolation("WINDOW_BLUR", "medium");
+    refocusIfExam();
   });
 
+  // Detect fullscreen exit
   mainWindow.on("leave-full-screen", () => {
+    if (!examRunning) return;
     mainWindow.setFullScreen(true);
     registerViolation("FULLSCREEN_EXIT", "high");
   });
 }
 
-function refocusWindow() {
-  if (!mainWindow || examTerminated) return;
+/* =========================
+   EXAM MODE CONTROL
+========================= */
+function enableExamMode() {
+  examRunning = true;
+
+  mainWindow.setFullScreen(true);
+  mainWindow.setAlwaysOnTop(true, "screen-saver");
+  mainWindow.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true
+  });
+
+  refocusIfExam();
+}
+
+function disableExamMode() {
+  examRunning = false;
+
+  mainWindow.setAlwaysOnTop(false);
+  mainWindow.setVisibleOnAllWorkspaces(false);
+
+  if (processScanInterval) {
+    clearInterval(processScanInterval);
+    processScanInterval = null;
+  }
+}
+
+function refocusIfExam() {
+  if (!mainWindow || !examRunning) return;
+
   mainWindow.show();
   mainWindow.focus();
   mainWindow.setAlwaysOnTop(true, "screen-saver");
 }
 
+/* =========================
+   VIOLATIONS
+========================= */
 function registerViolation(type, severity) {
-  if (examTerminated) return;
+  if (!examRunning) return;
 
   violationCount++;
   logEvent(type, severity);
@@ -82,21 +120,44 @@ function registerViolation(type, severity) {
     count: violationCount
   });
 
-  if (severity === "high" || violationCount >= MAX_VIOLATIONS) {
-    terminateExam();
+  // ❌ NO AUTO-SUBMIT HERE (INTENTIONAL)
+}
+
+/* =========================
+   PROCESS DETECTION
+========================= */
+async function detectForbiddenProcesses() {
+  if (!examRunning) return;
+
+  const processes = await psList();
+  for (const proc of processes) {
+    const name = proc.name.toLowerCase();
+    if (FORBIDDEN_PROCESSES.some(p => name.includes(p))) {
+      registerViolation(`FORBIDDEN_PROCESS:${proc.name}`, "high");
+      return;
+    }
   }
 }
 
-function terminateExam() {
-  if (examTerminated) return;
-  examTerminated = true;
+/* =========================
+   IPC HANDLERS
+========================= */
+ipcMain.on("start-exam", () => {
+  violationCount = 0;
+  sessionLog.length = 0;
 
-  logEvent("EXAM_TERMINATED", "system");
+  logEvent("EXAM_STARTED", "system");
 
-  if (processScanInterval) {
-    clearInterval(processScanInterval);
-    processScanInterval = null;
-  }
+  enableExamMode();
+
+  if (processScanInterval) clearInterval(processScanInterval);
+  processScanInterval = setInterval(detectForbiddenProcesses, 1000);
+});
+
+ipcMain.on("submit-exam", () => {
+  logEvent("EXAM_SUBMITTED", "system");
+
+  disableExamMode();
 
   const reportPath = path.join(
     app.getPath("documents"),
@@ -106,50 +167,32 @@ function terminateExam() {
   fs.writeFileSync(reportPath, JSON.stringify(sessionLog, null, 2));
 
   mainWindow.webContents.send("force-submit");
-}
-
-async function detectForbiddenProcesses() {
-  if (examTerminated) return;
-
-  const processes = await psList();
-  for (const p of processes) {
-    const name = p.name.toLowerCase();
-    if (FORBIDDEN_PROCESSES.some(fp => name.includes(fp))) {
-      registerViolation(`FORBIDDEN_PROCESS:${p.name}`, "high");
-      return;
-    }
-  }
-}
-
-ipcMain.on("start-exam", async () => {
-  examTerminated = false;
-  violationCount = 0;
-  sessionLog.length = 0;
-
-  logEvent("EXAM_STARTED", "system");
-
-  mainWindow.setFullScreen(true);
-  refocusWindow();
-
-  await detectForbiddenProcesses();
-
-  if (processScanInterval) clearInterval(processScanInterval);
-  processScanInterval = setInterval(detectForbiddenProcesses, 1000);
 });
 
+/* =========================
+   APP LIFECYCLE
+========================= */
 app.whenReady().then(() => {
   createWindow();
 
-  globalShortcut.register("Alt+F4", () =>
-    registerViolation("ALT_F4_BLOCKED", "high")
-  );
+  globalShortcut.register("Alt+F4", () => {
+    if (!examRunning) return;
+    registerViolation("ALT_F4_BLOCKED", "high");
+  });
 
-  globalShortcut.register("F11", () =>
-    registerViolation("F11_BLOCKED", "medium")
-  );
+  globalShortcut.register("F11", () => {
+    if (!examRunning) return;
+    registerViolation("F11_BLOCKED", "medium");
+  });
 
+  // Windows key (ignored silently)
   globalShortcut.register("Super", () => {});
 });
 
-app.on("will-quit", () => globalShortcut.unregisterAll());
-app.on("window-all-closed", () => app.quit());
+app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
+});
+
+app.on("window-all-closed", () => {
+  app.quit();
+});
