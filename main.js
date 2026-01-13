@@ -1,12 +1,11 @@
-const {
-  app,
-  BrowserWindow,
-  ipcMain,
-  globalShortcut,
-  screen
-} = require("electron");
+// NOTE:
+// Always-on-top enforces application-level dominance.
+// Kernel-level / admin overlays cannot be overridden.
 
+const { app, BrowserWindow, ipcMain, globalShortcut } = require("electron");
 const psList = require("ps-list");
+const fs = require("fs");
+const path = require("path");
 
 let mainWindow;
 let violationCount = 0;
@@ -14,51 +13,68 @@ let examTerminated = false;
 let processScanInterval = null;
 
 const MAX_VIOLATIONS = 3;
+const sessionLog = [];
 
-// High-risk & medium-risk processes
 const FORBIDDEN_PROCESSES = [
-  { name: "chrome", severity: "high" },
-  { name: "msedge", severity: "high" },
-  { name: "firefox", severity: "high" },
-  { name: "obs", severity: "high" },
-  { name: "bandicam", severity: "high" },
-  { name: "anydesk", severity: "high" },
-  { name: "teamviewer", severity: "high" }
+  "obs",
+  "bandicam",
+  "anydesk",
+  "teamviewer"
 ];
+
+function logEvent(type, severity = "info") {
+  sessionLog.push({
+    type,
+    severity,
+    timestamp: new Date().toISOString()
+  });
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
     fullscreen: true,
+    alwaysOnTop: true,               // 🔴 Z-ORDER
     autoHideMenuBar: true,
     resizable: false,
     minimizable: false,
     maximizable: false,
     closable: false,
+    focusable: true,
+    skipTaskbar: true,
     webPreferences: {
       preload: __dirname + "/preload.js",
       contextIsolation: true
     }
   });
 
+  mainWindow.setAlwaysOnTop(true, "screen-saver");
+  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
   mainWindow.loadFile("index.html");
 
-  // Detect fullscreen exit
+  mainWindow.on("blur", () => {
+    registerViolation("WINDOW_BLUR", "high");
+    refocusWindow();
+  });
+
   mainWindow.on("leave-full-screen", () => {
     mainWindow.setFullScreen(true);
     registerViolation("FULLSCREEN_EXIT", "high");
   });
-
-  // Detect app switching
-  mainWindow.on("blur", () => {
-    registerViolation("WINDOW_BLUR", "medium");
-  });
 }
 
-// Central violation handler
+function refocusWindow() {
+  if (!mainWindow || examTerminated) return;
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.setAlwaysOnTop(true, "screen-saver");
+}
+
 function registerViolation(type, severity) {
   if (examTerminated) return;
 
   violationCount++;
+  logEvent(type, severity);
 
   mainWindow.webContents.send("violation", {
     type,
@@ -71,79 +87,69 @@ function registerViolation(type, severity) {
   }
 }
 
-// Force exam termination safely
 function terminateExam() {
   if (examTerminated) return;
-
   examTerminated = true;
-  mainWindow.webContents.send("force-submit");
+
+  logEvent("EXAM_TERMINATED", "system");
 
   if (processScanInterval) {
     clearInterval(processScanInterval);
     processScanInterval = null;
   }
+
+  const reportPath = path.join(
+    app.getPath("documents"),
+    "invigilo-session-log.json"
+  );
+
+  fs.writeFileSync(reportPath, JSON.stringify(sessionLog, null, 2));
+
+  mainWindow.webContents.send("force-submit");
 }
 
-// Immediate + continuous forbidden process detection
 async function detectForbiddenProcesses() {
   if (examTerminated) return;
 
   const processes = await psList();
-
-  for (const proc of processes) {
-    for (const forbidden of FORBIDDEN_PROCESSES) {
-      if (proc.name.toLowerCase().includes(forbidden.name)) {
-        registerViolation(
-          `FORBIDDEN_PROCESS:${proc.name}`,
-          forbidden.severity
-        );
-        return;
-      }
+  for (const p of processes) {
+    const name = p.name.toLowerCase();
+    if (FORBIDDEN_PROCESSES.some(fp => name.includes(fp))) {
+      registerViolation(`FORBIDDEN_PROCESS:${p.name}`, "high");
+      return;
     }
   }
 }
 
-// Start exam (called from UI)
 ipcMain.on("start-exam", async () => {
   examTerminated = false;
   violationCount = 0;
+  sessionLog.length = 0;
 
-  if (mainWindow) {
-    mainWindow.setFullScreen(true);
-  }
+  logEvent("EXAM_STARTED", "system");
 
-  // Immediate scan (CRITICAL FIX)
+  mainWindow.setFullScreen(true);
+  refocusWindow();
+
   await detectForbiddenProcesses();
 
-  // Clear previous scanner if exists
-  if (processScanInterval) {
-    clearInterval(processScanInterval);
-  }
-
-  // High-frequency scanning
+  if (processScanInterval) clearInterval(processScanInterval);
   processScanInterval = setInterval(detectForbiddenProcesses, 1000);
 });
 
 app.whenReady().then(() => {
   createWindow();
 
-  // Block system shortcuts
-  globalShortcut.register("Alt+F4", () => {
-    registerViolation("ALT_F4_BLOCKED", "high");
-  });
+  globalShortcut.register("Alt+F4", () =>
+    registerViolation("ALT_F4_BLOCKED", "high")
+  );
 
-  globalShortcut.register("F11", () => {
-    registerViolation("F11_BLOCKED", "medium");
-  });
+  globalShortcut.register("F11", () =>
+    registerViolation("F11_BLOCKED", "medium")
+  );
 
-  // Block Windows key silently
   globalShortcut.register("Super", () => {});
 });
 
-app.on("will-quit", () => {
-  globalShortcut.unregisterAll();
-});
-
-app.on("window-all-closed", () => {
-  app.quit();
-});
+app.on("will-quit", () => globalShortcut.unregisterAll());
+app.on("window-all-closed", () => app.quit());
