@@ -89,6 +89,10 @@
       padding: 10px 20px;
       font-size: 16px;
     }
+    .warning.high { background: #991b1b; }
+    .warning.medium { background: #b45309; }
+
+
   </style>
 </head>
 
@@ -169,17 +173,38 @@
 </div>
 
 <!-- ================= EXAM SCREEN (100% UNCHANGED) ================= -->
-<div id="examScreen" class="screen">
-  <div class="top-bar">
-    <div>Exam Running</div>
-    <div>Violations: <span id="count">0</span></div>
+<div id="examScreen" class="screen bg-background-light text-[#0d121b] font-display">
+
+  <!-- TOP BAR -->
+  <div class="flex items-center justify-between px-6 py-4 bg-primary text-white shadow">
+    <div class="flex items-center gap-2">
+      <span class="material-symbols-outlined">verified_user</span>
+      <span class="font-semibold tracking-wide">Invigilo Exam Mode</span>
+    </div>
+    <div class="text-sm">
+      Violations: <span id="count">0</span>
+    </div>
   </div>
 
-  <div class="center">
-    <div id="warningBox" class="warning"></div>
-    <h2>Exam In Progress</h2>
+  <!-- CONTENT -->
+  <div class="flex-1 flex flex-col items-center justify-center gap-6">
+    <div
+      id="warningBox"
+      class="warning hidden px-6 py-3 rounded-lg text-white font-semibold shadow-lg"
+    ></div>
+
+    <h2 class="text-3xl font-bold tracking-tight">
+      Exam In Progress
+    </h2>
+
+    <p class="text-[#4c669a] text-center max-w-md">
+      Do not leave this screen. Any suspicious activity will be recorded and may
+      result in automatic submission.
+    </p>
   </div>
+
 </div>
+
 
 <!-- ================= SCRIPT (100% UNCHANGED) ================= -->
 <script>
