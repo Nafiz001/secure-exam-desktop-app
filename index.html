@@ -135,27 +135,47 @@
           <p class="text-[#4c669a] mt-1">Please enter your credentials to access the exam.</p>
         </div>
 
-        <div class="flex flex-col gap-5">
+        <!-- Error Message -->
+        <div id="errorMessage" class="hidden p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"></div>
+
+        <form id="loginForm" class="flex flex-col gap-5">
           <div>
-            <label class="text-sm font-medium">Username or Student ID</label>
-            <input class="w-full h-12 px-4 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none" />
+            <label class="text-sm font-medium">Email</label>
+            <input 
+              id="email" 
+              type="email" 
+              required
+              placeholder="your@email.com"
+              class="w-full h-12 px-4 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none" 
+            />
           </div>
 
           <div>
             <label class="text-sm font-medium">Password</label>
-            <input type="password" class="w-full h-12 px-4 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none" />
+            <input 
+              id="password" 
+              type="password" 
+              required
+              placeholder="Enter your password"
+              class="w-full h-12 px-4 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none" 
+            />
           </div>
 
-          <!-- IMPORTANT: startExam() is unchanged -->
           <button
-            type="button"
-            onclick="startExam()"
+            id="loginButton"
+            type="submit"
             class="w-full h-12 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition flex items-center justify-center gap-2"
           >
-            Log In
-            <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+            <span id="loginButtonText">Log In</span>
+            <span id="loginButtonIcon" class="material-symbols-outlined text-[18px]">arrow_forward</span>
+            <span id="loginSpinner" class="hidden">
+              <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </span>
           </button>
-        </div>
+        </form>
 
         <div class="flex items-start gap-3 p-4 bg-blue-50 rounded-lg border border-blue-100">
           <span class="material-symbols-outlined text-primary">lock</span>
@@ -206,19 +226,179 @@
 </div>
 
 
-<!-- ================= SCRIPT (100% UNCHANGED) ================= -->
+<!-- ================= SCRIPT WITH BACKEND INTEGRATION ================= -->
 <script>
   let examEnded = false;
+  let currentUser = null;
 
-  function startExam() {
+  // ========== ENVIRONMENT CONFIGURATION ==========
+  // In Electron, window.location.protocol is 'file:' and hostname is empty
+  // So we always use localhost for Electron app
+  const API_BASE_URL = window.location.protocol === 'file:' || !window.location.hostname
+    ? 'http://localhost:5000/api'
+    : `${window.location.protocol}//${window.location.hostname}:5000/api`;
+  
+  console.log('API Base URL:', API_BASE_URL);
+
+  // ========== UI HELPER FUNCTIONS ==========
+  function showError(message) {
+    const errorDiv = document.getElementById('errorMessage');
+    errorDiv.textContent = message;
+    errorDiv.classList.remove('hidden');
+    setTimeout(() => errorDiv.classList.add('hidden'), 5000);
+  }
+
+  function setLoadingState(isLoading) {
+    const button = document.getElementById('loginButton');
+    const buttonText = document.getElementById('loginButtonText');
+    const buttonIcon = document.getElementById('loginButtonIcon');
+    const spinner = document.getElementById('loginSpinner');
+    const emailInput = document.getElementById('email');
+    const passwordInput = document.getElementById('password');
+
+    if (isLoading) {
+      button.disabled = true;
+      buttonText.textContent = 'Logging in...';
+      buttonIcon.classList.add('hidden');
+      spinner.classList.remove('hidden');
+      emailInput.disabled = true;
+      passwordInput.disabled = true;
+    } else {
+      button.disabled = false;
+      buttonText.textContent = 'Log In';
+      buttonIcon.classList.remove('hidden');
+      spinner.classList.add('hidden');
+      emailInput.disabled = false;
+      passwordInput.disabled = false;
+    }
+  }
+
+  // ========== AUTHENTICATION FUNCTIONS ==========
+  async function handleLogin(event) {
+    event.preventDefault();
+
+    const email = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+
+    if (!email || !password) {
+      showError('Please enter both email and password');
+      return;
+    }
+
+    setLoadingState(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        // Store token and user info
+        localStorage.setItem('token', data.data.token);
+        localStorage.setItem('user', JSON.stringify(data.data.user));
+        currentUser = data.data.user;
+
+        // Clear form
+        document.getElementById('email').value = '';
+        document.getElementById('password').value = '';
+
+        // Route based on role
+        routeBasedOnRole(data.data.user);
+      } else {
+        showError(data.message || 'Login failed. Please check your credentials.');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      showError('Connection error. Please ensure the backend server is running on port 5000.');
+    } finally {
+      setLoadingState(false);
+    }
+  }
+
+  // ========== ROLE-BASED ROUTING ==========
+  function routeBasedOnRole(user) {
+    console.log('User logged in:', user);
+
+    switch(user.role) {
+      case 'student':
+        startExam(user);
+        break;
+      case 'teacher':
+        showTeacherDashboard(user);
+        break;
+      case 'admin':
+        showAdminPanel(user);
+        break;
+      default:
+        showError('Invalid user role');
+        logout();
+    }
+  }
+
+  function startExam(user = null) {
     examEnded = false;
     document.getElementById("count").innerText = "0";
+    
+    // Pass user data to main process if available
+    if (user && window.electronAPI.setUserData) {
+      window.electronAPI.setUserData(user);
+    }
+    
     window.electronAPI.startExam();
 
     document.getElementById("loginScreen").classList.remove("active");
     document.getElementById("examScreen").classList.add("active");
   }
 
+  function showTeacherDashboard(user) {
+    // TODO: Implement teacher dashboard
+    alert(`Welcome, ${user.name}!\n\nTeacher Dashboard coming soon...\n\nFor now, you'll see the exam interface.`);
+    startExam(user);
+  }
+
+  function showAdminPanel(user) {
+    // TODO: Implement admin panel
+    alert(`Welcome, ${user.name}!\n\nAdmin Panel coming soon...\n\nFor now, you'll see the exam interface.`);
+    startExam(user);
+  }
+
+  // ========== LOGOUT FUNCTION ==========
+  function logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    currentUser = null;
+    examEnded = true;
+    
+    document.getElementById("examScreen").classList.remove("active");
+    document.getElementById("loginScreen").classList.add("active");
+  }
+
+  // ========== CHECK EXISTING SESSION ON LOAD ==========
+  window.addEventListener('DOMContentLoaded', () => {
+    const token = localStorage.getItem('token');
+    const userStr = localStorage.getItem('user');
+
+    if (token && userStr) {
+      try {
+        currentUser = JSON.parse(userStr);
+        console.log('Existing session found for:', currentUser.name);
+        // Optionally auto-route to their dashboard
+        // routeBasedOnRole(currentUser);
+      } catch (e) {
+        console.error('Invalid stored user data');
+        localStorage.clear();
+      }
+    }
+  });
+
+  // ========== ATTACH LOGIN HANDLER ==========
+  document.getElementById('loginForm').addEventListener('submit', handleLogin);
+
+  // ========== VIOLATION HANDLERS (UNCHANGED) ==========
   window.electronAPI.onViolation((event, data) => {
     if (examEnded) return;
 
@@ -233,8 +413,7 @@
   window.electronAPI.onForceSubmit(() => {
     examEnded = true;
     alert("Exam auto-submitted due to forbidden application.");
-    document.getElementById("examScreen").classList.remove("active");
-    document.getElementById("loginScreen").classList.add("active");
+    logout();
   });
 </script>
 
