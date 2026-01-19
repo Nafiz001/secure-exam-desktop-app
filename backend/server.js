@@ -8,9 +8,9 @@ const authRoutes = require('./routes/auth');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
+// Middleware - Allow all origins for Electron app
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: true, // Accept all origins (needed for Electron file:// protocol)
   credentials: true
 }));
 app.use(express.json());

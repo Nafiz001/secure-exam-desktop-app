@@ -12,6 +12,7 @@ let mainWindow = null;
 let violationCount = 0;
 let examRunning = false;
 let processScanInterval = null;
+let currentUser = null; // Store logged-in user data
 
 const sessionLog = [];
 const MAX_VIOLATIONS = 3;
@@ -147,11 +148,19 @@ ipcMain.on("start-exam", () => {
   sessionLog.length = 0;
 
   logEvent("EXAM_STARTED", "system");
+  if (currentUser) {
+    logEvent(`USER_LOGGED_IN: ${currentUser.name} (${currentUser.email}, ${currentUser.role})`, "system");
+  }
 
   enableExamMode();
 
   if (processScanInterval) clearInterval(processScanInterval);
   processScanInterval = setInterval(detectForbiddenProcesses, 1000);
+});
+
+ipcMain.on("set-user-data", (event, userData) => {
+  currentUser = userData;
+  console.log("User logged in:", userData);
 });
 
 ipcMain.on("submit-exam", () => {
@@ -185,8 +194,8 @@ app.whenReady().then(() => {
     registerViolation("F11_BLOCKED", "medium");
   });
 
-  // Windows key (ignored silently)
-  globalShortcut.register("Super", () => {});
+  // Windows key - Use CommandOrControl instead of Super for cross-platform
+  // Note: Windows key blocking is limited on some systems
 });
 
 app.on("will-quit", () => {
