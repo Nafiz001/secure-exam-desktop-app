@@ -143,13 +143,18 @@ async function detectForbiddenProcesses() {
 /* =========================
    IPC HANDLERS
 ========================= */
-ipcMain.on("start-exam", () => {
+ipcMain.on("start-exam", (event, examData) => {
   violationCount = 0;
   sessionLog.length = 0;
 
   logEvent("EXAM_STARTED", "system");
   if (currentUser) {
     logEvent(`USER_LOGGED_IN: ${currentUser.name} (${currentUser.email}, ${currentUser.role})`, "system");
+  }
+  
+  // Log exam details
+  if (examData) {
+    logEvent(`EXAM_ID: ${examData.id}, TITLE: ${examData.title}`, "system");
   }
 
   enableExamMode();
@@ -163,7 +168,8 @@ ipcMain.on("set-user-data", (event, userData) => {
   console.log("User logged in:", userData);
 });
 
-ipcMain.on("submit-exam", () => {
+// Handle exam submission with violation data
+ipcMain.handle("submit-exam", async (event, submissionData) => {
   logEvent("EXAM_SUBMITTED", "system");
 
   disableExamMode();
@@ -173,9 +179,21 @@ ipcMain.on("submit-exam", () => {
     "invigilo-session-log.json"
   );
 
-  fs.writeFileSync(reportPath, JSON.stringify(sessionLog, null, 2));
+  // Add violation data to submission
+  const fullReport = {
+    ...submissionData,
+    sessionLog,
+    violationCount,
+    user: currentUser
+  };
 
-  mainWindow.webContents.send("force-submit");
+  fs.writeFileSync(reportPath, JSON.stringify(fullReport, null, 2));
+
+  // Return violations to be sent with API submission
+  return {
+    violations: sessionLog,
+    violationCount
+  };
 });
 
 /* =========================
