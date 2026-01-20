@@ -192,6 +192,187 @@
   </div>
 </div>
 
+<!-- ================= TEACHER DASHBOARD SCREEN ================= -->
+<div id="teacherDashboard" class="screen bg-background-light text-[#0d121b] font-display">
+  <!-- TOP BAR -->
+  <div class="flex items-center justify-between px-6 py-4 bg-primary text-white shadow">
+    <div class="flex items-center gap-3">
+      <span class="material-symbols-outlined">school</span>
+      <span class="font-semibold tracking-wide">Teacher Dashboard</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span id="teacherName" class="text-sm"></span>
+      <button onclick="logout()" class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm transition">
+        Logout
+      </button>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="flex-1 overflow-auto p-6">
+    <div class="max-w-7xl mx-auto">
+      <!-- Header -->
+      <div class="flex justify-between items-center mb-6">
+        <div>
+          <h2 class="text-3xl font-bold">My Exams</h2>
+          <p class="text-[#4c669a] mt-1">Create and manage your examination papers</p>
+        </div>
+        <button onclick="showCreateExamForm()" class="px-6 py-3 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition flex items-center gap-2">
+          <span class="material-symbols-outlined">add</span>
+          Create New Exam
+        </button>
+      </div>
+
+      <!-- Exams Grid -->
+      <div id="examsGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- Exam cards will be inserted here -->
+      </div>
+
+      <!-- Empty State -->
+      <div id="emptyState" class="hidden text-center py-16">
+        <span class="material-symbols-outlined text-6xl text-gray-300">quiz</span>
+        <h3 class="text-xl font-semibold mt-4">No exams yet</h3>
+        <p class="text-[#4c669a] mt-2">Create your first exam to get started</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= CREATE/EDIT EXAM SCREEN ================= -->
+<div id="createExamScreen" class="screen bg-background-light text-[#0d121b] font-display">
+  <!-- TOP BAR -->
+  <div class="flex items-center justify-between px-6 py-4 bg-primary text-white shadow">
+    <div class="flex items-center gap-3">
+      <button onclick="backToTeacherDashboard()" class="hover:bg-white/10 p-2 rounded-lg transition">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </button>
+      <span class="font-semibold tracking-wide" id="examFormTitle">Create New Exam</span>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="flex-1 overflow-auto p-6">
+    <div class="max-w-4xl mx-auto">
+      <!-- Exam Details Form -->
+      <div class="bg-white rounded-xl shadow p-6 mb-6">
+        <h3 class="text-xl font-bold mb-4">Exam Details</h3>
+        <form id="examForm" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-2 text-gray-700">Exam Title *</label>
+            <input id="examTitle" type="text" required placeholder="e.g., Midterm Exam - Data Structures" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-2 text-gray-700">Description</label>
+            <textarea id="examDescription" rows="3" placeholder="Brief description of exam topics" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white"></textarea>
+          </div>
+          <div>
+            <label class="block text-sm font-medium mb-2 text-gray-700">Duration (minutes) *</label>
+            <input id="examDuration" type="number" required min="1" max="300" placeholder="60" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+          </div>
+          <div class="flex gap-3">
+            <button type="submit" class="px-6 py-3 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+              <span id="saveExamText">Save Exam</span>
+            </button>
+            <button type="button" onclick="backToTeacherDashboard()" class="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold rounded-lg transition">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Questions Section (only show if exam is created) -->
+      <div id="questionsSection" class="hidden">
+        <div class="bg-white rounded-xl shadow p-6">
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">Questions</h3>
+            <button onclick="showAddQuestionForm()" class="px-4 py-2 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition flex items-center gap-2">
+              <span class="material-symbols-outlined text-sm">add</span>
+              Add Question
+            </button>
+          </div>
+          <div id="questionsList" class="space-y-4">
+            <!-- Questions will be listed here -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= ADD/EDIT QUESTION MODAL ================= -->
+<div id="questionModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+  <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto">
+    <div class="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+      <h3 class="text-xl font-bold" id="questionModalTitle">Add Question</h3>
+      <button onclick="closeQuestionModal()" class="text-gray-500 hover:text-gray-700">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <form id="questionForm" class="p-6 space-y-4">
+      <div>
+        <label class="block text-sm font-medium mb-2 text-gray-700">Question Text *</label>
+        <textarea id="questionText" required rows="3" placeholder="Enter your question here" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white"></textarea>
+      </div>
+      <div class="space-y-3">
+        <label class="block text-sm font-medium text-gray-700">Options *</label>
+        <input id="option1" type="text" required placeholder="Option 1" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+        <input id="option2" type="text" required placeholder="Option 2" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+        <input id="option3" type="text" required placeholder="Option 3" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+        <input id="option4" type="text" required placeholder="Option 4" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-2 text-gray-700">Correct Answer *</label>
+        <select id="correctAnswer" required class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white">
+          <option value="">Select correct answer</option>
+          <option value="0">Option 1</option>
+          <option value="1">Option 2</option>
+          <option value="2">Option 3</option>
+          <option value="3">Option 4</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium mb-2 text-gray-700">Marks *</label>
+        <input id="questionMarks" type="number" required min="1" max="100" value="2" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+      </div>
+      <div class="flex gap-3 pt-4">
+        <button type="submit" class="px-6 py-3 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+          Save Question
+        </button>
+        <button type="button" onclick="closeQuestionModal()" class="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold rounded-lg transition">
+          Cancel
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ================= VIEW SUBMISSIONS SCREEN ================= -->
+<div id="submissionsScreen" class="screen bg-background-light text-[#0d121b] font-display">
+  <!-- TOP BAR -->
+  <div class="flex items-center justify-between px-6 py-4 bg-primary text-white shadow">
+    <div class="flex items-center gap-3">
+      <button onclick="backToTeacherDashboard()" class="hover:bg-white/10 p-2 rounded-lg transition">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </button>
+      <span class="font-semibold tracking-wide" id="submissionsExamTitle">Exam Submissions</span>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="flex-1 overflow-auto p-6">
+    <div class="max-w-7xl mx-auto">
+      <div id="submissionsList" class="space-y-4">
+        <!-- Submissions will be listed here -->
+      </div>
+      <div id="noSubmissions" class="hidden text-center py-16">
+        <span class="material-symbols-outlined text-6xl text-gray-300">assignment</span>
+        <h3 class="text-xl font-semibold mt-4">No submissions yet</h3>
+        <p class="text-[#4c669a] mt-2">Students haven't submitted this exam yet</p>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ================= EXAM SCREEN (100% UNCHANGED) ================= -->
 <div id="examScreen" class="screen bg-background-light text-[#0d121b] font-display">
 
@@ -339,7 +520,8 @@
     }
   }
 
-  function startExam(user = null) {
+  function startExam(user = null, examData = null) {
+    console.log('[UI] Starting exam for user:', user);
     examEnded = false;
     document.getElementById("count").innerText = "0";
     
@@ -348,16 +530,433 @@
       window.electronAPI.setUserData(user);
     }
     
-    window.electronAPI.startExam();
-
-    document.getElementById("loginScreen").classList.remove("active");
+    hideAllScreens();
     document.getElementById("examScreen").classList.add("active");
+    
+    // Start exam mode in main process AFTER UI is ready
+    console.log('[UI] Sending start-exam IPC message...');
+    setTimeout(() => {
+      window.electronAPI.startExam(examData);
+      console.log('[UI] Start-exam IPC message sent');
+    }, 100);
   }
 
-  function showTeacherDashboard(user) {
-    // TODO: Implement teacher dashboard
-    alert(`Welcome, ${user.name}!\n\nTeacher Dashboard coming soon...\n\nFor now, you'll see the exam interface.`);
-    startExam(user);
+  // ========== TEACHER DASHBOARD FUNCTIONS ==========
+  let currentExamId = null;
+  let currentQuestionId = null;
+
+  async function showTeacherDashboard(user) {
+    currentUser = user;
+    document.getElementById('teacherName').textContent = user.name;
+    
+    hideAllScreens();
+    document.getElementById("teacherDashboard").classList.add("active");
+    
+    await loadTeacherExams();
+  }
+
+  async function loadTeacherExams() {
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success && result.data.exams.length > 0) {
+        displayExams(result.data.exams);
+        document.getElementById('emptyState').classList.add('hidden');
+      } else {
+        document.getElementById('examsGrid').innerHTML = '';
+        document.getElementById('emptyState').classList.remove('hidden');
+      }
+    } catch (error) {
+      console.error('Error loading exams:', error);
+      alert('Failed to load exams. Please try again.');
+    }
+  }
+
+  function displayExams(exams) {
+    const grid = document.getElementById('examsGrid');
+    grid.innerHTML = exams.map(exam => `
+      <div class="bg-white rounded-xl shadow hover:shadow-lg transition p-6">
+        <div class="flex justify-between items-start mb-3">
+          <h3 class="text-xl font-bold line-clamp-2">${exam.title}</h3>
+          <span class="material-symbols-outlined text-primary">quiz</span>
+        </div>
+        <p class="text-[#4c669a] text-sm mb-4 line-clamp-2">${exam.description || 'No description'}</p>
+        <div class="flex items-center gap-4 text-sm text-gray-600 mb-4">
+          <span class="flex items-center gap-1">
+            <span class="material-symbols-outlined text-sm">schedule</span>
+            ${exam.duration} min
+          </span>
+          <span class="flex items-center gap-1">
+            <span class="material-symbols-outlined text-sm">help</span>
+            ${exam.question_count || 0} questions
+          </span>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="editExam(${exam.id})" class="flex-1 px-3 py-2 bg-primary hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition">
+            Edit
+          </button>
+          <button onclick="viewSubmissions(${exam.id}, '${exam.title.replace(/'/g, "\\'")}')" class="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded-lg transition">
+            Submissions
+          </button>
+          <button onclick="deleteExam(${exam.id}, '${exam.title.replace(/'/g, "\\'")}')" class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg transition">
+            <span class="material-symbols-outlined text-sm">delete</span>
+          </button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function showCreateExamForm() {
+    currentExamId = null;
+    document.getElementById('examFormTitle').textContent = 'Create New Exam';
+    document.getElementById('examForm').reset();
+    document.getElementById('questionsSection').classList.add('hidden');
+    hideAllScreens();
+    document.getElementById('createExamScreen').classList.add('active');
+  }
+
+  async function editExam(examId) {
+    currentExamId = examId;
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${examId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        const exam = result.data.exam;
+        document.getElementById('examFormTitle').textContent = 'Edit Exam';
+        document.getElementById('examTitle').value = exam.title;
+        document.getElementById('examDescription').value = exam.description || '';
+        document.getElementById('examDuration').value = exam.duration;
+        
+        hideAllScreens();
+        document.getElementById('createExamScreen').classList.add('active');
+        document.getElementById('questionsSection').classList.remove('hidden');
+        
+        displayQuestions(exam.questions || []);
+      }
+    } catch (error) {
+      console.error('Error loading exam:', error);
+      alert('Failed to load exam details.');
+    }
+  }
+
+  async function deleteExam(examId, examTitle) {
+    if (!confirm(`Are you sure you want to delete "${examTitle}"? This action cannot be undone.`)) {
+      return;
+    }
+    
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${examId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        alert('Exam deleted successfully!');
+        loadTeacherExams();
+      } else {
+        alert('Error: ' + result.message);
+      }
+    } catch (error) {
+      console.error('Error deleting exam:', error);
+      alert('Failed to delete exam.');
+    }
+  }
+
+  function backToTeacherDashboard() {
+    currentExamId = null;
+    hideAllScreens();
+    document.getElementById('teacherDashboard').classList.add('active');
+    loadTeacherExams();
+  }
+
+  // Handle exam form submission
+  document.getElementById('examForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const token = localStorage.getItem('token');
+    const examData = {
+      title: document.getElementById('examTitle').value,
+      description: document.getElementById('examDescription').value,
+      duration: parseInt(document.getElementById('examDuration').value)
+    };
+    
+    try {
+      const url = currentExamId 
+        ? `${API_BASE_URL}/exams/${currentExamId}`
+        : `${API_BASE_URL}/exams`;
+      const method = currentExamId ? 'PUT' : 'POST';
+      
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(examData)
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        alert(currentExamId ? 'Exam updated successfully!' : 'Exam created successfully!');
+        if (!currentExamId) {
+          currentExamId = result.data.exam.id;
+          document.getElementById('examFormTitle').textContent = 'Edit Exam';
+          document.getElementById('questionsSection').classList.remove('hidden');
+        }
+      } else {
+        alert('Error: ' + result.message);
+      }
+    } catch (error) {
+      console.error('Error saving exam:', error);
+      alert('Failed to save exam.');
+    }
+  });
+
+  // ========== QUESTION MANAGEMENT ==========
+  function displayQuestions(questions) {
+    const list = document.getElementById('questionsList');
+    if (questions.length === 0) {
+      list.innerHTML = '<p class="text-center text-gray-500 py-8">No questions added yet. Click "Add Question" to get started.</p>';
+      return;
+    }
+    
+    list.innerHTML = questions.map((q, index) => `
+      <div class="border rounded-lg p-4 hover:bg-gray-50 transition">
+        <div class="flex justify-between items-start">
+          <div class="flex-1">
+            <p class="font-semibold mb-2">${index + 1}. ${q.question_text}</p>
+            <div class="text-sm text-gray-600 space-y-1">
+              ${q.options.map((opt, i) => `
+                <div class="${q.correct_answer === i ? 'text-green-600 font-semibold' : ''}">
+                  ${String.fromCharCode(65 + i)}) ${opt} ${q.correct_answer === i ? '✓' : ''}
+                </div>
+              `).join('')}
+            </div>
+            <p class="text-xs text-gray-500 mt-2">Marks: ${q.marks}</p>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="editQuestion(${q.id})" class="p-2 text-primary hover:bg-primary/10 rounded">
+              <span class="material-symbols-outlined text-sm">edit</span>
+            </button>
+            <button onclick="deleteQuestion(${q.id})" class="p-2 text-red-600 hover:bg-red-50 rounded">
+              <span class="material-symbols-outlined text-sm">delete</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function showAddQuestionForm() {
+    if (!currentExamId) {
+      alert('Please save the exam first before adding questions.');
+      return;
+    }
+    currentQuestionId = null;
+    document.getElementById('questionModalTitle').textContent = 'Add Question';
+    document.getElementById('questionForm').reset();
+    document.getElementById('questionModal').classList.remove('hidden');
+  }
+
+  async function editQuestion(questionId) {
+    currentQuestionId = questionId;
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${currentExamId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        const question = result.data.exam.questions.find(q => q.id === questionId);
+        if (question) {
+          document.getElementById('questionModalTitle').textContent = 'Edit Question';
+          document.getElementById('questionText').value = question.question_text;
+          document.getElementById('option1').value = question.options[0];
+          document.getElementById('option2').value = question.options[1];
+          document.getElementById('option3').value = question.options[2];
+          document.getElementById('option4').value = question.options[3];
+          document.getElementById('correctAnswer').value = question.correct_answer;
+          document.getElementById('questionMarks').value = question.marks;
+          document.getElementById('questionModal').classList.remove('hidden');
+        }
+      }
+    } catch (error) {
+      console.error('Error loading question:', error);
+      alert('Failed to load question.');
+    }
+  }
+
+  async function deleteQuestion(questionId) {
+    if (!confirm('Are you sure you want to delete this question?')) {
+      return;
+    }
+    
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/questions/${questionId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        alert('Question deleted successfully!');
+        editExam(currentExamId);
+      } else {
+        alert('Error: ' + result.message);
+      }
+    } catch (error) {
+      console.error('Error deleting question:', error);
+      alert('Failed to delete question.');
+    }
+  }
+
+  function closeQuestionModal() {
+    document.getElementById('questionModal').classList.add('hidden');
+    currentQuestionId = null;
+  }
+
+  // Handle question form submission
+  document.getElementById('questionForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const token = localStorage.getItem('token');
+    const questionData = {
+      question_text: document.getElementById('questionText').value,
+      options: [
+        document.getElementById('option1').value,
+        document.getElementById('option2').value,
+        document.getElementById('option3').value,
+        document.getElementById('option4').value
+      ],
+      correct_answer: parseInt(document.getElementById('correctAnswer').value),
+      marks: parseInt(document.getElementById('questionMarks').value)
+    };
+    
+    try {
+      const url = currentQuestionId
+        ? `${API_BASE_URL}/exams/questions/${currentQuestionId}`
+        : `${API_BASE_URL}/exams/${currentExamId}/questions`;
+      const method = currentQuestionId ? 'PUT' : 'POST';
+      
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(questionData)
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        alert(currentQuestionId ? 'Question updated successfully!' : 'Question added successfully!');
+        closeQuestionModal();
+        editExam(currentExamId);
+      } else {
+        alert('Error: ' + result.message);
+      }
+    } catch (error) {
+      console.error('Error saving question:', error);
+      alert('Failed to save question.');
+    }
+  });
+
+  // ========== SUBMISSIONS VIEWER ==========
+  async function viewSubmissions(examId, examTitle) {
+    document.getElementById('submissionsExamTitle').textContent = `${examTitle} - Submissions`;
+    hideAllScreens();
+    document.getElementById('submissionsScreen').classList.add('active');
+    
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${examId}/submissions`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success && result.data.submissions.length > 0) {
+        displaySubmissions(result.data.submissions);
+        document.getElementById('noSubmissions').classList.add('hidden');
+      } else {
+        document.getElementById('submissionsList').innerHTML = '';
+        document.getElementById('noSubmissions').classList.remove('hidden');
+      }
+    } catch (error) {
+      console.error('Error loading submissions:', error);
+      alert('Failed to load submissions.');
+    }
+  }
+
+  function displaySubmissions(submissions) {
+    const list = document.getElementById('submissionsList');
+    list.innerHTML = submissions.map(sub => `
+      <div class="bg-white rounded-xl shadow p-6">
+        <div class="flex justify-between items-start mb-4">
+          <div>
+            <h3 class="text-xl font-bold">${sub.student_name}</h3>
+            <p class="text-sm text-gray-600">${sub.student_email}</p>
+          </div>
+          <div class="text-right">
+            <p class="text-3xl font-bold text-primary">${sub.score}</p>
+            <p class="text-xs text-gray-500">Score</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div class="flex items-center gap-2 text-sm">
+            <span class="material-symbols-outlined text-gray-400">schedule</span>
+            <span>${new Date(sub.submitted_at).toLocaleString()}</span>
+          </div>
+          <div class="flex items-center gap-2 text-sm">
+            <span class="material-symbols-outlined ${sub.violations.length > 0 ? 'text-red-500' : 'text-green-500'}">
+              ${sub.violations.length > 0 ? 'warning' : 'check_circle'}
+            </span>
+            <span>${sub.violations.length} violation(s)</span>
+          </div>
+        </div>
+        ${sub.violations.length > 0 ? `
+          <details class="text-sm">
+            <summary class="cursor-pointer text-red-600 font-semibold mb-2">View Violations</summary>
+            <div class="pl-4 space-y-1 text-gray-600">
+              ${sub.violations.map(v => `
+                <div>• ${v.type} (${v.severity}) - ${new Date(v.timestamp).toLocaleTimeString()}</div>
+              `).join('')}
+            </div>
+          </details>
+        ` : ''}
+      </div>
+    `).join('');
+  }
+
+  // ========== UTILITY FUNCTIONS ==========
+  function hideAllScreens() {
+    document.querySelectorAll('.screen').forEach(screen => {
+      screen.classList.remove('active');
+    });
   }
 
   function showAdminPanel(user) {
@@ -372,8 +971,10 @@
     localStorage.removeItem('user');
     currentUser = null;
     examEnded = true;
+    currentExamId = null;
+    currentQuestionId = null;
     
-    document.getElementById("examScreen").classList.remove("active");
+    hideAllScreens();
     document.getElementById("loginScreen").classList.add("active");
   }
 

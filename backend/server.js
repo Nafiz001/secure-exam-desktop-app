@@ -4,6 +4,7 @@ require('dotenv').config();
 
 const { initializeSchema } = require('./models/schema');
 const authRoutes = require('./routes/auth');
+const examRoutes = require('./routes/exams');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -24,6 +25,7 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/exams', examRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
