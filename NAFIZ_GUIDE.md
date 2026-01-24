@@ -1,7 +1,110 @@
 # Nafiz's Integration Guide - UI to Backend
 
-**Status:** Backend authentication APIs are ready  
-**Your task:** Connect the login UI to backend and implement role-based routing
+**Status:** Backend authentication + Room Code System complete  
+**Latest Update:** Room code exam management system implemented  
+**Your task:** Pull latest changes, run migration, and continue frontend enhancements
+
+---
+
+## 🚨 IMPORTANT - After Pulling Latest Changes
+
+### Critical Steps (Do These First!)
+
+1. **Pull Latest Code:**
+   ```bash
+   git pull origin develop
+   ```
+
+2. **Run Database Migration:**
+   ```bash
+   cd backend
+   node migrations/add_room_code.js
+   ```
+   
+   This adds:
+   - `room_code` column to exams table
+   - `status` column (created/waiting/in_progress/completed)
+   - `started_at` timestamp
+   - New `exam_participants` table for tracking joined students
+
+3. **Test Accounts Available:**
+   - **Teacher:** dewan.teacher@kuet.ac.bd / teacher123
+   - **Student:** dewan.student@kuet.ac.bd / student123
+   - **Admin:** dewan.admin@kuet.ac.bd / admin123
+
+4. **Breaking Change:**
+   - Student UI now shows dashboard first (join exam screen)
+   - Direct exam screen moved to after successful join
+   - See "Room Code System Workflow" below
+
+---
+
+## 🎯 New Feature: Room Code Exam System
+
+### Workflow Overview
+
+**Teacher Flow:**
+1. Teacher creates exam → System generates unique 6-character room code (e.g., GCL5JL)
+2. Teacher sees "Room Code" card with copy button in dashboard
+3. Teacher shares code with students
+4. Teacher views list of joined students (updates every 3 seconds)
+5. Teacher clicks "Start Exam" button when ready
+6. Exam status changes to `in_progress` and timer starts
+
+**Student Flow:**
+1. Student logs in → Sees "Join Exam" dashboard
+2. Student enters room code and clicks "Join Exam"
+3. Student enters waiting room showing: room code, participant count, status
+4. When teacher starts exam → Student auto-redirects to exam screen
+5. Timer starts counting down (MM:SS format)
+6. Student answers questions and submits OR auto-submits at 0:00
+7. Student sees score after submission
+
+### New API Endpoints
+
+```http
+# Join exam with room code
+POST /api/exams/join
+Content-Type: application/json
+Authorization: Bearer <token>
+{
+  "roomCode": "GCL5JL"
+}
+
+# Get exam participants (teacher only)
+GET /api/exams/:examId/participants
+Authorization: Bearer <token>
+
+# Start exam (teacher only)
+POST /api/exams/:examId/start
+Authorization: Bearer <token>
+
+# Get exam status (real-time polling)
+GET /api/exams/:examId/status
+Authorization: Bearer <token>
+
+# Get my active exams (student only)
+GET /api/exams/my-active
+Authorization: Bearer <token>
+```
+
+### Frontend Changes Made
+
+**New Components:**
+- Student dashboard with room code input form
+- Waiting room screen with live participant count
+- Teacher room code display card
+- Teacher waiting students list (live updates)
+- Complete exam taking interface
+- Live countdown timer with auto-submit
+- Questions display with radio button answers
+
+**Technical Details:**
+- Polling intervals: 3 seconds for participants and status
+- Room codes: 6 characters (excludes confusing chars: 0/O, 1/I/L)
+- Timer format: MM:SS countdown
+- Auto-submit: Triggers without confirmation when timer reaches 0:00
+- Manual submit: Shows confirmation prompt
 
 ---
 
