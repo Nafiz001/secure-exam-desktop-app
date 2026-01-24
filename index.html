@@ -192,6 +192,92 @@
   </div>
 </div>
 
+<!-- ================= STUDENT DASHBOARD SCREEN ================= -->
+<div id="studentDashboard" class="screen bg-background-light text-[#0d121b] font-display">
+  <!-- TOP BAR -->
+  <div class="flex items-center justify-between px-6 py-4 bg-primary text-white shadow">
+    <div class="flex items-center gap-3">
+      <span class="material-symbols-outlined">school</span>
+      <span id="studentName" class="font-semibold tracking-wide">Student Dashboard</span>
+    </div>
+    <button onclick="logout()" class="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg transition">
+      <span class="material-symbols-outlined">logout</span>
+      <span class="text-sm">Logout</span>
+    </button>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="flex-1 overflow-auto p-6">
+    <div class="max-w-4xl mx-auto">
+      <!-- Join Exam Card -->
+      <div class="bg-white rounded-xl shadow p-6 mb-6">
+        <h3 class="text-xl font-bold mb-4">Join Exam</h3>
+        <p class="text-gray-600 mb-4">Enter the room code provided by your teacher to join an exam</p>
+        <form id="joinExamForm" class="flex gap-3">
+          <input 
+            id="roomCodeInput" 
+            type="text" 
+            maxlength="6"
+            placeholder="Enter 6-digit room code"
+            class="flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none uppercase font-mono text-2xl tracking-widest text-center"
+            style="text-transform: uppercase;"
+          />
+          <button type="submit" class="px-8 py-3 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+            Join Exam
+          </button>
+        </form>
+        <p id="joinErrorMessage" class="hidden text-red-600 text-sm mt-2"></p>
+      </div>
+
+      <!-- Waiting Room (hidden by default) -->
+      <div id="waitingRoom" class="hidden bg-white rounded-xl shadow p-8">
+        <div class="text-center mb-6">
+          <div class="inline-flex items-center justify-center w-20 h-20 bg-blue-100 rounded-full mb-4">
+            <span class="material-symbols-outlined text-5xl text-primary">hourglass_empty</span>
+          </div>
+          <h3 class="text-2xl font-bold mb-2">Waiting for Teacher</h3>
+          <p class="text-gray-600">The exam will start soon. Please wait...</p>
+        </div>
+        
+        <div class="bg-gray-50 rounded-lg p-6 mb-6">
+          <div class="grid grid-cols-2 gap-4 text-center">
+            <div>
+              <p class="text-sm text-gray-600 mb-1">Exam Title</p>
+              <p id="waitingExamTitle" class="font-bold text-lg"></p>
+            </div>
+            <div>
+              <p class="text-sm text-gray-600 mb-1">Duration</p>
+              <p id="waitingExamDuration" class="font-bold text-lg"></p>
+            </div>
+            <div>
+              <p class="text-sm text-gray-600 mb-1">Questions</p>
+              <p id="waitingExamQuestions" class="font-bold text-lg"></p>
+            </div>
+            <div>
+              <p class="text-sm text-gray-600 mb-1">Students Joined</p>
+              <p id="waitingParticipantCount" class="font-bold text-lg">0</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="text-center">
+          <button onclick="leaveWaitingRoom()" class="px-6 py-2 text-red-600 hover:bg-red-50 rounded-lg transition">
+            Leave Waiting Room
+          </button>
+        </div>
+      </div>
+
+      <!-- My Active Exams -->
+      <div id="activeExamsSection" class="bg-white rounded-xl shadow p-6">
+        <h3 class="text-xl font-bold mb-4">My Active Exams</h3>
+        <div id="activeExamsList">
+          <p class="text-center text-gray-400 py-8">No active exams</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ================= TEACHER DASHBOARD SCREEN ================= -->
 <div id="teacherDashboard" class="screen bg-background-light text-[#0d121b] font-display">
   <!-- TOP BAR -->
@@ -254,20 +340,20 @@
   <div class="flex-1 overflow-auto p-6">
     <div class="max-w-4xl mx-auto">
       <!-- Exam Details Form -->
-      <div class="bg-white rounded-xl shadow p-6 mb-6">
+      <div class="bg-white rounded-xl shadow p-6 mb-6 relative z-10">
         <h3 class="text-xl font-bold mb-4">Exam Details</h3>
         <form id="examForm" class="space-y-4">
           <div>
-            <label class="block text-sm font-medium mb-2 text-gray-700">Exam Title *</label>
-            <input id="examTitle" type="text" required placeholder="e.g., Midterm Exam - Data Structures" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+            <label for="examTitle" class="block text-sm font-medium mb-2 text-gray-700">Exam Title *</label>
+            <input id="examTitle" name="examTitle" type="text" required placeholder="e.g., Midterm Exam - Data Structures" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
           </div>
           <div>
-            <label class="block text-sm font-medium mb-2 text-gray-700">Description</label>
-            <textarea id="examDescription" rows="3" placeholder="Brief description of exam topics" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white"></textarea>
+            <label for="examDescription" class="block text-sm font-medium mb-2 text-gray-700">Description</label>
+            <textarea id="examDescription" name="examDescription" rows="3" placeholder="Brief description of exam topics" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white resize-none"></textarea>
           </div>
           <div>
-            <label class="block text-sm font-medium mb-2 text-gray-700">Duration (minutes) *</label>
-            <input id="examDuration" type="number" required min="1" max="300" placeholder="60" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+            <label for="examDuration" class="block text-sm font-medium mb-2 text-gray-700">Duration (minutes) *</label>
+            <input id="examDuration" name="examDuration" type="number" required min="1" max="300" placeholder="60" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
           </div>
           <div class="flex gap-3">
             <button type="submit" class="px-6 py-3 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition">
@@ -278,6 +364,48 @@
             </button>
           </div>
         </form>
+      </div>
+
+      <!-- Room Code Section (show after exam is created) -->
+      <div id="roomCodeSection" class="hidden mb-6">
+        <div class="bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl shadow-lg p-6 text-white">
+          <div class="flex justify-between items-start">
+            <div>
+              <h3 class="text-sm font-medium mb-2 opacity-90">EXAM ROOM CODE</h3>
+              <div class="flex items-center gap-4">
+                <p id="roomCodeDisplay" class="text-5xl font-bold tracking-widest font-mono">------</p>
+                <button onclick="copyRoomCode()" class="p-3 bg-white/20 hover:bg-white/30 rounded-lg transition" title="Copy to clipboard">
+                  <span class="material-symbols-outlined">content_copy</span>
+                </button>
+              </div>
+              <p class="text-sm mt-2 opacity-80">Students can join using this code</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Waiting Students Section (show for teacher) -->
+      <div id="waitingStudentsSection" class="hidden mb-6">
+        <div class="bg-white rounded-xl shadow p-6">
+          <div class="flex justify-between items-center mb-4">
+            <div>
+              <h3 class="text-xl font-bold">Waiting Students</h3>
+              <p class="text-sm text-gray-600">Students who have joined the exam</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="px-4 py-2 bg-blue-50 text-primary rounded-lg">
+                <span id="participantCount" class="font-bold">0</span> students
+              </div>
+              <button id="startExamBtn" onclick="startExamNow()" disabled class="px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition flex items-center gap-2">
+                <span class="material-symbols-outlined">play_arrow</span>
+                Start Exam
+              </button>
+            </div>
+          </div>
+          <div id="participantsList" class="space-y-2 max-h-64 overflow-auto">
+            <p class="text-center text-gray-400 py-8">Waiting for students to join...</p>
+          </div>
+        </div>
       </div>
 
       <!-- Questions Section (only show if exam is created) -->
@@ -300,29 +428,29 @@
 </div>
 
 <!-- ================= ADD/EDIT QUESTION MODAL ================= -->
-<div id="questionModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-  <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto">
-    <div class="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
-      <h3 class="text-xl font-bold" id="questionModalTitle">Add Question</h3>
-      <button onclick="closeQuestionModal()" class="text-gray-500 hover:text-gray-700">
+<div id="questionModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick="event.target === this && closeQuestionModal()">
+  <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto relative z-10">
+    <div class="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center z-10">
+      <h3 class="text-xl font-bold text-gray-900" id="questionModalTitle">Add Question</h3>
+      <button type="button" onclick="closeQuestionModal()" class="text-gray-500 hover:text-gray-700">
         <span class="material-symbols-outlined">close</span>
       </button>
     </div>
     <form id="questionForm" class="p-6 space-y-4">
       <div>
-        <label class="block text-sm font-medium mb-2 text-gray-700">Question Text *</label>
-        <textarea id="questionText" required rows="3" placeholder="Enter your question here" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white"></textarea>
+        <label for="questionText" class="block text-sm font-medium mb-2 text-gray-700">Question Text *</label>
+        <textarea id="questionText" name="questionText" required rows="3" placeholder="Enter your question here" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white resize-none"></textarea>
       </div>
       <div class="space-y-3">
         <label class="block text-sm font-medium text-gray-700">Options *</label>
-        <input id="option1" type="text" required placeholder="Option 1" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
-        <input id="option2" type="text" required placeholder="Option 2" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
-        <input id="option3" type="text" required placeholder="Option 3" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
-        <input id="option4" type="text" required placeholder="Option 4" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+        <input id="option1" name="option1" type="text" required placeholder="Option 1" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+        <input id="option2" name="option2" type="text" required placeholder="Option 2" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+        <input id="option3" name="option3" type="text" required placeholder="Option 3" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+        <input id="option4" name="option4" type="text" required placeholder="Option 4" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
       </div>
       <div>
-        <label class="block text-sm font-medium mb-2 text-gray-700">Correct Answer *</label>
-        <select id="correctAnswer" required class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white">
+        <label for="correctAnswer" class="block text-sm font-medium mb-2 text-gray-700">Correct Answer *</label>
+        <select id="correctAnswer" name="correctAnswer" required class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white">
           <option value="">Select correct answer</option>
           <option value="0">Option 1</option>
           <option value="1">Option 2</option>
@@ -331,8 +459,8 @@
         </select>
       </div>
       <div>
-        <label class="block text-sm font-medium mb-2 text-gray-700">Marks *</label>
-        <input id="questionMarks" type="number" required min="1" max="100" value="2" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+        <label for="questionMarks" class="block text-sm font-medium mb-2 text-gray-700">Marks *</label>
+        <input id="questionMarks" name="questionMarks" type="number" required min="1" max="100" value="2" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
       </div>
       <div class="flex gap-3 pt-4">
         <button type="submit" class="px-6 py-3 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition">
@@ -373,35 +501,51 @@
   </div>
 </div>
 
-<!-- ================= EXAM SCREEN (100% UNCHANGED) ================= -->
+<!-- ================= EXAM SCREEN ================= -->
 <div id="examScreen" class="screen bg-background-light text-[#0d121b] font-display">
 
   <!-- TOP BAR -->
   <div class="flex items-center justify-between px-6 py-4 bg-primary text-white shadow">
     <div class="flex items-center gap-2">
       <span class="material-symbols-outlined">verified_user</span>
-      <span class="font-semibold tracking-wide">Invigilo Exam Mode</span>
+      <span id="examScreenTitle" class="font-semibold tracking-wide">Exam In Progress</span>
     </div>
-    <div class="text-sm">
-      Violations: <span id="count">0</span>
+    <div class="flex items-center gap-4">
+      <div class="text-sm">
+        Time Left: <span id="timerDisplay" class="font-bold text-xl">--:--</span>
+      </div>
+      <div class="text-sm">
+        Violations: <span id="count">0</span>
+      </div>
     </div>
   </div>
 
   <!-- CONTENT -->
-  <div class="flex-1 flex flex-col items-center justify-center gap-6">
-    <div
-      id="warningBox"
-      class="warning hidden px-6 py-3 rounded-lg text-white font-semibold shadow-lg"
-    ></div>
-
-    <h2 class="text-3xl font-bold tracking-tight">
-      Exam In Progress
-    </h2>
-
-    <p class="text-[#4c669a] text-center max-w-md">
-      Do not leave this screen. Any suspicious activity will be recorded and may
-      result in automatic submission.
-    </p>
+  <div class="flex-1 overflow-auto p-6">
+    <div class="max-w-4xl mx-auto">
+      
+      <!-- Warning Box -->
+      <div id="warningBox" class="warning hidden px-6 py-3 rounded-lg text-white font-semibold shadow-lg mb-6"></div>
+      
+      <!-- Exam Info -->
+      <div class="bg-white rounded-xl shadow p-6 mb-6">
+        <h2 id="currentExamTitle" class="text-2xl font-bold mb-2">Loading Exam...</h2>
+        <p id="currentExamDescription" class="text-gray-600"></p>
+      </div>
+      
+      <!-- Questions -->
+      <div id="examQuestions" class="space-y-6">
+        <div class="text-center py-8 text-gray-400">Loading questions...</div>
+      </div>
+      
+      <!-- Submit Button -->
+      <div class="sticky bottom-0 bg-background-light pt-4 pb-6">
+        <button id="submitExamBtn" onclick="submitExamAnswers()" class="w-full px-6 py-4 bg-green-600 hover:bg-green-700 text-white font-bold text-lg rounded-lg transition shadow-lg">
+          Submit Exam
+        </button>
+      </div>
+      
+    </div>
   </div>
 
 </div>
@@ -506,7 +650,7 @@
 
     switch(user.role) {
       case 'student':
-        startExam(user);
+        showStudentDashboard(user);
         break;
       case 'teacher':
         showTeacherDashboard(user);
@@ -520,25 +664,408 @@
     }
   }
 
+  // ========== EXAM TAKING FUNCTIONS ==========
+  let currentExamData = null;
+  let examTimer = null;
+  let examAnswers = {};
+
   function startExam(user = null, examData = null) {
-    console.log('[UI] Starting exam for user:', user);
+    console.log('[UI] Starting exam for user:', user, 'examData:', examData);
+    
+    if (!examData) {
+      alert('No exam data provided');
+      return;
+    }
+    
     examEnded = false;
+    currentExamData = examData;
+    examAnswers = {};
     document.getElementById("count").innerText = "0";
     
     // Pass user data to main process if available
-    if (user && window.electronAPI.setUserData) {
+    if (user && window.electronAPI && window.electronAPI.setUserData) {
       window.electronAPI.setUserData(user);
     }
     
     hideAllScreens();
     document.getElementById("examScreen").classList.add("active");
     
+    // Display exam details
+    document.getElementById('currentExamTitle').textContent = examData.title;
+    document.getElementById('currentExamDescription').textContent = examData.description || 'No description';
+    
+    // Display questions
+    displayExamQuestions(examData.questions || []);
+    
+    // Start timer
+    startExamTimer(examData.duration, examData.started_at);
+    
     // Start exam mode in main process AFTER UI is ready
-    console.log('[UI] Sending start-exam IPC message...');
-    setTimeout(() => {
-      window.electronAPI.startExam(examData);
-      console.log('[UI] Start-exam IPC message sent');
-    }, 100);
+    if (window.electronAPI && window.electronAPI.startExam) {
+      setTimeout(() => {
+        window.electronAPI.startExam(examData);
+        console.log('[UI] Start-exam IPC message sent');
+      }, 100);
+    }
+  }
+
+  function displayExamQuestions(questions) {
+    const container = document.getElementById('examQuestions');
+    
+    if (!questions || questions.length === 0) {
+      container.innerHTML = '<div class="text-center py-8 text-red-600">No questions available</div>';
+      return;
+    }
+    
+    container.innerHTML = questions.map((q, index) => `
+      <div class="bg-white rounded-xl shadow p-6">
+        <div class="flex items-start gap-3 mb-4">
+          <span class="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center font-bold">${index + 1}</span>
+          <div class="flex-1">
+            <p class="text-lg font-semibold mb-4">${q.question_text}</p>
+            <div class="space-y-3">
+              ${q.options.map((option, optIndex) => `
+                <label class="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition">
+                  <input 
+                    type="radio" 
+                    name="question_${q.id}" 
+                    value="${optIndex}"
+                    onchange="saveAnswer(${q.id}, ${optIndex})"
+                    class="w-5 h-5 text-primary focus:ring-primary"
+                  />
+                  <span class="ml-3 flex-1">${String.fromCharCode(65 + optIndex)}. ${option}</span>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="text-right text-sm text-gray-500">Marks: ${q.marks}</div>
+      </div>
+    `).join('');
+  }
+
+  function saveAnswer(questionId, answerIndex) {
+    examAnswers[questionId] = answerIndex;
+    console.log('Answer saved:', questionId, answerIndex);
+  }
+
+  function startExamTimer(durationMinutes, startedAt) {
+    // Clear any existing timer
+    if (examTimer) {
+      clearInterval(examTimer);
+    }
+    
+    // Calculate end time
+    const startTime = startedAt ? new Date(startedAt) : new Date();
+    const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
+    
+    // Update timer display immediately
+    updateTimerDisplay(endTime);
+    
+    // Update every second
+    examTimer = setInterval(() => {
+      updateTimerDisplay(endTime);
+    }, 1000);
+  }
+
+  function updateTimerDisplay(endTime) {
+    const now = new Date();
+    const remaining = Math.max(0, Math.floor((endTime - now) / 1000));
+    
+    const minutes = Math.floor(remaining / 60);
+    const seconds = remaining % 60;
+    
+    const display = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    document.getElementById('timerDisplay').textContent = display;
+    
+    // Auto-submit when time runs out
+    if (remaining <= 0) {
+      clearInterval(examTimer);
+      examTimer = null;
+      submitExamAnswers(true); // Auto-submit without confirmation
+    }
+  }
+
+  async function submitExamAnswers(autoSubmit = false) {
+    if (!currentExamData) {
+      alert('No exam data found');
+      return;
+    }
+    
+    // Ask for confirmation only if not auto-submit
+    if (!autoSubmit) {
+      if (!confirm('Are you sure you want to submit your exam? You cannot change answers after submission.')) {
+        return;
+      }
+    } else {
+      alert('Time is up! Your exam has been submitted automatically.');
+    }
+    
+    // Clear timer
+    if (examTimer) {
+      clearInterval(examTimer);
+      examTimer = null;
+    }
+    
+    const token = localStorage.getItem('token');
+    
+    // Format answers for submission
+    const formattedAnswers = Object.keys(examAnswers).map(questionId => ({
+      question_id: parseInt(questionId),
+      selected_answer: examAnswers[questionId]
+    }));
+    
+    console.log('Submitting exam:', currentExamData.id);
+    console.log('Formatted answers:', formattedAnswers);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${currentExamData.id}/submit`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          answers: formattedAnswers,
+          violations: []
+        })
+      });
+      
+      const result = await response.json();
+      
+      console.log('Submission response:', result);
+      
+      if (result.success) {
+        alert(`Exam submitted successfully! Your score: ${result.data.submission.score}`);
+        showStudentDashboard(currentUser);
+      } else {
+        alert('Error: ' + result.message);
+        console.error('Submission error:', result);
+      }
+    } catch (error) {
+      console.error('Error submitting exam:', error);
+      alert('Failed to submit exam. Please try again.');
+    }
+  }
+
+  // ========== STUDENT DASHBOARD ==========
+  let waitingRoomInterval = null;
+  let currentWaitingExamId = null;
+
+  async function showStudentDashboard(user) {
+    document.getElementById('studentName').textContent = user.name;
+    hideAllScreens();
+    document.getElementById('studentDashboard').classList.add('active');
+    loadActiveExams();
+  }
+
+  async function loadActiveExams() {
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/my-active`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success && result.data.exams.length > 0) {
+        displayActiveExams(result.data.exams);
+      } else {
+        document.getElementById('activeExamsList').innerHTML = '<p class="text-center text-gray-400 py-8">No active exams</p>';
+      }
+    } catch (error) {
+      console.error('Error loading active exams:', error);
+    }
+  }
+
+  function displayActiveExams(exams) {
+    const list = document.getElementById('activeExamsList');
+    list.innerHTML = exams.map(exam => `
+      <div class="border rounded-lg p-4 hover:bg-gray-50 transition">
+        <div class="flex justify-between items-start">
+          <div>
+            <h4 class="font-bold text-lg">${exam.title}</h4>
+            <p class="text-sm text-gray-600">${exam.description || 'No description'}</p>
+            <div class="flex gap-4 mt-2 text-sm text-gray-500">
+              <span>Duration: ${exam.duration} mins</span>
+              <span>Questions: ${exam.question_count || 0}</span>
+              <span class="capitalize">Status: ${exam.status}</span>
+            </div>
+          </div>
+          ${exam.status === 'waiting' ? `
+            <button onclick="rejoinExam(${exam.id})" class="px-4 py-2 bg-primary hover:bg-blue-700 text-white rounded-lg transition">
+              Enter Waiting Room
+            </button>
+          ` : exam.status === 'in_progress' ? `
+            <button onclick="startExamFromDashboard(${exam.id})" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition">
+              Start Exam
+            </button>
+          ` : ''}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // Handle join exam form submission
+  document.getElementById('joinExamForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const roomCode = document.getElementById('roomCodeInput').value.trim().toUpperCase();
+    const errorMsg = document.getElementById('joinErrorMessage');
+    
+    if (roomCode.length !== 6) {
+      errorMsg.textContent = 'Please enter a valid 6-character room code';
+      errorMsg.classList.remove('hidden');
+      return;
+    }
+    
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/join`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ roomCode: roomCode })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        errorMsg.classList.add('hidden');
+        document.getElementById('roomCodeInput').value = '';
+        enterWaitingRoom(result.data.exam);
+      } else {
+        errorMsg.textContent = result.message || 'Failed to join exam';
+        errorMsg.classList.remove('hidden');
+      }
+    } catch (error) {
+      console.error('Error joining exam:', error);
+      errorMsg.textContent = 'Connection error. Please try again.';
+      errorMsg.classList.remove('hidden');
+    }
+  });
+
+  async function rejoinExam(examId) {
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${examId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        enterWaitingRoom(result.data.exam);
+      } else {
+        alert('Failed to rejoin exam: ' + result.message);
+      }
+    } catch (error) {
+      console.error('Error rejoining exam:', error);
+      alert('Failed to rejoin exam');
+    }
+  }
+
+  function enterWaitingRoom(exam) {
+    currentWaitingExamId = exam.id;
+    
+    // Hide join form, show waiting room
+    document.getElementById('joinExamForm').parentElement.classList.add('hidden');
+    document.getElementById('activeExamsSection').classList.add('hidden');
+    document.getElementById('waitingRoom').classList.remove('hidden');
+    
+    // Populate waiting room info
+    document.getElementById('waitingExamTitle').textContent = exam.title;
+    document.getElementById('waitingExamDuration').textContent = exam.duration + ' mins';
+    document.getElementById('waitingExamQuestions').textContent = exam.question_count || '0';
+    
+    // Start polling for exam status
+    startWaitingRoomPolling();
+  }
+
+  function startWaitingRoomPolling() {
+    // Clear any existing interval
+    if (waitingRoomInterval) {
+      clearInterval(waitingRoomInterval);
+    }
+    
+    // Poll every 3 seconds
+    waitingRoomInterval = setInterval(async () => {
+      await checkExamStatus();
+    }, 3000);
+    
+    // Check immediately
+    checkExamStatus();
+  }
+
+  async function checkExamStatus() {
+    if (!currentWaitingExamId) return;
+    
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${currentWaitingExamId}/status`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        const { status, participant_count } = result.data;
+        
+        // Update participant count
+        document.getElementById('waitingParticipantCount').textContent = participant_count || 0;
+        
+        // If exam has started, redirect to exam screen
+        if (status === 'in_progress') {
+          clearInterval(waitingRoomInterval);
+          waitingRoomInterval = null;
+          startExamFromDashboard(currentWaitingExamId);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking exam status:', error);
+    }
+  }
+
+  function leaveWaitingRoom() {
+    if (confirm('Are you sure you want to leave the waiting room?')) {
+      clearInterval(waitingRoomInterval);
+      waitingRoomInterval = null;
+      currentWaitingExamId = null;
+      
+      // Show join form, hide waiting room
+      document.getElementById('joinExamForm').parentElement.classList.remove('hidden');
+      document.getElementById('activeExamsSection').classList.remove('hidden');
+      document.getElementById('waitingRoom').classList.add('hidden');
+      
+      loadActiveExams();
+    }
+  }
+
+  async function startExamFromDashboard(examId) {
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${examId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        startExam(currentUser, result.data.exam);
+      } else {
+        alert('Failed to start exam: ' + result.message);
+      }
+    } catch (error) {
+      console.error('Error starting exam:', error);
+      alert('Failed to start exam');
+    }
   }
 
   // ========== TEACHER DASHBOARD FUNCTIONS ==========
@@ -617,8 +1144,22 @@
     document.getElementById('examFormTitle').textContent = 'Create New Exam';
     document.getElementById('examForm').reset();
     document.getElementById('questionsSection').classList.add('hidden');
+    
+    // Hide room code sections
+    document.getElementById('roomCodeSection').classList.add('hidden');
+    document.getElementById('waitingStudentsSection').classList.add('hidden');
+    
     hideAllScreens();
     document.getElementById('createExamScreen').classList.add('active');
+    
+    // Auto-focus first input after screen loads
+    setTimeout(() => {
+      const titleInput = document.getElementById('examTitle');
+      if (titleInput) {
+        titleInput.disabled = false;
+        titleInput.focus();
+      }
+    }, 100);
   }
 
   async function editExam(examId) {
@@ -642,6 +1183,25 @@
         hideAllScreens();
         document.getElementById('createExamScreen').classList.add('active');
         document.getElementById('questionsSection').classList.remove('hidden');
+        
+        // Show room code if exists
+        if (exam.room_code) {
+          showRoomCode(exam.room_code);
+          
+          // Only poll if exam is not completed
+          if (exam.status !== 'completed') {
+            startParticipantPolling();
+          }
+          
+          // Update start button based on status
+          if (exam.status === 'in_progress') {
+            document.getElementById('startExamBtn').disabled = true;
+            document.getElementById('startExamBtn').innerHTML = '<span class="material-symbols-outlined">check_circle</span> Exam In Progress';
+          } else if (exam.status === 'completed') {
+            document.getElementById('startExamBtn').disabled = true;
+            document.getElementById('startExamBtn').innerHTML = '<span class="material-symbols-outlined">check_circle</span> Exam Completed';
+          }
+        }
         
         displayQuestions(exam.questions || []);
       }
@@ -680,6 +1240,17 @@
 
   function backToTeacherDashboard() {
     currentExamId = null;
+    
+    // Clear polling intervals
+    if (participantPollingInterval) {
+      clearInterval(participantPollingInterval);
+      participantPollingInterval = null;
+    }
+    
+    // Hide room code sections
+    document.getElementById('roomCodeSection').classList.add('hidden');
+    document.getElementById('waitingStudentsSection').classList.add('hidden');
+    
     hideAllScreens();
     document.getElementById('teacherDashboard').classList.add('active');
     loadTeacherExams();
@@ -719,6 +1290,12 @@
           currentExamId = result.data.exam.id;
           document.getElementById('examFormTitle').textContent = 'Edit Exam';
           document.getElementById('questionsSection').classList.remove('hidden');
+          
+          // Show room code section and start polling for participants
+          if (result.data.exam.room_code) {
+            showRoomCode(result.data.exam.room_code);
+            startParticipantPolling();
+          }
         }
       } else {
         alert('Error: ' + result.message);
@@ -728,6 +1305,134 @@
       alert('Failed to save exam.');
     }
   });
+
+  // ========== ROOM CODE & PARTICIPANTS ==========
+  let participantPollingInterval = null;
+
+  function showRoomCode(roomCode) {
+    document.getElementById('roomCodeDisplay').textContent = roomCode;
+    document.getElementById('roomCodeSection').classList.remove('hidden');
+    document.getElementById('waitingStudentsSection').classList.remove('hidden');
+  }
+
+  async function copyRoomCode() {
+    const roomCode = document.getElementById('roomCodeDisplay').textContent;
+    
+    try {
+      await navigator.clipboard.writeText(roomCode);
+      alert('Room code copied to clipboard!');
+    } catch (error) {
+      console.error('Failed to copy:', error);
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = roomCode;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      alert('Room code copied to clipboard!');
+    }
+  }
+
+  function startParticipantPolling() {
+    // Clear any existing interval
+    if (participantPollingInterval) {
+      clearInterval(participantPollingInterval);
+    }
+    
+    // Poll every 3 seconds
+    participantPollingInterval = setInterval(async () => {
+      await loadParticipants();
+    }, 3000);
+    
+    // Load immediately
+    loadParticipants();
+  }
+
+  async function loadParticipants() {
+    if (!currentExamId) return;
+    
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${currentExamId}/participants`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        displayParticipants(result.data.participants);
+      }
+    } catch (error) {
+      console.error('Error loading participants:', error);
+    }
+  }
+
+  function displayParticipants(participants) {
+    const list = document.getElementById('participantsList');
+    const countEl = document.getElementById('participantCount');
+    const startBtn = document.getElementById('startExamBtn');
+    
+    countEl.textContent = participants.length;
+    
+    if (participants.length === 0) {
+      list.innerHTML = '<p class="text-center text-gray-400 py-8">Waiting for students to join...</p>';
+      startBtn.disabled = true;
+    } else {
+      startBtn.disabled = false;
+      list.innerHTML = participants.map(p => `
+        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+              <span class="material-symbols-outlined text-primary">person</span>
+            </div>
+            <div>
+              <p class="font-semibold">${p.student_name}</p>
+              <p class="text-sm text-gray-600">${p.student_email}</p>
+            </div>
+          </div>
+          <div class="text-sm text-gray-500">
+            ${new Date(p.joined_at).toLocaleTimeString()}
+          </div>
+        </div>
+      `).join('');
+    }
+  }
+
+  async function startExamNow() {
+    if (!currentExamId) return;
+    
+    if (!confirm('Are you sure you want to start the exam? All joined students will begin the exam immediately.')) {
+      return;
+    }
+    
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${currentExamId}/start`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        alert('Exam started successfully!');
+        clearInterval(participantPollingInterval);
+        participantPollingInterval = null;
+        
+        // Update UI to show exam is in progress
+        document.getElementById('startExamBtn').disabled = true;
+        document.getElementById('startExamBtn').innerHTML = '<span class="material-symbols-outlined">check_circle</span> Exam In Progress';
+      } else {
+        alert('Error: ' + result.message);
+      }
+    } catch (error) {
+      console.error('Error starting exam:', error);
+      alert('Failed to start exam.');
+    }
+  }
 
   // ========== QUESTION MANAGEMENT ==========
   function displayQuestions(questions) {
@@ -772,7 +1477,32 @@
     currentQuestionId = null;
     document.getElementById('questionModalTitle').textContent = 'Add Question';
     document.getElementById('questionForm').reset();
-    document.getElementById('questionModal').classList.remove('hidden');
+    
+    // Ensure all form inputs are enabled and accessible
+    const modal = document.getElementById('questionModal');
+    modal.classList.remove('hidden');
+    
+    // Force enable and focus all inputs after modal opens
+    setTimeout(() => {
+      const inputs = [
+        'questionText', 'option1', 'option2', 'option3', 'option4', 
+        'correctAnswer', 'questionMarks'
+      ];
+      
+      inputs.forEach(id => {
+        const input = document.getElementById(id);
+        if (input) {
+          input.disabled = false;
+          input.readOnly = false;
+        }
+      });
+      
+      // Focus first input
+      const firstInput = document.getElementById('questionText');
+      if (firstInput) {
+        firstInput.focus();
+      }
+    }, 100);
   }
 
   async function editQuestion(questionId) {
@@ -796,7 +1526,27 @@
           document.getElementById('option4').value = question.options[3];
           document.getElementById('correctAnswer').value = question.correct_answer;
           document.getElementById('questionMarks').value = question.marks;
-          document.getElementById('questionModal').classList.remove('hidden');
+          
+          const modal = document.getElementById('questionModal');
+          modal.classList.remove('hidden');
+          
+          // Ensure all inputs are enabled
+          setTimeout(() => {
+            const inputs = [
+              'questionText', 'option1', 'option2', 'option3', 'option4', 
+              'correctAnswer', 'questionMarks'
+            ];
+            
+            inputs.forEach(id => {
+              const input = document.getElementById(id);
+              if (input) {
+                input.disabled = false;
+                input.readOnly = false;
+              }
+            });
+            
+            document.getElementById('questionText').focus();
+          }, 100);
         }
       }
     } catch (error) {
@@ -892,6 +1642,8 @@
     
     const token = localStorage.getItem('token');
     
+    console.log('Loading submissions for exam:', examId);
+    
     try {
       const response = await fetch(`${API_BASE_URL}/exams/${examId}/submissions`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -899,10 +1651,13 @@
       
       const result = await response.json();
       
+      console.log('Submissions response:', result);
+      
       if (result.success && result.data.submissions.length > 0) {
         displaySubmissions(result.data.submissions);
         document.getElementById('noSubmissions').classList.add('hidden');
       } else {
+        console.log('No submissions found');
         document.getElementById('submissionsList').innerHTML = '';
         document.getElementById('noSubmissions').classList.remove('hidden');
       }
