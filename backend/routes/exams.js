@@ -7,7 +7,12 @@ const {
   getExamById,
   updateExam,
   deleteExam,
-  submitExam
+  submitExam,
+  joinExam,
+  getExamParticipants,
+  startExam,
+  getExamStatus,
+  getMyActiveExams
 } = require('../controllers/examController');
 const {
   addQuestion,
@@ -19,9 +24,16 @@ const {
 // Exam routes
 router.post('/', protect, authorize('teacher'), createExam);
 router.get('/', protect, getExams);
+router.get('/my-active', protect, authorize('student'), getMyActiveExams);
 router.get('/:id', protect, getExamById);
 router.put('/:id', protect, authorize('teacher'), updateExam);
 router.delete('/:id', protect, authorize('teacher'), deleteExam);
+
+// Room code system routes
+router.post('/join', protect, authorize('student'), joinExam);
+router.get('/:id/participants', protect, authorize('teacher'), getExamParticipants);
+router.post('/:id/start', protect, authorize('teacher'), startExam);
+router.get('/:id/status', protect, getExamStatus);
 
 // Question routes
 router.post('/:examId/questions', protect, authorize('teacher'), addQuestion);

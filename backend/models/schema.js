@@ -31,6 +31,9 @@ const initializeSchema = async () => {
         description TEXT,
         duration INTEGER NOT NULL,
         created_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        room_code VARCHAR(6) UNIQUE,
+        status VARCHAR(20) DEFAULT 'created',
+        started_at TIMESTAMP NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -63,14 +66,30 @@ const initializeSchema = async () => {
       );
     `);
 
+    // Exam participants table (for room code system)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS exam_participants (
+        id SERIAL PRIMARY KEY,
+        exam_id INTEGER REFERENCES exams(id) ON DELETE CASCADE,
+        student_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        status VARCHAR(20) DEFAULT 'waiting',
+        UNIQUE(exam_id, student_id)
+      );
+    `);
+
     // Create indexes for performance
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
       CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
       CREATE INDEX IF NOT EXISTS idx_exams_created_by ON exams(created_by);
+      CREATE INDEX IF NOT EXISTS idx_exams_room_code ON exams(room_code);
+      CREATE INDEX IF NOT EXISTS idx_exams_status ON exams(status);
       CREATE INDEX IF NOT EXISTS idx_questions_exam_id ON questions(exam_id);
       CREATE INDEX IF NOT EXISTS idx_submissions_exam_id ON submissions(exam_id);
       CREATE INDEX IF NOT EXISTS idx_submissions_student_id ON submissions(student_id);
+      CREATE INDEX IF NOT EXISTS idx_exam_participants_exam_id ON exam_participants(exam_id);
+      CREATE INDEX IF NOT EXISTS idx_exam_participants_student_id ON exam_participants(student_id);
     `);
 
     await client.query('COMMIT');
