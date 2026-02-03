@@ -10,7 +10,7 @@ const addQuestion = async (req, res) => {
   const teacherId = req.user.userId;
 
   // Validation
-  if (!question_text || !options || !correct_answer || !marks) {
+  if (!question_text || !options || correct_answer === undefined || correct_answer === null || marks === undefined || marks === null) {
     return res.status(400).json({
       success: false,
       message: 'Question text, options, correct answer, and marks are required'
