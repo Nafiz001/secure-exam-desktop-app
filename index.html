@@ -408,69 +408,8 @@
         </div>
       </div>
 
-      <!-- Questions Section (only show if exam is created) -->
-      <div id="questionsSection" class="hidden">
-        <div class="bg-white rounded-xl shadow p-6">
-          <div class="flex justify-between items-center mb-4">
-            <h3 class="text-xl font-bold">Questions</h3>
-            <button onclick="showAddQuestionForm()" class="px-4 py-2 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition flex items-center gap-2">
-              <span class="material-symbols-outlined text-sm">add</span>
-              Add Question
-            </button>
-          </div>
-          <div id="questionsList" class="space-y-4">
-            <!-- Questions will be listed here -->
-          </div>
-        </div>
-      </div>
+      <!-- Questions Section moved to separate screen -->
     </div>
-  </div>
-</div>
-
-<!-- ================= ADD/EDIT QUESTION MODAL ================= -->
-<div id="questionModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick="event.target === this && closeQuestionModal()">
-  <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto relative z-10">
-    <div class="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center z-10">
-      <h3 class="text-xl font-bold text-gray-900" id="questionModalTitle">Add Question</h3>
-      <button type="button" onclick="closeQuestionModal()" class="text-gray-500 hover:text-gray-700">
-        <span class="material-symbols-outlined">close</span>
-      </button>
-    </div>
-    <form id="questionForm" class="p-6 space-y-4">
-      <div>
-        <label for="questionText" class="block text-sm font-medium mb-2 text-gray-700">Question Text *</label>
-        <textarea id="questionText" name="questionText" required rows="3" placeholder="Enter your question here" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white resize-none"></textarea>
-      </div>
-      <div class="space-y-3">
-        <label class="block text-sm font-medium text-gray-700">Options *</label>
-        <input id="option1" name="option1" type="text" required placeholder="Option 1" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
-        <input id="option2" name="option2" type="text" required placeholder="Option 2" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
-        <input id="option3" name="option3" type="text" required placeholder="Option 3" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
-        <input id="option4" name="option4" type="text" required placeholder="Option 4" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
-      </div>
-      <div>
-        <label for="correctAnswer" class="block text-sm font-medium mb-2 text-gray-700">Correct Answer *</label>
-        <select id="correctAnswer" name="correctAnswer" required class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white">
-          <option value="">Select correct answer</option>
-          <option value="0">Option 1</option>
-          <option value="1">Option 2</option>
-          <option value="2">Option 3</option>
-          <option value="3">Option 4</option>
-        </select>
-      </div>
-      <div>
-        <label for="questionMarks" class="block text-sm font-medium mb-2 text-gray-700">Marks *</label>
-        <input id="questionMarks" name="questionMarks" type="number" required min="1" max="100" value="2" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
-      </div>
-      <div class="flex gap-3 pt-4">
-        <button type="submit" class="px-6 py-3 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition">
-          Save Question
-        </button>
-        <button type="button" onclick="closeQuestionModal()" class="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold rounded-lg transition">
-          Cancel
-        </button>
-      </div>
-    </form>
   </div>
 </div>
 
@@ -496,6 +435,85 @@
         <span class="material-symbols-outlined text-6xl text-gray-300">assignment</span>
         <h3 class="text-xl font-semibold mt-4">No submissions yet</h3>
         <p class="text-[#4c669a] mt-2">Students haven't submitted this exam yet</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= MANAGE QUESTIONS SCREEN ================= -->
+<div id="manageQuestionsScreen" class="screen bg-background-light text-[#0d121b] font-display">
+  <!-- TOP BAR -->
+  <div class="flex items-center justify-between px-6 py-4 bg-primary text-white shadow">
+    <div class="flex items-center gap-3">
+      <button onclick="backToTeacherDashboard()" class="hover:bg-white/10 p-2 rounded-lg transition">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </button>
+      <span class="font-semibold tracking-wide" id="manageQuestionsExamTitle">Manage Questions</span>
+    </div>
+    <button onclick="showAddQuestionForm()" class="px-4 py-2 bg-white hover:bg-gray-100 text-primary font-semibold rounded-lg transition flex items-center gap-2">
+      <span class="material-symbols-outlined text-sm">add</span>
+      Add Question
+    </button>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="flex-1 overflow-auto p-6">
+    <div class="max-w-4xl mx-auto">
+      <!-- Questions List -->
+      <div id="questionsList" class="space-y-4 mb-6">
+        <!-- Questions will be listed here -->
+      </div>
+
+      <!-- Inline Question Form -->
+      <div id="questionFormSection" class="hidden bg-white rounded-xl shadow p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-xl font-bold" id="questionFormTitle">Add Question</h3>
+          <button type="button" onclick="closeQuestionForm()" class="text-gray-500 hover:text-gray-700">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <form id="questionForm" class="space-y-4">
+          <div>
+            <label for="questionText" class="block text-sm font-medium mb-2 text-gray-700">Question Text *</label>
+            <textarea id="questionText" name="questionText" required rows="3" placeholder="Enter your question here" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white resize-none"></textarea>
+          </div>
+          <div class="space-y-3">
+            <label class="block text-sm font-medium text-gray-700">Options *</label>
+            <input id="option1" name="option1" type="text" required placeholder="Option 1" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+            <input id="option2" name="option2" type="text" required placeholder="Option 2" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+            <input id="option3" name="option3" type="text" required placeholder="Option 3" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+            <input id="option4" name="option4" type="text" required placeholder="Option 4" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+          </div>
+          <div>
+            <label for="correctAnswer" class="block text-sm font-medium mb-2 text-gray-700">Correct Answer *</label>
+            <select id="correctAnswer" name="correctAnswer" required class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white">
+              <option value="">Select correct answer</option>
+              <option value="0">Option 1</option>
+              <option value="1">Option 2</option>
+              <option value="2">Option 3</option>
+              <option value="3">Option 4</option>
+            </select>
+          </div>
+          <div>
+            <label for="questionMarks" class="block text-sm font-medium mb-2 text-gray-700">Marks *</label>
+            <input id="questionMarks" name="questionMarks" type="number" required min="1" max="100" value="2" class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none text-gray-900 bg-white" />
+          </div>
+          <div class="flex gap-3 pt-4">
+            <button type="submit" class="px-6 py-3 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+              Save Question
+            </button>
+            <button type="button" onclick="closeQuestionForm()" class="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold rounded-lg transition">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Empty State -->
+      <div id="noQuestions" class="hidden text-center py-16">
+        <span class="material-symbols-outlined text-6xl text-gray-300">quiz</span>
+        <h3 class="text-xl font-semibold mt-4">No questions yet</h3>
+        <p class="text-[#4c669a] mt-2">Click "Add Question" to create your first question</p>
       </div>
     </div>
   </div>
@@ -548,6 +566,42 @@
     </div>
   </div>
 
+</div>
+
+
+<!-- ================= CUSTOM MODALS ================= -->
+
+<!-- Custom Alert Modal -->
+<div id="customAlertModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50" style="display: none;">
+  <div class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+    <div class="p-6">
+      <h3 id="customAlertTitle" class="text-xl font-bold mb-3 text-gray-900">Alert</h3>
+      <p id="customAlertMessage" class="text-gray-700 mb-6">Message here</p>
+      <div class="flex justify-end">
+        <button onclick="closeCustomAlert()" class="px-6 py-2 bg-primary text-white rounded-lg font-semibold hover:bg-blue-700 transition">
+          OK
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Custom Confirm Modal -->
+<div id="customConfirmModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50" style="display: none;">
+  <div class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+    <div class="p-6">
+      <h3 id="customConfirmTitle" class="text-xl font-bold mb-3 text-gray-900">Confirm</h3>
+      <p id="customConfirmMessage" class="text-gray-700 mb-6">Are you sure?</p>
+      <div class="flex justify-end gap-3">
+        <button onclick="closeCustomConfirm(false)" class="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-400 transition">
+          Cancel
+        </button>
+        <button onclick="closeCustomConfirm(true)" class="px-6 py-2 bg-primary text-white rounded-lg font-semibold hover:bg-blue-700 transition">
+          OK
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
 
 
@@ -673,8 +727,33 @@
     console.log('[UI] Starting exam for user:', user, 'examData:', examData);
     
     if (!examData) {
-      alert('No exam data provided');
+      showCustomAlert('Error', 'No exam data provided.');
       return;
+    }
+    
+    // Check if exam has already expired BEFORE entering fullscreen
+    if (examData.started_at) {
+      const startTime = new Date(examData.started_at);
+      const endTime = new Date(startTime.getTime() + examData.duration * 60 * 1000);
+      const now = new Date();
+      const remaining = Math.floor((endTime - now) / 1000);
+      
+      console.log('[EXAM] Validity check:', {
+        started_at: examData.started_at,
+        duration: examData.duration,
+        endTime: endTime.toISOString(),
+        now: now.toISOString(),
+        remainingSeconds: remaining
+      });
+      
+      if (remaining <= 0) {
+        console.warn('[EXAM] Exam has already expired, not starting');
+        showCustomAlert(
+          'Exam Ended',
+          'This exam has already ended. Please contact your teacher.'
+        );
+        return;
+      }
     }
     
     examEnded = false;
@@ -750,6 +829,12 @@
   }
 
   function startExamTimer(durationMinutes, startedAt) {
+    console.log('[TIMER] Starting timer with:', {
+      durationMinutes,
+      startedAt,
+      startedAtDate: startedAt ? new Date(startedAt) : null
+    });
+    
     // Clear any existing timer
     if (examTimer) {
       clearInterval(examTimer);
@@ -758,6 +843,29 @@
     // Calculate end time
     const startTime = startedAt ? new Date(startedAt) : new Date();
     const endTime = new Date(startTime.getTime() + durationMinutes * 60 * 1000);
+    
+    // Check if exam has already ended
+    const now = new Date();
+    const remaining = Math.floor((endTime - now) / 1000);
+    
+    console.log('[TIMER] Time calculation:', {
+      startTime: startTime.toISOString(),
+      endTime: endTime.toISOString(),
+      now: now.toISOString(),
+      remainingSeconds: remaining,
+      remainingMinutes: Math.floor(remaining / 60)
+    });
+    
+    if (remaining <= 0) {
+      console.warn('[TIMER] Exam time has already expired');
+      document.getElementById('timerDisplay').textContent = '00:00';
+      showCustomAlert(
+        'Exam Ended',
+        'This exam has already ended. Please contact your teacher.',
+        () => showStudentDashboard(currentUser)
+      );
+      return;
+    }
     
     // Update timer display immediately
     updateTimerDisplay(endTime);
@@ -788,19 +896,29 @@
 
   async function submitExamAnswers(autoSubmit = false) {
     if (!currentExamData) {
-      alert('No exam data found');
+      showCustomAlert('Error', 'No exam data found.');
       return;
     }
     
     // Ask for confirmation only if not auto-submit
     if (!autoSubmit) {
-      if (!confirm('Are you sure you want to submit your exam? You cannot change answers after submission.')) {
-        return;
-      }
+      showCustomConfirm(
+        'Submit Exam',
+        'Are you sure you want to submit your exam? You cannot change answers after submission.',
+        async (confirmed) => {
+          if (confirmed) {
+            await performSubmission();
+          }
+        }
+      );
+      return;
     } else {
-      alert('Time is up! Your exam has been submitted automatically.');
+      showCustomAlert('Time Up', 'Time is up! Your exam has been submitted automatically.');
+      await performSubmission();
     }
-    
+  }
+
+  async function performSubmission() {
     // Clear timer
     if (examTimer) {
       clearInterval(examTimer);
@@ -836,15 +954,18 @@
       console.log('Submission response:', result);
       
       if (result.success) {
-        alert(`Exam submitted successfully! Your score: ${result.data.submission.score}`);
-        showStudentDashboard(currentUser);
+        showCustomAlert(
+          'Success',
+          `Exam submitted successfully! Your score: ${result.data.submission.score}`,
+          () => showStudentDashboard(currentUser)
+        );
       } else {
-        alert('Error: ' + result.message);
+        showCustomAlert('Error', result.message);
         console.error('Submission error:', result);
       }
     } catch (error) {
       console.error('Error submitting exam:', error);
-      alert('Failed to submit exam. Please try again.');
+      showCustomAlert('Error', 'Failed to submit exam. Please try again.');
     }
   }
 
@@ -1124,15 +1245,21 @@
             ${exam.question_count || 0} questions
           </span>
         </div>
-        <div class="flex gap-2">
-          <button onclick="editExam(${exam.id})" class="flex-1 px-3 py-2 bg-primary hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition">
-            Edit
+        <div class="flex flex-col gap-2">
+          <div class="flex gap-2">
+            <button onclick="editExam(${exam.id})" class="flex-1 px-3 py-2 bg-primary hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition">
+              Edit Info
+            </button>
+            <button onclick="deleteExam(${exam.id}, '${exam.title.replace(/'/g, "\\'")}')" class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg transition">
+              <span class="material-symbols-outlined text-sm">delete</span>
+            </button>
+          </div>
+          <button onclick="manageQuestions(${exam.id}, '${exam.title.replace(/'/g, "\\'")}')" class="w-full px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded-lg transition flex items-center justify-center gap-1">
+            <span class="material-symbols-outlined text-sm">quiz</span>
+            Manage Questions
           </button>
-          <button onclick="viewSubmissions(${exam.id}, '${exam.title.replace(/'/g, "\\'")}')" class="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold rounded-lg transition">
-            Submissions
-          </button>
-          <button onclick="deleteExam(${exam.id}, '${exam.title.replace(/'/g, "\\'")}')" class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg transition">
-            <span class="material-symbols-outlined text-sm">delete</span>
+          <button onclick="viewSubmissions(${exam.id}, '${exam.title.replace(/'/g, "\\'")}')" class="w-full px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg transition">
+            View Submissions
           </button>
         </div>
       </div>
@@ -1144,22 +1271,10 @@
     document.getElementById('examFormTitle').textContent = 'Create New Exam';
     document.getElementById('examForm').reset();
     document.getElementById('questionsSection').classList.add('hidden');
-    
-    // Hide room code sections
     document.getElementById('roomCodeSection').classList.add('hidden');
     document.getElementById('waitingStudentsSection').classList.add('hidden');
-    
     hideAllScreens();
     document.getElementById('createExamScreen').classList.add('active');
-    
-    // Auto-focus first input after screen loads
-    setTimeout(() => {
-      const titleInput = document.getElementById('examTitle');
-      if (titleInput) {
-        titleInput.disabled = false;
-        titleInput.focus();
-      }
-    }, 100);
   }
 
   async function editExam(examId) {
@@ -1182,7 +1297,6 @@
         
         hideAllScreens();
         document.getElementById('createExamScreen').classList.add('active');
-        document.getElementById('questionsSection').classList.remove('hidden');
         
         // Show room code if exists
         if (exam.room_code) {
@@ -1202,12 +1316,56 @@
             document.getElementById('startExamBtn').innerHTML = '<span class="material-symbols-outlined">check_circle</span> Exam Completed';
           }
         }
+      }
+    } catch (error) {
+      console.error('Error loading exam:', error);
+      alert('Failed to load exam details.');
+    }
+  }
+
+  async function manageQuestions(examId, examTitle) {
+    currentExamId = examId;
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${examId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        const exam = result.data.exam;
+        document.getElementById('manageQuestionsExamTitle').textContent = examTitle;
+        
+        hideAllScreens();
+        document.getElementById('manageQuestionsScreen').classList.add('active');
         
         displayQuestions(exam.questions || []);
       }
     } catch (error) {
       console.error('Error loading exam:', error);
       alert('Failed to load exam details.');
+    }
+  }
+
+  async function loadQuestionsForCurrentExam() {
+    if (!currentExamId) return;
+    
+    const token = localStorage.getItem('token');
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${currentExamId}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        displayQuestions(result.data.exam.questions || []);
+      }
+    } catch (error) {
+      console.error('Error loading questions:', error);
     }
   }
 
@@ -1475,34 +1633,18 @@
       return;
     }
     currentQuestionId = null;
-    document.getElementById('questionModalTitle').textContent = 'Add Question';
-    document.getElementById('questionForm').reset();
+    const form = document.getElementById('questionForm');
+    const firstInput = document.getElementById('questionText');
     
-    // Ensure all form inputs are enabled and accessible
-    const modal = document.getElementById('questionModal');
-    modal.classList.remove('hidden');
+    document.getElementById('questionFormTitle').textContent = 'Add Question';
+    form.reset();
+    document.getElementById('questionFormSection').classList.remove('hidden');
     
-    // Force enable and focus all inputs after modal opens
-    setTimeout(() => {
-      const inputs = [
-        'questionText', 'option1', 'option2', 'option3', 'option4', 
-        'correctAnswer', 'questionMarks'
-      ];
-      
-      inputs.forEach(id => {
-        const input = document.getElementById(id);
-        if (input) {
-          input.disabled = false;
-          input.readOnly = false;
-        }
-      });
-      
-      // Focus first input
-      const firstInput = document.getElementById('questionText');
-      if (firstInput) {
-        firstInput.focus();
-      }
-    }, 100);
+    // Focus immediately - no delay
+    firstInput.focus();
+    firstInput.click();
+    
+    document.getElementById('questionFormSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   async function editQuestion(questionId) {
@@ -1518,7 +1660,7 @@
       if (result.success) {
         const question = result.data.exam.questions.find(q => q.id === questionId);
         if (question) {
-          document.getElementById('questionModalTitle').textContent = 'Edit Question';
+          document.getElementById('questionFormTitle').textContent = 'Edit Question';
           document.getElementById('questionText').value = question.question_text;
           document.getElementById('option1').value = question.options[0];
           document.getElementById('option2').value = question.options[1];
@@ -1527,26 +1669,14 @@
           document.getElementById('correctAnswer').value = question.correct_answer;
           document.getElementById('questionMarks').value = question.marks;
           
-          const modal = document.getElementById('questionModal');
-          modal.classList.remove('hidden');
+          document.getElementById('questionFormSection').classList.remove('hidden');
           
-          // Ensure all inputs are enabled
-          setTimeout(() => {
-            const inputs = [
-              'questionText', 'option1', 'option2', 'option3', 'option4', 
-              'correctAnswer', 'questionMarks'
-            ];
-            
-            inputs.forEach(id => {
-              const input = document.getElementById(id);
-              if (input) {
-                input.disabled = false;
-                input.readOnly = false;
-              }
-            });
-            
-            document.getElementById('questionText').focus();
-          }, 100);
+          // Focus immediately - no delay
+          const firstInput = document.getElementById('questionText');
+          firstInput.focus();
+          firstInput.click();
+          
+          document.getElementById('questionFormSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
       }
     } catch (error) {
@@ -1572,7 +1702,7 @@
       
       if (result.success) {
         alert('Question deleted successfully!');
-        editExam(currentExamId);
+        loadQuestionsForCurrentExam();
       } else {
         alert('Error: ' + result.message);
       }
@@ -1582,8 +1712,9 @@
     }
   }
 
-  function closeQuestionModal() {
-    document.getElementById('questionModal').classList.add('hidden');
+  function closeQuestionForm() {
+    document.getElementById('questionFormSection').classList.add('hidden');
+    document.getElementById('questionForm').reset();
     currentQuestionId = null;
   }
 
@@ -1622,9 +1753,10 @@
       const result = await response.json();
       
       if (result.success) {
-        alert(currentQuestionId ? 'Question updated successfully!' : 'Question added successfully!');
-        closeQuestionModal();
-        editExam(currentExamId);
+        console.log(currentQuestionId ? 'Question updated successfully!' : 'Question added successfully!');
+        closeQuestionForm();
+        // Reload questions in manage screen
+        loadQuestionsForCurrentExam();
       } else {
         alert('Error: ' + result.message);
       }
@@ -1712,6 +1844,52 @@
     document.querySelectorAll('.screen').forEach(screen => {
       screen.classList.remove('active');
     });
+  }
+
+  function showCustomAlert(title, message, callback) {
+    document.getElementById('customAlertTitle').textContent = title;
+    document.getElementById('customAlertMessage').textContent = message;
+    const modal = document.getElementById('customAlertModal');
+    modal.style.display = 'flex';
+    modal.classList.remove('hidden');
+    
+    // Store callback for when alert is closed
+    window.customAlertCallback = callback;
+  }
+
+  function closeCustomAlert() {
+    const modal = document.getElementById('customAlertModal');
+    modal.style.display = 'none';
+    modal.classList.add('hidden');
+    
+    // Execute callback if provided
+    if (window.customAlertCallback) {
+      window.customAlertCallback();
+      window.customAlertCallback = null;
+    }
+  }
+
+  function showCustomConfirm(title, message, callback) {
+    document.getElementById('customConfirmTitle').textContent = title;
+    document.getElementById('customConfirmMessage').textContent = message;
+    const modal = document.getElementById('customConfirmModal');
+    modal.style.display = 'flex';
+    modal.classList.remove('hidden');
+    
+    // Store callback for when confirm is resolved
+    window.customConfirmCallback = callback;
+  }
+
+  function closeCustomConfirm(result) {
+    const modal = document.getElementById('customConfirmModal');
+    modal.style.display = 'none';
+    modal.classList.add('hidden');
+    
+    // Execute callback with result
+    if (window.customConfirmCallback) {
+      window.customConfirmCallback(result);
+      window.customConfirmCallback = null;
+    }
   }
 
   function showAdminPanel(user) {
