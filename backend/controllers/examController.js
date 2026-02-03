@@ -645,15 +645,40 @@ const getMyActiveExams = async (req, res) => {
   const studentId = req.user.userId;
 
   try {
+    // First, auto-complete any expired exams
+    const updateResult = await pool.query(
+      `UPDATE exams
+       SET status = 'completed'
+       WHERE status = 'in_progress'
+         AND started_at IS NOT NULL
+         AND (started_at AT TIME ZONE 'UTC' + (duration || ' minutes')::INTERVAL) <= NOW() AT TIME ZONE 'UTC'
+       RETURNING id, title, status`
+    );
+    
+    console.log(`[AUTO-COMPLETE] Marked ${updateResult.rowCount} expired exams as completed`);
+    if (updateResult.rowCount > 0) {
+      console.log('[AUTO-COMPLETE] Completed exams:', updateResult.rows);
+    }
+
+    // Then fetch active exams
     const result = await pool.query(
-      `SELECT e.*, u.name as teacher_name, ep.status as participation_status, ep.joined_at
+      `SELECT e.*, u.name as teacher_name, ep.status as participation_status, ep.joined_at,
+              e.started_at AT TIME ZONE 'UTC' + (e.duration || ' minutes')::INTERVAL as exam_end_time,
+              NOW() AT TIME ZONE 'UTC' as current_time
+              NOW() as current_time
        FROM exam_participants ep
        JOIN exams e ON ep.exam_id = e.id
        JOIN users u ON e.created_by = u.id
-       WHERE ep.student_id = $1 AND e.status IN ('waiting', 'in_progress')
+       WHERE ep.student_id = $1 
+         AND e.status IN ('waiting', 'in_progress')
        ORDER BY ep.joined_at DESC`,
       [studentId]
     );
+
+    console.log(`[GET MY ACTIVE EXAMS] Found ${result.rows.length} active exams for student ${studentId}`);
+    result.rows.forEach(exam => {
+      console.log(`  - Exam: ${exam.title}, Status: ${exam.status}, Started: ${exam.started_at}, End: ${exam.exam_end_time}, Now: ${exam.current_time}`);
+    });
 
     res.status(200).json({
       success: true,
