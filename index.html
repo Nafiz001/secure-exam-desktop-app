@@ -726,6 +726,13 @@
   function startExam(user = null, examData = null) {
     console.log('[UI] Starting exam for user:', user, 'examData:', examData);
     
+    // Clear waiting room polling if active
+    if (waitingRoomInterval) {
+      clearInterval(waitingRoomInterval);
+      waitingRoomInterval = null;
+      console.log('[EXAM] Cleared waiting room polling');
+    }
+    
     if (!examData) {
       showCustomAlert('Error', 'No exam data provided.');
       return;
@@ -923,6 +930,13 @@
     if (examTimer) {
       clearInterval(examTimer);
       examTimer = null;
+    }
+    
+    // Clear waiting room polling if still active
+    if (waitingRoomInterval) {
+      clearInterval(waitingRoomInterval);
+      waitingRoomInterval = null;
+      console.log('[SUBMISSION] Cleared waiting room polling');
     }
     
     const token = localStorage.getItem('token');
@@ -1154,18 +1168,24 @@
   }
 
   function leaveWaitingRoom() {
-    if (confirm('Are you sure you want to leave the waiting room?')) {
-      clearInterval(waitingRoomInterval);
-      waitingRoomInterval = null;
-      currentWaitingExamId = null;
-      
-      // Show join form, hide waiting room
-      document.getElementById('joinExamForm').parentElement.classList.remove('hidden');
-      document.getElementById('activeExamsSection').classList.remove('hidden');
-      document.getElementById('waitingRoom').classList.add('hidden');
-      
-      loadActiveExams();
-    }
+    showCustomConfirm(
+      'Leave Waiting Room',
+      'Are you sure you want to leave the waiting room?',
+      (confirmed) => {
+        if (confirmed) {
+          clearInterval(waitingRoomInterval);
+          waitingRoomInterval = null;
+          currentWaitingExamId = null;
+          
+          // Show join form, hide waiting room
+          document.getElementById('joinExamForm').parentElement.classList.remove('hidden');
+          document.getElementById('activeExamsSection').classList.remove('hidden');
+          document.getElementById('waitingRoom').classList.add('hidden');
+          
+          loadActiveExams();
+        }
+      }
+    );
   }
 
   async function startExamFromDashboard(examId) {
