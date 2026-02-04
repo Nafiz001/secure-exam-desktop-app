@@ -665,7 +665,6 @@ const getMyActiveExams = async (req, res) => {
       `SELECT e.*, u.name as teacher_name, ep.status as participation_status, ep.joined_at,
               e.started_at AT TIME ZONE 'UTC' + (e.duration || ' minutes')::INTERVAL as exam_end_time,
               NOW() AT TIME ZONE 'UTC' as current_time
-              NOW() as current_time
        FROM exam_participants ep
        JOIN exams e ON ep.exam_id = e.id
        JOIN users u ON e.created_by = u.id
