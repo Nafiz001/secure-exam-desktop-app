@@ -72,6 +72,7 @@ const initializeSchema = async () => {
         id SERIAL PRIMARY KEY,
         exam_id INTEGER REFERENCES exams(id) ON DELETE CASCADE,
         student_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        student_name VARCHAR(255),
         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         status VARCHAR(20) DEFAULT 'waiting',
         UNIQUE(exam_id, student_id)

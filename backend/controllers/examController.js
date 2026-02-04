@@ -358,13 +358,20 @@ const submitExam = async (req, res) => {
  * POST /api/exams/join
  */
 const joinExam = async (req, res) => {
-  const { roomCode } = req.body;
+  const { roomCode, studentName } = req.body;
   const studentId = req.user.userId;
 
   if (!roomCode) {
     return res.status(400).json({
       success: false,
       message: 'Room code is required'
+    });
+  }
+
+  if (!studentName || studentName.trim() === '') {
+    return res.status(400).json({
+      success: false,
+      message: 'Student name is required'
     });
   }
 
@@ -403,6 +410,12 @@ const joinExam = async (req, res) => {
     );
 
     if (participantCheck.rows.length > 0) {
+      // Update student name if they already joined
+      await pool.query(
+        'UPDATE exam_participants SET student_name = $1 WHERE exam_id = $2 AND student_id = $3',
+        [studentName.trim(), exam.id, studentId]
+      );
+      
       // Already joined, return exam info
       return res.status(200).json({
         success: true,
@@ -411,10 +424,10 @@ const joinExam = async (req, res) => {
       });
     }
 
-    // Add student to participants
+    // Add student to participants with name
     await pool.query(
-      'INSERT INTO exam_participants (exam_id, student_id, status) VALUES ($1, $2, $3)',
-      [exam.id, studentId, 'waiting']
+      'INSERT INTO exam_participants (exam_id, student_id, student_name, status) VALUES ($1, $2, $3, $4)',
+      [exam.id, studentId, studentName.trim(), 'waiting']
     );
 
     // Update exam status to waiting if it was created
@@ -465,7 +478,12 @@ const getExamParticipants = async (req, res) => {
 
     // Get participants
     const result = await pool.query(
-      `SELECT ep.*, u.name, u.email, u.role
+      `SELECT 
+         ep.*,
+         COALESCE(ep.student_name, u.name) as student_name,
+         u.name as account_name,
+         u.email as student_email,
+         u.role
        FROM exam_participants ep
        JOIN users u ON ep.student_id = u.id
        WHERE ep.exam_id = $1

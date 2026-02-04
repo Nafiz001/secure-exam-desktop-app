@@ -212,19 +212,31 @@
       <!-- Join Exam Card -->
       <div class="bg-white rounded-xl shadow p-6 mb-6">
         <h3 class="text-xl font-bold mb-4">Join Exam</h3>
-        <p class="text-gray-600 mb-4">Enter the room code provided by your teacher to join an exam</p>
-        <form id="joinExamForm" class="flex gap-3">
-          <input 
-            id="roomCodeInput" 
-            type="text" 
-            maxlength="6"
-            placeholder="Enter 6-digit room code"
-            class="flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none uppercase font-mono text-2xl tracking-widest text-center"
-            style="text-transform: uppercase;"
-          />
-          <button type="submit" class="px-8 py-3 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition">
-            Join Exam
-          </button>
+        <p class="text-gray-600 mb-4">Enter your name and the room code provided by your teacher</p>
+        <form id="joinExamForm" class="space-y-3">
+          <div>
+            <input 
+              id="studentNameInput" 
+              type="text" 
+              required
+              placeholder="Enter your name"
+              class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none"
+            />
+          </div>
+          <div class="flex gap-3">
+            <input 
+              id="roomCodeInput" 
+              type="text" 
+              maxlength="6"
+              required
+              placeholder="Enter 6-digit room code"
+              class="flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary/50 outline-none uppercase font-mono text-2xl tracking-widest text-center"
+              style="text-transform: uppercase;"
+            />
+            <button type="submit" class="px-8 py-3 bg-primary hover:bg-blue-700 text-white font-semibold rounded-lg transition">
+              Join Exam
+            </button>
+          </div>
         </form>
         <p id="joinErrorMessage" class="hidden text-red-600 text-sm mt-2"></p>
       </div>
@@ -967,6 +979,19 @@
       
       console.log('Submission response:', result);
       
+      // Exit fullscreen mode after submission
+      if (window.electronAPI && window.electronAPI.submitExam) {
+        try {
+          await window.electronAPI.submitExam({
+            examId: currentExamData.id,
+            answers: formattedAnswers
+          });
+          console.log('[SUBMISSION] Fullscreen mode disabled');
+        } catch (error) {
+          console.error('[SUBMISSION] Error disabling fullscreen:', error);
+        }
+      }
+      
       if (result.success) {
         showCustomAlert(
           'Success',
@@ -1046,14 +1071,24 @@
   document.getElementById('joinExamForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     
+    const studentName = document.getElementById('studentNameInput').value.trim();
     const roomCode = document.getElementById('roomCodeInput').value.trim().toUpperCase();
     const errorMsg = document.getElementById('joinErrorMessage');
+    
+    if (!studentName) {
+      errorMsg.textContent = 'Please enter your name';
+      errorMsg.classList.remove('hidden');
+      return;
+    }
     
     if (roomCode.length !== 6) {
       errorMsg.textContent = 'Please enter a valid 6-character room code';
       errorMsg.classList.remove('hidden');
       return;
     }
+    
+    // Store student name in localStorage for this session
+    localStorage.setItem('studentDisplayName', studentName);
     
     const token = localStorage.getItem('token');
     
@@ -1064,7 +1099,10 @@
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ roomCode: roomCode })
+        body: JSON.stringify({ 
+          roomCode: roomCode,
+          studentName: studentName 
+        })
       });
       
       const result = await response.json();
@@ -1072,6 +1110,7 @@
       if (result.success) {
         errorMsg.classList.add('hidden');
         document.getElementById('roomCodeInput').value = '';
+        document.getElementById('studentNameInput').value = '';
         enterWaitingRoom(result.data.exam);
       } else {
         errorMsg.textContent = result.message || 'Failed to join exam';
@@ -1290,11 +1329,28 @@
     currentExamId = null;
     document.getElementById('examFormTitle').textContent = 'Create New Exam';
     document.getElementById('examForm').reset();
-    document.getElementById('questionsSection').classList.add('hidden');
+    document.getElementById('questionFormSection').classList.add('hidden');
     document.getElementById('roomCodeSection').classList.add('hidden');
     document.getElementById('waitingStudentsSection').classList.add('hidden');
     hideAllScreens();
     document.getElementById('createExamScreen').classList.add('active');
+    
+    // Fix: Force enable inputs and auto-focus with delay
+    setTimeout(() => {
+      const titleInput = document.getElementById('examTitle');
+      const descInput = document.getElementById('examDescription');
+      const durationInput = document.getElementById('examDuration');
+      
+      titleInput.disabled = false;
+      titleInput.readOnly = false;
+      descInput.disabled = false;
+      descInput.readOnly = false;
+      durationInput.disabled = false;
+      durationInput.readOnly = false;
+      
+      titleInput.focus();
+      titleInput.click();
+    }, 100);
   }
 
   async function editExam(examId) {
@@ -1467,7 +1523,7 @@
         if (!currentExamId) {
           currentExamId = result.data.exam.id;
           document.getElementById('examFormTitle').textContent = 'Edit Exam';
-          document.getElementById('questionsSection').classList.remove('hidden');
+          document.getElementById('questionFormSection').classList.remove('hidden');
           
           // Show room code section and start polling for participants
           if (result.data.exam.room_code) {
