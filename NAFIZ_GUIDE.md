@@ -1,45 +1,88 @@
 # Nafiz's Integration Guide - UI to Backend
 
-**Status:** Backend authentication + Room Code System complete  
-**Latest Update:** Room code exam management system implemented  
-**Your task:** Pull latest changes, run migration, and continue frontend enhancements
+**Status:** Room Code System + Student Name Feature Complete  
+**Latest Update:** February 5, 2026 - Student name input and UI fixes  
+**Your task:** Pull latest changes, run new migration, test features
 
 ---
 
-## 🚨 IMPORTANT - After Pulling Latest Changes
+## 🆕 LATEST UPDATES (February 5, 2026)
 
-### Critical Steps (Do These First!)
+### What Was Done Today
 
-1. **Pull Latest Code:**
+✅ **Student Name Input Feature:**
+- Students now enter their name before joining exam
+- Name is stored in database and displayed to teachers
+- Replaces "undefined" issue in participant list
+
+✅ **UI Fixes:**
+- Fixed "Create Exam" button not working (input focus issue)
+- Fixed form inputs not accepting text after screen transitions
+- Auto-focus with proper timing on form fields
+
+✅ **Fullscreen Exit Fix:**
+- App now properly exits fullscreen mode after exam submission
+- Window returns to normal state automatically
+
+✅ **Database Changes:**
+- New `student_name` column in `exam_participants` table
+- Migration script created: `add_student_name_to_participants.js`
+
+### What You Need to Do Now
+
+1. **Pull Latest Changes:**
    ```bash
    git pull origin develop
    ```
 
-2. **Run Database Migration:**
+2. **Run New Migration:**
+   ```bash
+   cd backend
+   node migrations/add_student_name_to_participants.js
+   ```
+   
+   This adds `student_name` column to `exam_participants` table.
+
+3. **Test the Changes:**
+   - **Test 1:** Login as teacher, create exam (verify form inputs work)
+   - **Test 2:** Login as student, enter name + room code to join
+   - **Test 3:** Verify teacher sees student name in waiting list
+   - **Test 4:** Start exam and verify fullscreen exits after submission
+
+4. **Known Issue to Fix:**
+   ⚠️ **Exam submissions not working properly:**
+   - When student clicks "Submit Exam" → Not submitting to database
+   - When timer reaches 0:00 (auto-submit) → Not submitting
+   - Teacher's "View Submissions" shows no submissions
+   
+   **This is your next task to investigate and fix!**
+
+---
+
+## 🚨 IMPORTANT - Previous Updates
+
+### Critical Steps (Do These First!)
+
+1. **Run Database Migrations (in order):**
    ```bash
    cd backend
    node migrations/add_room_code.js
+   node migrations/add_student_name_to_participants.js
    ```
-   
-   This adds:
-   - `room_code` column to exams table
-   - `status` column (created/waiting/in_progress/completed)
-   - `started_at` timestamp
-   - New `exam_participants` table for tracking joined students
 
-3. **Test Accounts Available:**
+2. **Test Accounts Available:**
    - **Teacher:** dewan.teacher@kuet.ac.bd / teacher123
    - **Student:** dewan.student@kuet.ac.bd / student123
    - **Admin:** dewan.admin@kuet.ac.bd / admin123
 
-4. **Breaking Change:**
+3. **Breaking Change:**
    - Student UI now shows dashboard first (join exam screen)
+   - Students must enter name before joining
    - Direct exam screen moved to after successful join
-   - See "Room Code System Workflow" below
 
 ---
 
-## 🎯 New Feature: Room Code Exam System
+## 🎯 Room Code Exam System
 
 ### Workflow Overview
 
@@ -47,31 +90,33 @@
 1. Teacher creates exam → System generates unique 6-character room code (e.g., GCL5JL)
 2. Teacher sees "Room Code" card with copy button in dashboard
 3. Teacher shares code with students
-4. Teacher views list of joined students (updates every 3 seconds)
+4. Teacher views list of joined students (live updates every 3 seconds) with their names
 5. Teacher clicks "Start Exam" button when ready
 6. Exam status changes to `in_progress` and timer starts
 
 **Student Flow:**
 1. Student logs in → Sees "Join Exam" dashboard
-2. Student enters room code and clicks "Join Exam"
+2. Student enters **name** and room code → Clicks "Join Exam"
 3. Student enters waiting room showing: room code, participant count, status
-4. When teacher starts exam → Student auto-redirects to exam screen
+4. When teacher starts exam → Student auto-redirects to exam screen (fullscreen mode)
 5. Timer starts counting down (MM:SS format)
 6. Student answers questions and submits OR auto-submits at 0:00
-7. Student sees score after submission
+7. App exits fullscreen mode automatically
+8. Student sees score after submission
 
-### New API Endpoints
+### API Endpoints (Updated)
 
 ```http
-# Join exam with room code
+# Join exam with room code (NOW REQUIRES NAME)
 POST /api/exams/join
 Content-Type: application/json
 Authorization: Bearer <token>
 {
-  "roomCode": "GCL5JL"
+  "roomCode": "GCL5JL",
+  "studentName": "John Doe"
 }
 
-# Get exam participants (teacher only)
+# Get exam participants (teacher only) - NOW RETURNS STUDENT NAMES
 GET /api/exams/:examId/participants
 Authorization: Bearer <token>
 
@@ -91,13 +136,14 @@ Authorization: Bearer <token>
 ### Frontend Changes Made
 
 **New Components:**
-- Student dashboard with room code input form
+- Student dashboard with **name input** and room code input form
 - Waiting room screen with live participant count
 - Teacher room code display card
-- Teacher waiting students list (live updates)
+- Teacher waiting students list (live updates) showing **student names**
 - Complete exam taking interface
 - Live countdown timer with auto-submit
 - Questions display with radio button answers
+- **Automatic fullscreen exit** after submission
 
 **Technical Details:**
 - Polling intervals: 3 seconds for participants and status
@@ -105,6 +151,67 @@ Authorization: Bearer <token>
 - Timer format: MM:SS countdown
 - Auto-submit: Triggers without confirmation when timer reaches 0:00
 - Manual submit: Shows confirmation prompt
+- **Student name:** Required field, stored in exam_participants table
+
+---
+
+## 🔧 Next Task for Nafiz: Fix Exam Submission Issue
+
+### Problem Description
+Exam submissions are not being saved to the database properly:
+
+**Symptoms:**
+- Student clicks "Submit Exam" button → Appears to submit but doesn't save
+- When timer reaches 0:00 → Auto-submit alert shows but submission fails
+- Teacher's "View Submissions" panel shows no submissions
+- Console may show errors during submission
+
+**What to Debug:**
+
+1. **Frontend (index.html):**
+   - Check `submitExamAnswers()` function (around line 904)
+   - Check `performSubmission()` function (around line 927)
+   - Look for console errors when submitting
+   - Verify answer format: Should be array of `{question_id, selected_answer}`
+   - Check if API call is reaching backend (Network tab in DevTools)
+
+2. **Backend (examController.js):**
+   - Check `submitExam()` function
+   - Look at backend console logs during submission
+   - Verify answers format matches what backend expects
+   - Check database constraints on submissions table
+
+3. **Possible Issues:**
+   - Answer format mismatch (frontend sends `questionId`, backend expects `question_id`)
+   - Duplicate submission constraint violation
+   - JWT token issues
+   - CORS or network errors
+   - Wrong API endpoint URL
+
+**How to Test:**
+
+```bash
+# Terminal 1: Backend
+cd backend
+npm start
+
+# Terminal 2: Frontend
+npm start
+
+# Then:
+# 1. Login as teacher, create exam with questions
+# 2. Login as student (different window), join exam with name
+# 3. Teacher starts exam
+# 4. Student takes exam and submits
+# 5. Check backend console for logs
+# 6. Check browser console for errors
+# 7. Teacher views submissions to verify
+```
+
+**Expected Fix Areas:**
+- Likely in `performSubmission()` function in index.html
+- May need to fix answer format or API call
+- Check backend logs for actual error messages
 
 ---
 
