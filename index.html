@@ -993,9 +993,12 @@
       }
       
       if (result.success) {
-        // Clear exam data
+        // Clear ALL exam-related data and state
         currentExamData = null;
         examAnswers = {};
+        currentWaitingExamId = null;
+        
+        console.log('[SUBMISSION] Cleared exam data and state variables');
         
         // Get user from localStorage
         const user = JSON.parse(localStorage.getItem('user'));
@@ -1004,8 +1007,13 @@
           'Success',
           `Exam submitted successfully! Your score: ${result.data.submission.score}`,
           () => {
+            console.log('[SUBMISSION] Alert dismissed, redirecting to dashboard');
             if (user) {
-              showStudentDashboard(user);
+              // Ensure we're going to dashboard, not waiting room
+              hideAllScreens();
+              document.getElementById('studentDashboard').classList.add('active');
+              document.getElementById('studentName').textContent = user.name;
+              loadActiveExams();
             } else {
               hideAllScreens();
               document.getElementById('loginScreen').classList.add('active');
@@ -1739,9 +1747,22 @@
     form.reset();
     document.getElementById('questionFormSection').classList.remove('hidden');
     
-    // Focus immediately - no delay
+    // Multi-stage focus approach for reliability
+    // Immediate attempt
     firstInput.focus();
-    firstInput.click();
+    
+    // RequestAnimationFrame for next render cycle
+    requestAnimationFrame(() => {
+      firstInput.focus();
+      firstInput.select();
+      
+      // Final fallback with setTimeout
+      setTimeout(() => {
+        firstInput.focus();
+        firstInput.select();
+        console.log('[QUESTION FORM] Input focused and selected');
+      }, 50);
+    });
     
     document.getElementById('questionFormSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
@@ -1770,10 +1791,20 @@
           
           document.getElementById('questionFormSection').classList.remove('hidden');
           
-          // Focus immediately - no delay
+          // Multi-stage focus approach for reliability
           const firstInput = document.getElementById('questionText');
           firstInput.focus();
-          firstInput.click();
+          
+          requestAnimationFrame(() => {
+            firstInput.focus();
+            firstInput.select();
+            
+            setTimeout(() => {
+              firstInput.focus();
+              firstInput.select();
+              console.log('[QUESTION EDIT] Input focused and selected');
+            }, 50);
+          });
           
           document.getElementById('questionFormSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
