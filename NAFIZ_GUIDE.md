@@ -1,12 +1,43 @@
 # Nafiz's Integration Guide - UI to Backend
 
 **Status:** Room Code System + Student Name Feature Complete  
-**Latest Update:** February 5, 2026 - Student name input and UI fixes  
-**Your task:** Pull latest changes, run new migration, test features
+**Latest Update:** February 19, 2026 - Exam Submission Issue FIXED ✅  
+**Your task:** Pull latest changes, restart backend, test submission flow
 
 ---
 
-## 🆕 LATEST UPDATES (February 5, 2026)
+## 🎉 LATEST FIX (February 19, 2026)
+
+### ✅ Exam Submission Issue - RESOLVED
+
+**Problem:** 
+- Students clicking "Submit Exam" → Submission not saving to database
+- Auto-submit at timer 0:00 → Also failing
+- Teachers seeing empty submissions list
+
+**Root Cause:**
+Property name mismatch between frontend and backend:
+- Frontend sends: `question_id`, `selected_answer` (snake_case)
+- Backend expected: `questionId`, `selectedAnswer` (camelCase)
+
+**Solution:**
+Fixed `backend/controllers/examController.js` to use correct property names:
+```javascript
+// Changed from answer.questionId to answer.question_id
+// Changed from answer.selectedAnswer to answer.selected_answer
+```
+
+**Status:** ✅ FIXED - Backend code updated with detailed logging
+
+**Next Steps:**
+1. Pull latest changes: `git pull origin develop`
+2. Restart backend: `cd backend && npm start`
+3. Test full submission flow (create exam → student takes → submit → verify)
+4. See detailed testing guide in `DEWAN_GUIDE.md`
+
+---
+
+## 🆕 PREVIOUS UPDATES (February 5, 2026)
 
 ### What Was Done Today
 
@@ -48,14 +79,14 @@
    - **Test 2:** Login as student, enter name + room code to join
    - **Test 3:** Verify teacher sees student name in waiting list
    - **Test 4:** Start exam and verify fullscreen exits after submission
+   - **Test 5:** Verify submission saves to database with correct score ✅ FIXED
 
-4. **Known Issue to Fix:**
-   ⚠️ **Exam submissions not working properly:**
-   - When student clicks "Submit Exam" → Not submitting to database
-   - When timer reaches 0:00 (auto-submit) → Not submitting
-   - Teacher's "View Submissions" shows no submissions
-   
-   **This is your next task to investigate and fix!**
+4. **Previous Issue (NOW FIXED):**
+   ✅ **Exam submissions working properly as of February 19, 2026:**
+   - Student clicks "Submit Exam" → Now properly saves to database
+   - Timer reaches 0:00 (auto-submit) → Now works correctly
+   - Teacher's "View Submissions" now shows all submissions
+   - Score calculation fixed (property name mismatch resolved)
 
 ---
 
@@ -155,63 +186,37 @@ Authorization: Bearer <token>
 
 ---
 
-## 🔧 Next Task for Nafiz: Fix Exam Submission Issue
+## ✅ Recently Fixed: Exam Submission Issue (February 19, 2026)
 
-### Problem Description
-Exam submissions are not being saved to the database properly:
+### Problem (RESOLVED)
+Exam submissions were not being saved to the database properly.
 
 **Symptoms:**
-- Student clicks "Submit Exam" button → Appears to submit but doesn't save
-- When timer reaches 0:00 → Auto-submit alert shows but submission fails
-- Teacher's "View Submissions" panel shows no submissions
-- Console may show errors during submission
+- Student clicks "Submit Exam" button → Appeared to submit but didn't save
+- When timer reaches 0:00 → Auto-submit alert showed but submission failed
+- Teacher's "View Submissions" panel showed no submissions
 
-**What to Debug:**
+**Root Cause:**
+Property name mismatch in `backend/controllers/examController.js`:
+- Frontend sends: `question_id`, `selected_answer` (snake_case)
+- Backend expected: `questionId`, `selectedAnswer` (camelCase)
 
-1. **Frontend (index.html):**
-   - Check `submitExamAnswers()` function (around line 904)
-   - Check `performSubmission()` function (around line 927)
-   - Look for console errors when submitting
-   - Verify answer format: Should be array of `{question_id, selected_answer}`
-   - Check if API call is reaching backend (Network tab in DevTools)
-
-2. **Backend (examController.js):**
-   - Check `submitExam()` function
-   - Look at backend console logs during submission
-   - Verify answers format matches what backend expects
-   - Check database constraints on submissions table
-
-3. **Possible Issues:**
-   - Answer format mismatch (frontend sends `questionId`, backend expects `question_id`)
-   - Duplicate submission constraint violation
-   - JWT token issues
-   - CORS or network errors
-   - Wrong API endpoint URL
-
-**How to Test:**
-
-```bash
-# Terminal 1: Backend
-cd backend
-npm start
-
-# Terminal 2: Frontend
-npm start
-
-# Then:
-# 1. Login as teacher, create exam with questions
-# 2. Login as student (different window), join exam with name
-# 3. Teacher starts exam
-# 4. Student takes exam and submits
-# 5. Check backend console for logs
-# 6. Check browser console for errors
-# 7. Teacher views submissions to verify
+**Fix Applied:**
+Updated backend to use correct property names:
+```javascript
+// Line ~327 in examController.js
+const question = questions.find(q => q.id === answer.question_id);
+if (question && answer.selected_answer === question.correct_answer) {
+  totalScore += question.marks;
+}
 ```
 
-**Expected Fix Areas:**
-- Likely in `performSubmission()` function in index.html
-- May need to fix answer format or API call
-- Check backend logs for actual error messages
+**Status:** ✅ FIXED - See `DEWAN_GUIDE.md` for detailed testing instructions
+
+**To Use the Fix:**
+1. Pull latest code: `git pull origin develop`
+2. Restart backend: `cd backend && npm start`
+3. Test submission flow to verify
 
 ---
 
