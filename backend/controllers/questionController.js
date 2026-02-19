@@ -197,11 +197,14 @@ const getExamSubmissions = async (req, res) => {
 
     console.log(`[GET SUBMISSIONS] Exam found: ${examCheck.rows[0].title}`);
 
-    // Get all submissions with student details
+    // Get all submissions with student details (use student_name from exam_participants, not users table)
     const result = await pool.query(
-      `SELECT s.*, u.name as student_name, u.email as student_email
+      `SELECT s.*, 
+              COALESCE(ep.student_name, u.name) as student_name, 
+              u.email as student_email
        FROM submissions s
        JOIN users u ON s.student_id = u.id
+       LEFT JOIN exam_participants ep ON ep.exam_id = s.exam_id AND ep.student_id = s.student_id
        WHERE s.exam_id = $1
        ORDER BY s.submitted_at DESC`,
       [examId]
@@ -209,7 +212,11 @@ const getExamSubmissions = async (req, res) => {
 
     console.log(`[GET SUBMISSIONS] Found ${result.rows.length} submissions for exam ${examId}`);
     if (result.rows.length > 0) {
-      console.log('[GET SUBMISSIONS] Submission IDs:', result.rows.map(s => s.id));
+      console.log('[GET SUBMISSIONS] Submission details:', result.rows.map(s => ({
+        id: s.id,
+        student_name: s.student_name,
+        score: s.score
+      })));
     }
 
     res.status(200).json({
