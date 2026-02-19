@@ -993,10 +993,24 @@
       }
       
       if (result.success) {
+        // Clear exam data
+        currentExamData = null;
+        examAnswers = {};
+        
+        // Get user from localStorage
+        const user = JSON.parse(localStorage.getItem('user'));
+        
         showCustomAlert(
           'Success',
           `Exam submitted successfully! Your score: ${result.data.submission.score}`,
-          () => showStudentDashboard(currentUser)
+          () => {
+            if (user) {
+              showStudentDashboard(user);
+            } else {
+              hideAllScreens();
+              document.getElementById('loginScreen').classList.add('active');
+            }
+          }
         );
       } else {
         showCustomAlert('Error', result.message);
@@ -1238,13 +1252,22 @@
       const result = await response.json();
       
       if (result.success) {
-        startExam(currentUser, result.data.exam);
+        // Check if already submitted
+        if (result.data.exam.has_submitted) {
+          showCustomAlert('Already Submitted', 'You have already submitted this exam. You cannot take it again.');
+          // Reload active exams to remove this from the list
+          loadActiveExams();
+          return;
+        }
+        
+        const user = JSON.parse(localStorage.getItem('user'));
+        startExam(user, result.data.exam);
       } else {
-        alert('Failed to start exam: ' + result.message);
+        showCustomAlert('Error', 'Failed to start exam: ' + result.message);
       }
     } catch (error) {
       console.error('Error starting exam:', error);
-      alert('Failed to start exam');
+      showCustomAlert('Error', 'Failed to start exam');
     }
   }
 
@@ -1850,7 +1873,8 @@
     
     const token = localStorage.getItem('token');
     
-    console.log('Loading submissions for exam:', examId);
+    console.log('Loading submissions for exam ID:', examId);
+    console.log('Exam title:', examTitle);
     
     try {
       const response = await fetch(`${API_BASE_URL}/exams/${examId}/submissions`, {
@@ -1859,7 +1883,8 @@
       
       const result = await response.json();
       
-      console.log('Submissions response:', result);
+      console.log('Submissions API response for exam', examId, ':', result);
+      console.log('Number of submissions:', result.data?.submissions?.length || 0);
       
       if (result.success && result.data.submissions.length > 0) {
         displaySubmissions(result.data.submissions);
