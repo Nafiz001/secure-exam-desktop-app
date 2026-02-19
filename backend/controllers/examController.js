@@ -321,12 +321,21 @@ const submitExam = async (req, res) => {
     const questions = questionsResult.rows;
     let totalScore = 0;
 
+    console.log('[SUBMISSION] Calculating score for exam:', examId);
+    console.log('[SUBMISSION] Questions:', questions);
+    console.log('[SUBMISSION] Student answers:', answers);
+
     answers.forEach(answer => {
-      const question = questions.find(q => q.id === answer.questionId);
-      if (question && answer.selectedAnswer === question.correct_answer) {
+      const question = questions.find(q => q.id === answer.question_id);
+      if (question && answer.selected_answer === question.correct_answer) {
         totalScore += question.marks;
+        console.log(`[SUBMISSION] Correct answer for question ${answer.question_id} (+${question.marks} marks)`);
+      } else if (question) {
+        console.log(`[SUBMISSION] Wrong answer for question ${answer.question_id} (selected: ${answer.selected_answer}, correct: ${question.correct_answer})`);
       }
     });
+
+    console.log('[SUBMISSION] Total score:', totalScore);
 
     // Insert submission
     const result = await pool.query(
