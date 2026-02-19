@@ -1366,21 +1366,10 @@
     hideAllScreens();
     document.getElementById('createExamScreen').classList.add('active');
     
-    // Fix: Force enable inputs and auto-focus with delay
+    // Simple focus with small delay for Electron
     setTimeout(() => {
       const titleInput = document.getElementById('examTitle');
-      const descInput = document.getElementById('examDescription');
-      const durationInput = document.getElementById('examDuration');
-      
-      titleInput.disabled = false;
-      titleInput.readOnly = false;
-      descInput.disabled = false;
-      descInput.readOnly = false;
-      durationInput.disabled = false;
-      durationInput.readOnly = false;
-      
       titleInput.focus();
-      titleInput.click();
     }, 100);
   }
 
@@ -1741,28 +1730,16 @@
     }
     currentQuestionId = null;
     const form = document.getElementById('questionForm');
-    const firstInput = document.getElementById('questionText');
     
     document.getElementById('questionFormTitle').textContent = 'Add Question';
     form.reset();
     document.getElementById('questionFormSection').classList.remove('hidden');
     
-    // Multi-stage focus approach for reliability
-    // Immediate attempt
-    firstInput.focus();
-    
-    // RequestAnimationFrame for next render cycle
-    requestAnimationFrame(() => {
+    // Simple focus without select() or click() - just pure focus
+    setTimeout(() => {
+      const firstInput = document.getElementById('questionText');
       firstInput.focus();
-      firstInput.select();
-      
-      // Final fallback with setTimeout
-      setTimeout(() => {
-        firstInput.focus();
-        firstInput.select();
-        console.log('[QUESTION FORM] Input focused and selected');
-      }, 50);
-    });
+    }, 100);
     
     document.getElementById('questionFormSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
@@ -1791,20 +1768,11 @@
           
           document.getElementById('questionFormSection').classList.remove('hidden');
           
-          // Multi-stage focus approach for reliability
-          const firstInput = document.getElementById('questionText');
-          firstInput.focus();
-          
-          requestAnimationFrame(() => {
+          // Simple focus without select() or click()
+          setTimeout(() => {
+            const firstInput = document.getElementById('questionText');
             firstInput.focus();
-            firstInput.select();
-            
-            setTimeout(() => {
-              firstInput.focus();
-              firstInput.select();
-              console.log('[QUESTION EDIT] Input focused and selected');
-            }, 50);
-          });
+          }, 100);
           
           document.getElementById('questionFormSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
