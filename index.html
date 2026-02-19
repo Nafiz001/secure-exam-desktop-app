@@ -1158,11 +1158,11 @@
       if (result.success) {
         enterWaitingRoom(result.data.exam);
       } else {
-        alert('Failed to rejoin exam: ' + result.message);
+        showCustomAlert('Error', 'Failed to rejoin exam: ' + result.message);
       }
     } catch (error) {
       console.error('Error rejoining exam:', error);
-      alert('Failed to rejoin exam');
+      showCustomAlert('Error', 'Failed to rejoin exam');
     }
   }
 
@@ -1312,7 +1312,7 @@
       }
     } catch (error) {
       console.error('Error loading exams:', error);
-      alert('Failed to load exams. Please try again.');
+      showCustomAlert('Error', 'Failed to load exams. Please try again.');
     }
   }
 
@@ -1415,7 +1415,7 @@
       }
     } catch (error) {
       console.error('Error loading exam:', error);
-      alert('Failed to load exam details.');
+      showCustomAlert('Error', 'Failed to load exam details.');
     }
   }
 
@@ -1441,7 +1441,7 @@
       }
     } catch (error) {
       console.error('Error loading exam:', error);
-      alert('Failed to load exam details.');
+      showCustomAlert('Error', 'Failed to load exam details.');
     }
   }
 
@@ -1466,30 +1466,34 @@
   }
 
   async function deleteExam(examId, examTitle) {
-    if (!confirm(`Are you sure you want to delete "${examTitle}"? This action cannot be undone.`)) {
-      return;
-    }
-    
-    const token = localStorage.getItem('token');
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/exams/${examId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        alert('Exam deleted successfully!');
-        loadTeacherExams();
-      } else {
-        alert('Error: ' + result.message);
+    showCustomConfirm(
+      'Confirm Delete',
+      `Are you sure you want to delete "${examTitle}"? This action cannot be undone.`,
+      async (confirmed) => {
+        if (!confirmed) return;
+        
+        const token = localStorage.getItem('token');
+        
+        try {
+          const response = await fetch(`${API_BASE_URL}/exams/${examId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          const result = await response.json();
+          
+          if (result.success) {
+            showCustomAlert('Success', 'Exam deleted successfully!');
+            loadTeacherExams();
+          } else {
+            showCustomAlert('Error', result.message);
+          }
+        } catch (error) {
+          console.error('Error deleting exam:', error);
+          showCustomAlert('Error', 'Failed to delete exam.');
+        }
       }
-    } catch (error) {
-      console.error('Error deleting exam:', error);
-      alert('Failed to delete exam.');
-    }
+    );
   }
 
   function backToTeacherDashboard() {
@@ -1539,7 +1543,7 @@
       const result = await response.json();
       
       if (result.success) {
-        alert(currentExamId ? 'Exam updated successfully!' : 'Exam created successfully!');
+        showCustomAlert('Success', currentExamId ? 'Exam updated successfully!' : 'Exam created successfully!');
         if (!currentExamId) {
           currentExamId = result.data.exam.id;
           document.getElementById('examFormTitle').textContent = 'Edit Exam';
@@ -1552,11 +1556,11 @@
           }
         }
       } else {
-        alert('Error: ' + result.message);
+        showCustomAlert('Error', result.message);
       }
     } catch (error) {
       console.error('Error saving exam:', error);
-      alert('Failed to save exam.');
+      showCustomAlert('Error', 'Failed to save exam.');
     }
   });
 
@@ -1574,7 +1578,7 @@
     
     try {
       await navigator.clipboard.writeText(roomCode);
-      alert('Room code copied to clipboard!');
+      showCustomAlert('Success', 'Room code copied to clipboard!');
     } catch (error) {
       console.error('Failed to copy:', error);
       // Fallback for older browsers
@@ -1584,7 +1588,7 @@
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      alert('Room code copied to clipboard!');
+      showCustomAlert('Success', 'Room code copied to clipboard!');
     }
   }
 
@@ -1657,35 +1661,39 @@
   async function startExamNow() {
     if (!currentExamId) return;
     
-    if (!confirm('Are you sure you want to start the exam? All joined students will begin the exam immediately.')) {
-      return;
-    }
-    
-    const token = localStorage.getItem('token');
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/exams/${currentExamId}/start`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        alert('Exam started successfully!');
-        clearInterval(participantPollingInterval);
-        participantPollingInterval = null;
+    showCustomConfirm(
+      'Start Exam',
+      'Are you sure you want to start the exam? All joined students will begin the exam immediately.',
+      async (confirmed) => {
+        if (!confirmed) return;
         
-        // Update UI to show exam is in progress
-        document.getElementById('startExamBtn').disabled = true;
-        document.getElementById('startExamBtn').innerHTML = '<span class="material-symbols-outlined">check_circle</span> Exam In Progress';
-      } else {
-        alert('Error: ' + result.message);
+        const token = localStorage.getItem('token');
+        
+        try {
+          const response = await fetch(`${API_BASE_URL}/exams/${currentExamId}/start`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          const result = await response.json();
+          
+          if (result.success) {
+            showCustomAlert('Success', 'Exam started successfully!');
+            clearInterval(participantPollingInterval);
+            participantPollingInterval = null;
+            
+            // Update UI to show exam is in progress
+            document.getElementById('startExamBtn').disabled = true;
+            document.getElementById('startExamBtn').innerHTML = '<span class="material-symbols-outlined">check_circle</span> Exam In Progress';
+          } else {
+            showCustomAlert('Error', result.message);
+          }
+        } catch (error) {
+          console.error('Error starting exam:', error);
+          showCustomAlert('Error', 'Failed to start exam.');
+        }
       }
-    } catch (error) {
-      console.error('Error starting exam:', error);
-      alert('Failed to start exam.');
-    }
+    );
   }
 
   // ========== QUESTION MANAGEMENT ==========
@@ -1725,7 +1733,7 @@
 
   function showAddQuestionForm() {
     if (!currentExamId) {
-      alert('Please save the exam first before adding questions.');
+      showCustomAlert('Warning', 'Please save the exam first before adding questions.');
       return;
     }
     currentQuestionId = null;
@@ -1779,35 +1787,39 @@
       }
     } catch (error) {
       console.error('Error loading question:', error);
-      alert('Failed to load question.');
+      showCustomAlert('Error', 'Failed to load question.');
     }
   }
 
   async function deleteQuestion(questionId) {
-    if (!confirm('Are you sure you want to delete this question?')) {
-      return;
-    }
-    
-    const token = localStorage.getItem('token');
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/exams/questions/${questionId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        alert('Question deleted successfully!');
-        loadQuestionsForCurrentExam();
-      } else {
-        alert('Error: ' + result.message);
+    showCustomConfirm(
+      'Delete Question',
+      'Are you sure you want to delete this question?',
+      async (confirmed) => {
+        if (!confirmed) return;
+        
+        const token = localStorage.getItem('token');
+        
+        try {
+          const response = await fetch(`${API_BASE_URL}/exams/questions/${questionId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          const result = await response.json();
+          
+          if (result.success) {
+            showCustomAlert('Success', 'Question deleted successfully!');
+            loadQuestionsForCurrentExam();
+          } else {
+            showCustomAlert('Error', result.message);
+          }
+        } catch (error) {
+          console.error('Error deleting question:', error);
+          showCustomAlert('Error', 'Failed to delete question.');
+        }
       }
-    } catch (error) {
-      console.error('Error deleting question:', error);
-      alert('Failed to delete question.');
-    }
+    );
   }
 
   function closeQuestionForm() {
@@ -1856,11 +1868,11 @@
         // Reload questions in manage screen
         loadQuestionsForCurrentExam();
       } else {
-        alert('Error: ' + result.message);
+        showCustomAlert('Error', result.message);
       }
     } catch (error) {
       console.error('Error saving question:', error);
-      alert('Failed to save question.');
+      showCustomAlert('Error', 'Failed to save question.');
     }
   });
 
@@ -1895,7 +1907,7 @@
       }
     } catch (error) {
       console.error('Error loading submissions:', error);
-      alert('Failed to load submissions.');
+      showCustomAlert('Error', 'Failed to load submissions.');
     }
   }
 
@@ -1994,7 +2006,7 @@
 
   function showAdminPanel(user) {
     // TODO: Implement admin panel
-    alert(`Welcome, ${user.name}!\n\nAdmin Panel coming soon...\n\nFor now, you'll see the exam interface.`);
+    showCustomAlert('Welcome', `Welcome, ${user.name}!\n\nAdmin Panel coming soon...\n\nFor now, you'll see the exam interface.`);
     startExam(user);
   }
 
@@ -2046,8 +2058,8 @@
 
   window.electronAPI.onForceSubmit(() => {
     examEnded = true;
-    alert("Exam auto-submitted due to forbidden application.");
-    logout();
+    showCustomAlert('Exam Submitted', 'Exam auto-submitted due to forbidden application.');
+    setTimeout(() => logout(), 2000);
   });
 </script>
 
