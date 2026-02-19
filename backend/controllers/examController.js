@@ -134,7 +134,7 @@ const getExams = async (req, res) => {
  */
 const getExamById = async (req, res) => {
   const examId = req.params.id;
-  const { role } = req.user;
+  const { role, userId } = req.user;
 
   try {
     // Get exam details
@@ -154,6 +154,20 @@ const getExamById = async (req, res) => {
     }
 
     const exam = examResult.rows[0];
+
+    // Check if student has already submitted (for students only)
+    let hasSubmitted = false;
+    if (role === 'student') {
+      const submissionCheck = await pool.query(
+        'SELECT id FROM submissions WHERE exam_id = $1 AND student_id = $2',
+        [examId, userId]
+      );
+      hasSubmitted = submissionCheck.rows.length > 0;
+      
+      if (hasSubmitted) {
+        console.log(`[GET EXAM] Student ${userId} has already submitted exam ${examId}`);
+      }
+    }
 
     // Get questions
     let questionsQuery;
@@ -182,7 +196,8 @@ const getExamById = async (req, res) => {
       data: {
         exam: {
           ...exam,
-          questions: questionsResult.rows
+          questions: questionsResult.rows,
+          has_submitted: hasSubmitted
         }
       }
     });
@@ -687,16 +702,19 @@ const getMyActiveExams = async (req, res) => {
       console.log('[AUTO-COMPLETE] Completed exams:', updateResult.rows);
     }
 
-    // Then fetch active exams
+    // Then fetch active exams (exclude already submitted exams)
     const result = await pool.query(
       `SELECT e.*, u.name as teacher_name, ep.status as participation_status, ep.joined_at,
               e.started_at AT TIME ZONE 'UTC' + (e.duration || ' minutes')::INTERVAL as exam_end_time,
-              NOW() AT TIME ZONE 'UTC' as current_time
+              NOW() AT TIME ZONE 'UTC' as current_time,
+              (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count
        FROM exam_participants ep
        JOIN exams e ON ep.exam_id = e.id
        JOIN users u ON e.created_by = u.id
+       LEFT JOIN submissions s ON s.exam_id = e.id AND s.student_id = ep.student_id
        WHERE ep.student_id = $1 
          AND e.status IN ('waiting', 'in_progress')
+         AND s.id IS NULL
        ORDER BY ep.joined_at DESC`,
       [studentId]
     );

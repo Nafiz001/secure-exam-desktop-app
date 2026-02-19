@@ -178,19 +178,24 @@ const getExamSubmissions = async (req, res) => {
   const examId = req.params.examId;
   const teacherId = req.user.userId;
 
+  console.log(`[GET SUBMISSIONS] Fetching submissions for exam ${examId} by teacher ${teacherId}`);
+
   try {
     // Verify exam belongs to teacher
     const examCheck = await pool.query(
-      'SELECT id FROM exams WHERE id = $1 AND created_by = $2',
+      'SELECT id, title FROM exams WHERE id = $1 AND created_by = $2',
       [examId, teacherId]
     );
 
     if (examCheck.rows.length === 0) {
+      console.log(`[GET SUBMISSIONS] Exam ${examId} not found or not owned by teacher ${teacherId}`);
       return res.status(404).json({
         success: false,
         message: 'Exam not found or you do not have permission to view submissions'
       });
     }
+
+    console.log(`[GET SUBMISSIONS] Exam found: ${examCheck.rows[0].title}`);
 
     // Get all submissions with student details
     const result = await pool.query(
@@ -201,6 +206,11 @@ const getExamSubmissions = async (req, res) => {
        ORDER BY s.submitted_at DESC`,
       [examId]
     );
+
+    console.log(`[GET SUBMISSIONS] Found ${result.rows.length} submissions for exam ${examId}`);
+    if (result.rows.length > 0) {
+      console.log('[GET SUBMISSIONS] Submission IDs:', result.rows.map(s => s.id));
+    }
 
     res.status(200).json({
       success: true,
