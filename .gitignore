@@ -1,1 +1,4 @@
 node_modules
+renderer/dist
+COPILOT_CONTEXT.md
+dist

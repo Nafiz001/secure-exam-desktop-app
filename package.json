@@ -5,7 +5,12 @@
   "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "electron ."
+    "install:backend": "npm --prefix backend install --omit=dev",
+    "start": "npm run build:renderer && electron .",
+    "dev:renderer": "vite --config renderer/vite.config.mjs",
+    "build:renderer": "vite build --config renderer/vite.config.mjs",
+    "start:react": "npm run start",
+    "pack:win": "npm run build:renderer && npm run install:backend && electron-builder --win --config.win.signAndEditExecutable=false"
   },
   "repository": {
     "type": "git",
@@ -20,6 +25,41 @@
   },
   "homepage": "https://github.com/Nafiz001/secure-exam-desktop-app#readme",
   "devDependencies": {
-    "electron": "^39.2.7"
+    "@vitejs/plugin-react": "^5.1.0",
+    "cross-env": "^10.1.0",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12",
+    "vite": "^7.1.7"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "ps-list": "^9.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "build": {
+    "appId": "com.nafiz.secureexamdesktop",
+    "productName": "Secure Exam Desktop",
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/dist/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    }
   }
 }
