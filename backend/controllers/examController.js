@@ -23,15 +23,51 @@ async function generateUniqueRoomCode() {
   return code;
 }
 
+function normalizeQuestionType(rawType) {
+  const normalized = String(rawType || 'mcq').toLowerCase();
+  if (normalized === 'written') return 'written';
+  if (normalized === 'coding') return 'coding';
+  return 'mcq';
+}
+
+function normalizeExamType(rawType) {
+  return String(rawType || 'lab_quiz').toLowerCase() === 'lab_test' ? 'lab_test' : 'lab_quiz';
+}
+
+async function syncExpiredExamStatuses() {
+  const expiredExamResult = await pool.query(
+    `UPDATE exams
+     SET status = 'completed',
+         updated_at = CURRENT_TIMESTAMP
+     WHERE status = 'in_progress'
+       AND started_at IS NOT NULL
+       AND started_at + (duration * INTERVAL '1 minute') <= CURRENT_TIMESTAMP
+     RETURNING id`
+  );
+
+  const expiredExamIds = expiredExamResult.rows.map((row) => Number(row.id)).filter(Number.isInteger);
+  if (expiredExamIds.length === 0) {
+    return;
+  }
+
+  await pool.query(
+    `UPDATE exam_participants
+     SET status = 'completed'
+     WHERE exam_id = ANY($1::INT[])
+       AND status = 'taking'`,
+    [expiredExamIds]
+  );
+}
+
 /**
  * Create a new exam (Teacher only)
  * POST /api/exams
  */
 const createExam = async (req, res) => {
-  const { title, description, duration } = req.body;
+  const { title, description, duration, exam_type } = req.body;
   const teacherId = req.user.userId;
+  const normalizedExamType = normalizeExamType(exam_type);
 
-  // Validation
   if (!title || !duration) {
     return res.status(400).json({
       success: false,
@@ -47,14 +83,13 @@ const createExam = async (req, res) => {
   }
 
   try {
-    // Generate unique room code
     const roomCode = await generateUniqueRoomCode();
-    
+
     const result = await pool.query(
-      `INSERT INTO exams (title, description, duration, created_by, room_code, status) 
-       VALUES ($1, $2, $3, $4, $5, 'created') 
-       RETURNING id, title, description, duration, created_by, room_code, status, created_at`,
-      [title, description || '', duration, teacherId, roomCode]
+      `INSERT INTO exams (title, description, exam_type, duration, created_by, room_code, status) 
+       VALUES ($1, $2, $3, $4, $5, $6, 'created') 
+       RETURNING id, title, description, exam_type, duration, created_by, room_code, status, created_at`,
+      [title, description || '', normalizedExamType, duration, teacherId, roomCode]
     );
 
     res.status(201).json({
@@ -64,7 +99,6 @@ const createExam = async (req, res) => {
         exam: result.rows[0]
       }
     });
-
   } catch (error) {
     console.error('Create exam error:', error);
     res.status(500).json({
@@ -77,21 +111,22 @@ const createExam = async (req, res) => {
 /**
  * Get all exams
  * GET /api/exams
- * Teachers: Get their own exams
- * Students: Get all available exams
  */
 const getExams = async (req, res) => {
   const { userId, role } = req.user;
 
   try {
+    await syncExpiredExamStatuses();
+
     let query;
     let params;
 
     if (role === 'teacher') {
-      // Teachers see only their exams
       query = `
         SELECT e.*, u.name as teacher_name,
-        (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count
+          (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count,
+          (SELECT COUNT(*) FROM questions WHERE exam_id = e.id AND COALESCE(question_type, 'mcq') = 'written') as written_question_count,
+          (SELECT COUNT(*) FROM questions WHERE exam_id = e.id AND COALESCE(question_type, 'mcq') = 'coding') as coding_question_count
         FROM exams e
         JOIN users u ON e.created_by = u.id
         WHERE e.created_by = $1
@@ -99,10 +134,11 @@ const getExams = async (req, res) => {
       `;
       params = [userId];
     } else {
-      // Students see all exams with question count
       query = `
         SELECT e.*, u.name as teacher_name,
-        (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count
+          (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count,
+          (SELECT COUNT(*) FROM questions WHERE exam_id = e.id AND COALESCE(question_type, 'mcq') = 'written') as written_question_count,
+          (SELECT COUNT(*) FROM questions WHERE exam_id = e.id AND COALESCE(question_type, 'mcq') = 'coding') as coding_question_count
         FROM exams e
         JOIN users u ON e.created_by = u.id
         ORDER BY e.created_at DESC
@@ -118,7 +154,6 @@ const getExams = async (req, res) => {
         exams: result.rows
       }
     });
-
   } catch (error) {
     console.error('Get exams error:', error);
     res.status(500).json({
@@ -137,7 +172,8 @@ const getExamById = async (req, res) => {
   const { role, userId } = req.user;
 
   try {
-    // Get exam details
+    await syncExpiredExamStatuses();
+
     const examResult = await pool.query(
       `SELECT e.*, u.name as teacher_name
        FROM exams e
@@ -155,7 +191,6 @@ const getExamById = async (req, res) => {
 
     const exam = examResult.rows[0];
 
-    // Check if student has already submitted (for students only)
     let hasSubmitted = false;
     if (role === 'student') {
       const submissionCheck = await pool.query(
@@ -163,26 +198,41 @@ const getExamById = async (req, res) => {
         [examId, userId]
       );
       hasSubmitted = submissionCheck.rows.length > 0;
-      
-      if (hasSubmitted) {
-        console.log(`[GET EXAM] Student ${userId} has already submitted exam ${examId}`);
-      }
     }
 
-    // Get questions
     let questionsQuery;
     if (role === 'teacher' || role === 'admin') {
-      // Teachers and admins see correct answers
       questionsQuery = `
-        SELECT id, exam_id, question_text, options, correct_answer, marks, created_at
+        SELECT
+          id,
+          exam_id,
+          question_text,
+          COALESCE(question_type, 'mcq') as question_type,
+          options,
+          correct_answer,
+          reference_answer,
+          sample_input,
+          sample_output,
+          starter_code,
+          marks,
+          created_at
         FROM questions
         WHERE exam_id = $1
         ORDER BY id ASC
       `;
     } else {
-      // Students don't see correct answers
       questionsQuery = `
-        SELECT id, exam_id, question_text, options, marks
+        SELECT
+          id,
+          exam_id,
+          question_text,
+          COALESCE(question_type, 'mcq') as question_type,
+          options,
+          sample_input,
+          sample_output,
+          starter_code,
+          marks,
+          created_at
         FROM questions
         WHERE exam_id = $1
         ORDER BY id ASC
@@ -201,7 +251,6 @@ const getExamById = async (req, res) => {
         }
       }
     });
-
   } catch (error) {
     console.error('Get exam by ID error:', error);
     res.status(500).json({
@@ -217,11 +266,11 @@ const getExamById = async (req, res) => {
  */
 const updateExam = async (req, res) => {
   const examId = req.params.id;
-  const { title, description, duration } = req.body;
+  const { title, description, duration, exam_type } = req.body;
   const teacherId = req.user.userId;
+  const normalizedExamType = exam_type === undefined ? null : normalizeExamType(exam_type);
 
   try {
-    // Check if exam exists and belongs to teacher
     const checkResult = await pool.query(
       'SELECT * FROM exams WHERE id = $1 AND created_by = $2',
       [examId, teacherId]
@@ -239,10 +288,11 @@ const updateExam = async (req, res) => {
        SET title = COALESCE($1, title),
            description = COALESCE($2, description),
            duration = COALESCE($3, duration),
+           exam_type = COALESCE($4, exam_type),
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $4 AND created_by = $5
+         WHERE id = $5 AND created_by = $6
        RETURNING *`,
-      [title, description, duration, examId, teacherId]
+        [title, description, duration, normalizedExamType, examId, teacherId]
     );
 
     res.status(200).json({
@@ -252,7 +302,6 @@ const updateExam = async (req, res) => {
         exam: result.rows[0]
       }
     });
-
   } catch (error) {
     console.error('Update exam error:', error);
     res.status(500).json({
@@ -287,7 +336,6 @@ const deleteExam = async (req, res) => {
       success: true,
       message: 'Exam deleted successfully'
     });
-
   } catch (error) {
     console.error('Delete exam error:', error);
     res.status(500).json({
@@ -314,60 +362,126 @@ const submitExam = async (req, res) => {
   }
 
   try {
-    // Check if already submitted
-    const checkResult = await pool.query(
+    const alreadySubmitted = await pool.query(
       'SELECT id FROM submissions WHERE exam_id = $1 AND student_id = $2',
       [examId, studentId]
     );
 
-    if (checkResult.rows.length > 0) {
+    if (alreadySubmitted.rows.length > 0) {
       return res.status(409).json({
         success: false,
         message: 'You have already submitted this exam'
       });
     }
 
-    // Calculate score
     const questionsResult = await pool.query(
-      'SELECT id, correct_answer, marks FROM questions WHERE exam_id = $1',
+      `SELECT id, COALESCE(question_type, 'mcq') as question_type, correct_answer, marks
+       FROM questions
+       WHERE exam_id = $1
+       ORDER BY id ASC`,
       [examId]
     );
 
     const questions = questionsResult.rows;
-    let totalScore = 0;
-
-    console.log('[SUBMISSION] Calculating score for exam:', examId);
-    console.log('[SUBMISSION] Questions:', questions);
-    console.log('[SUBMISSION] Student answers:', answers);
-
-    answers.forEach(answer => {
-      const question = questions.find(q => q.id === answer.question_id);
-      if (question && answer.selected_answer === question.correct_answer) {
-        totalScore += question.marks;
-        console.log(`[SUBMISSION] Correct answer for question ${answer.question_id} (+${question.marks} marks)`);
-      } else if (question) {
-        console.log(`[SUBMISSION] Wrong answer for question ${answer.question_id} (selected: ${answer.selected_answer}, correct: ${question.correct_answer})`);
+    const answerMap = new Map();
+    answers.forEach((answer) => {
+      if (answer && answer.question_id !== undefined && answer.question_id !== null) {
+        answerMap.set(Number(answer.question_id), answer);
       }
     });
 
-    console.log('[SUBMISSION] Total score:', totalScore);
+    let autoScore = 0;
+    let hasManualEvaluationQuestions = false;
+    const normalizedAnswers = [];
 
-    // Insert submission
+    questions.forEach((question) => {
+      const qType = normalizeQuestionType(question.question_type);
+      const maxMarks = Number(question.marks) || 0;
+      const incoming = answerMap.get(Number(question.id)) || {};
+
+      if (qType === 'written' || qType === 'coding') {
+        hasManualEvaluationQuestions = true;
+        const writtenAnswer = typeof incoming.written_answer === 'string'
+          ? incoming.written_answer.trim()
+          : '';
+        const language = typeof incoming.language === 'string' ? incoming.language.trim() : '';
+
+        normalizedAnswers.push({
+          question_id: Number(question.id),
+          question_type: qType,
+          selected_answer: null,
+          written_answer: writtenAnswer,
+          language,
+          is_correct: null,
+          max_marks: maxMarks,
+          awarded_marks: 0,
+          evaluated: false,
+          evaluation_comment: ''
+        });
+      } else {
+        const selectedAnswerRaw = incoming.selected_answer;
+        const selectedAnswer = selectedAnswerRaw === undefined || selectedAnswerRaw === null || selectedAnswerRaw === ''
+          ? null
+          : Number(selectedAnswerRaw);
+        const correctAnswer = question.correct_answer === undefined || question.correct_answer === null || question.correct_answer === ''
+          ? null
+          : Number(question.correct_answer);
+
+        const isCorrect = selectedAnswer !== null
+          && !Number.isNaN(selectedAnswer)
+          && correctAnswer !== null
+          && !Number.isNaN(correctAnswer)
+          && selectedAnswer === correctAnswer;
+
+        const awardedMarks = isCorrect ? maxMarks : 0;
+        autoScore += awardedMarks;
+
+        normalizedAnswers.push({
+          question_id: Number(question.id),
+          question_type: 'mcq',
+          selected_answer: selectedAnswer,
+          written_answer: null,
+          is_correct: isCorrect,
+          max_marks: maxMarks,
+          awarded_marks: awardedMarks,
+          evaluated: true,
+          evaluation_comment: ''
+        });
+      }
+    });
+
+    const evaluationStatus = hasManualEvaluationQuestions ? 'pending' : 'completed';
+
     const result = await pool.query(
-      `INSERT INTO submissions (exam_id, student_id, answers, violations, score) 
-       VALUES ($1, $2, $3, $4, $5) 
-       RETURNING id, exam_id, student_id, score, submitted_at`,
-      [examId, studentId, JSON.stringify(answers), JSON.stringify(violations || []), totalScore]
+      `INSERT INTO submissions (
+         exam_id, student_id, answers, violations,
+         auto_score, manual_score, score, evaluation_status
+       ) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+       RETURNING
+         id, exam_id, student_id, auto_score, manual_score, score,
+         evaluation_status, submitted_at`,
+      [
+        examId,
+        studentId,
+        JSON.stringify(normalizedAnswers),
+        JSON.stringify(violations || []),
+        autoScore,
+        0,
+        autoScore,
+        evaluationStatus
+      ]
     );
 
     res.status(201).json({
       success: true,
-      message: 'Exam submitted successfully',
+      message: hasManualEvaluationQuestions
+        ? 'Exam submitted. Manual answers are pending teacher evaluation.'
+        : 'Exam submitted successfully',
       data: {
         submission: result.rows[0]
       }
     });
-
   } catch (error) {
     console.error('Submit exam error:', error);
     res.status(500).json({
@@ -400,10 +514,11 @@ const joinExam = async (req, res) => {
   }
 
   try {
-    // Find exam by room code
+    await syncExpiredExamStatuses();
+
     const examResult = await pool.query(
       `SELECT e.*, u.name as teacher_name,
-       (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count
+         (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count
        FROM exams e
        JOIN users u ON e.created_by = u.id
        WHERE UPPER(e.room_code) = UPPER($1)`,
@@ -419,7 +534,6 @@ const joinExam = async (req, res) => {
 
     const exam = examResult.rows[0];
 
-    // Check if exam already started or completed
     if (exam.status === 'completed') {
       return res.status(400).json({
         success: false,
@@ -427,20 +541,17 @@ const joinExam = async (req, res) => {
       });
     }
 
-    // Check if student already joined
     const participantCheck = await pool.query(
       'SELECT id FROM exam_participants WHERE exam_id = $1 AND student_id = $2',
       [exam.id, studentId]
     );
 
     if (participantCheck.rows.length > 0) {
-      // Update student name if they already joined
       await pool.query(
         'UPDATE exam_participants SET student_name = $1 WHERE exam_id = $2 AND student_id = $3',
         [studentName.trim(), exam.id, studentId]
       );
-      
-      // Already joined, return exam info
+
       return res.status(200).json({
         success: true,
         message: 'Already joined this exam',
@@ -448,13 +559,11 @@ const joinExam = async (req, res) => {
       });
     }
 
-    // Add student to participants with name
     await pool.query(
       'INSERT INTO exam_participants (exam_id, student_id, student_name, status) VALUES ($1, $2, $3, $4)',
       [exam.id, studentId, studentName.trim(), 'waiting']
     );
 
-    // Update exam status to waiting if it was created
     if (exam.status === 'created') {
       await pool.query(
         'UPDATE exams SET status = $1 WHERE id = $2',
@@ -468,7 +577,6 @@ const joinExam = async (req, res) => {
       message: 'Successfully joined exam',
       data: { exam }
     });
-
   } catch (error) {
     console.error('Join exam error:', error);
     res.status(500).json({
@@ -487,7 +595,6 @@ const getExamParticipants = async (req, res) => {
   const teacherId = req.user.userId;
 
   try {
-    // Verify exam belongs to teacher
     const examCheck = await pool.query(
       'SELECT id FROM exams WHERE id = $1 AND created_by = $2',
       [examId, teacherId]
@@ -500,7 +607,6 @@ const getExamParticipants = async (req, res) => {
       });
     }
 
-    // Get participants
     const result = await pool.query(
       `SELECT 
          ep.*,
@@ -521,7 +627,6 @@ const getExamParticipants = async (req, res) => {
         participants: result.rows
       }
     });
-
   } catch (error) {
     console.error('Get participants error:', error);
     res.status(500).json({
@@ -540,7 +645,6 @@ const startExam = async (req, res) => {
   const teacherId = req.user.userId;
 
   try {
-    // Verify exam belongs to teacher
     const examCheck = await pool.query(
       'SELECT id, status FROM exams WHERE id = $1 AND created_by = $2',
       [examId, teacherId]
@@ -555,7 +659,6 @@ const startExam = async (req, res) => {
 
     const exam = examCheck.rows[0];
 
-    // Check if already started
     if (exam.status === 'in_progress') {
       return res.status(400).json({
         success: false,
@@ -563,27 +666,24 @@ const startExam = async (req, res) => {
       });
     }
 
-    // Check if at least one student joined
     const participantCount = await pool.query(
       'SELECT COUNT(*) FROM exam_participants WHERE exam_id = $1',
       [examId]
     );
 
-    if (parseInt(participantCount.rows[0].count) === 0) {
+    if (parseInt(participantCount.rows[0].count, 10) === 0) {
       return res.status(400).json({
         success: false,
         message: 'No students have joined yet'
       });
     }
 
-    // Start exam
     const startedAt = new Date();
     await pool.query(
       'UPDATE exams SET status = $1, started_at = $2 WHERE id = $3',
       ['in_progress', startedAt, examId]
     );
 
-    // Update participants status to taking
     await pool.query(
       'UPDATE exam_participants SET status = $1 WHERE exam_id = $2',
       ['taking', examId]
@@ -597,7 +697,6 @@ const startExam = async (req, res) => {
         started_at: startedAt
       }
     });
-
   } catch (error) {
     console.error('Start exam error:', error);
     res.status(500).json({
@@ -617,7 +716,8 @@ const getExamStatus = async (req, res) => {
   const userRole = req.user.role;
 
   try {
-    // Get exam details
+    await syncExpiredExamStatuses();
+
     const examResult = await pool.query(
       'SELECT id, title, status, started_at, duration, created_by FROM exams WHERE id = $1',
       [examId]
@@ -632,7 +732,6 @@ const getExamStatus = async (req, res) => {
 
     const exam = examResult.rows[0];
 
-    // Verify access (teacher owns it or student joined)
     if (userRole === 'student') {
       const participantCheck = await pool.query(
         'SELECT id FROM exam_participants WHERE exam_id = $1 AND student_id = $2',
@@ -652,7 +751,6 @@ const getExamStatus = async (req, res) => {
       });
     }
 
-    // Get participant count
     const participantCount = await pool.query(
       'SELECT COUNT(*) FROM exam_participants WHERE exam_id = $1',
       [examId]
@@ -666,10 +764,9 @@ const getExamStatus = async (req, res) => {
         status: exam.status,
         started_at: exam.started_at,
         duration: exam.duration,
-        participants_count: parseInt(participantCount.rows[0].count)
+        participants_count: parseInt(participantCount.rows[0].count, 10)
       }
     });
-
   } catch (error) {
     console.error('Get exam status error:', error);
     res.status(500).json({
@@ -687,27 +784,17 @@ const getMyActiveExams = async (req, res) => {
   const studentId = req.user.userId;
 
   try {
-    // First, auto-complete any expired exams
-    const updateResult = await pool.query(
-      `UPDATE exams
-       SET status = 'completed'
-       WHERE status = 'in_progress'
-         AND started_at IS NOT NULL
-         AND (started_at AT TIME ZONE 'UTC' + (duration || ' minutes')::INTERVAL) <= NOW() AT TIME ZONE 'UTC'
-       RETURNING id, title, status`
-    );
-    
-    console.log(`[AUTO-COMPLETE] Marked ${updateResult.rowCount} expired exams as completed`);
-    if (updateResult.rowCount > 0) {
-      console.log('[AUTO-COMPLETE] Completed exams:', updateResult.rows);
-    }
+    await syncExpiredExamStatuses();
 
-    // Then fetch active exams (exclude already submitted exams)
     const result = await pool.query(
-      `SELECT e.*, u.name as teacher_name, ep.status as participation_status, ep.joined_at,
-              e.started_at AT TIME ZONE 'UTC' + (e.duration || ' minutes')::INTERVAL as exam_end_time,
-              NOW() AT TIME ZONE 'UTC' as current_time,
-              (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count
+      `SELECT
+         e.*,
+         u.name as teacher_name,
+         ep.status as participation_status,
+         ep.joined_at,
+         e.started_at AT TIME ZONE 'UTC' + (e.duration || ' minutes')::INTERVAL as exam_end_time,
+         NOW() AT TIME ZONE 'UTC' as current_time,
+         (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count
        FROM exam_participants ep
        JOIN exams e ON ep.exam_id = e.id
        JOIN users u ON e.created_by = u.id
@@ -719,18 +806,12 @@ const getMyActiveExams = async (req, res) => {
       [studentId]
     );
 
-    console.log(`[GET MY ACTIVE EXAMS] Found ${result.rows.length} active exams for student ${studentId}`);
-    result.rows.forEach(exam => {
-      console.log(`  - Exam: ${exam.title}, Status: ${exam.status}, Started: ${exam.started_at}, End: ${exam.exam_end_time}, Now: ${exam.current_time}`);
-    });
-
     res.status(200).json({
       success: true,
       data: {
         exams: result.rows
       }
     });
-
   } catch (error) {
     console.error('Get active exams error:', error);
     res.status(500).json({

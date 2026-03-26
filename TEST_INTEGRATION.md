@@ -108,7 +108,7 @@ npm start
 
 ## 🔍 What Changed
 
-### `index.html`
+### `renderer/src/pages/LoginPage.jsx` and `renderer/src/App.jsx`
 - ✅ Added email and password input IDs
 - ✅ Converted button to form submit
 - ✅ Added loading spinner and error message UI

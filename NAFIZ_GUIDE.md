@@ -389,7 +389,7 @@ Authorization: Bearer <token>
 
 ### Task 1: Update Login Form to Call Backend API
 
-**File:** `index.html` (Login screen)
+**File:** `renderer/src/pages/LoginPage.jsx` (Login screen)
 
 **Current:** Login form does nothing  
 **Target:** Call `/api/auth/login` on form submit
@@ -531,7 +531,7 @@ npm start
 Already configured in backend. Make sure you're using `http://localhost:5000`
 
 ### "fetch is not defined"
-`fetch` is available in modern browsers. Use in renderer process (index.html), not in main.js.
+`fetch` is available in modern browsers. Use in renderer React files (for example `renderer/src/api.js`), not in `main.js`.
 
 ### Token expired
 Tokens expire after 24 hours. Handle 401 errors and redirect to login:
@@ -550,7 +550,8 @@ if (response.status === 401) {
 secure-exam-desktop-app/
 ├── main.js              # Dewan's - Don't modify
 ├── preload.js           # Shared - Coordinate if changes needed
-├── index.html           # Nafiz's - Update login form
+├── renderer/            # Nafiz's - React frontend
+│   └── src/pages/LoginPage.jsx
 ├── backend/             # Dewan's - Already done
 │   ├── server.js
 │   ├── routes/auth.js

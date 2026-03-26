@@ -14,11 +14,15 @@ const {
   getExamStatus,
   getMyActiveExams
 } = require('../controllers/examController');
+const { runCode } = require('../controllers/codeExecutionController');
 const {
   addQuestion,
   updateQuestion,
   deleteQuestion,
-  getExamSubmissions
+  getExamSubmissions,
+  getEvaluationParticipants,
+  getSubmissionAnswerSheet,
+  evaluateWrittenAnswers
 } = require('../controllers/questionController');
 
 // Exam routes
@@ -42,6 +46,10 @@ router.delete('/questions/:id', protect, authorize('teacher'), deleteQuestion);
 
 // Submission routes
 router.post('/:id/submit', protect, authorize('student'), submitExam);
+router.post('/:id/run-code', protect, authorize('student'), runCode);
 router.get('/:examId/submissions', protect, authorize('teacher'), getExamSubmissions);
+router.get('/:examId/evaluation/participants', protect, authorize('teacher'), getEvaluationParticipants);
+router.get('/:examId/evaluation/submissions/:submissionId', protect, authorize('teacher'), getSubmissionAnswerSheet);
+router.put('/:examId/evaluation/submissions/:submissionId/score', protect, authorize('teacher'), evaluateWrittenAnswers);
 
 module.exports = router;

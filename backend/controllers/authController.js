@@ -7,7 +7,7 @@ const pool = require('../config/database');
  * POST /api/auth/register
  */
 const register = async (req, res) => {
-  const { name, email, password, role } = req.body;
+  const { name, email, password, role, roll_number } = req.body;
 
   // Validation
   if (!name || !email || !password || !role) {
@@ -45,11 +45,27 @@ const register = async (req, res) => {
     const password_hash = await bcrypt.hash(password, saltRounds);
 
     // Insert user
+    const normalizedRoll = role === 'student' && roll_number ? String(roll_number).trim() : null;
+
+    if (normalizedRoll) {
+      const rollExists = await pool.query(
+        'SELECT id FROM users WHERE role = $1 AND roll_number = $2',
+        ['student', normalizedRoll]
+      );
+
+      if (rollExists.rows.length > 0) {
+        return res.status(409).json({
+          success: false,
+          message: 'Student with this roll number already exists'
+        });
+      }
+    }
+
     const result = await pool.query(
-      `INSERT INTO users (name, email, password_hash, role) 
-       VALUES ($1, $2, $3, $4) 
-       RETURNING id, name, email, role, created_at`,
-      [name, email, password_hash, role]
+      `INSERT INTO users (name, email, password_hash, role, roll_number) 
+       VALUES ($1, $2, $3, $4, $5) 
+       RETURNING id, name, email, role, roll_number, created_at`,
+      [name, email, password_hash, role, normalizedRoll]
     );
 
     const user = result.rows[0];
@@ -73,7 +89,8 @@ const register = async (req, res) => {
           id: user.id,
           name: user.name,
           email: user.email,
-          role: user.role
+          role: user.role,
+          roll_number: user.roll_number || null
         },
         token
       }
@@ -106,7 +123,7 @@ const login = async (req, res) => {
   try {
     // Find user by email
     const result = await pool.query(
-      'SELECT id, name, email, password_hash, role FROM users WHERE email = $1',
+      'SELECT id, name, email, password_hash, role, roll_number FROM users WHERE email = $1',
       [email]
     );
 
@@ -148,7 +165,8 @@ const login = async (req, res) => {
           id: user.id,
           name: user.name,
           email: user.email,
-          role: user.role
+          role: user.role,
+          roll_number: user.roll_number || null
         },
         token
       }
@@ -159,6 +177,94 @@ const login = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Internal server error during login'
+    });
+  }
+};
+
+/**
+ * Student direct login by roll number (no password)
+ * POST /api/auth/student-roll-login
+ */
+const studentRollLogin = async (req, res) => {
+  const { roll_number } = req.body;
+
+  if (!roll_number) {
+    return res.status(400).json({
+      success: false,
+      message: 'Roll number is required'
+    });
+  }
+
+  const normalizedRoll = String(roll_number).trim();
+  const generatedEmailBase = `${normalizedRoll}@student.local`;
+
+  try {
+    let result = await pool.query(
+      `SELECT id, name, email, role, roll_number
+       FROM users
+       WHERE role = 'student'
+         AND (
+           roll_number = $1
+           OR SPLIT_PART(email, '@', 1) = $1
+         )
+       LIMIT 1`,
+      [normalizedRoll]
+    );
+
+    if (result.rows.length === 0) {
+      // Auto-provision student account for first-time roll number login.
+      let generatedEmail = generatedEmailBase;
+      const emailExists = await pool.query(
+        'SELECT id FROM users WHERE email = $1 LIMIT 1',
+        [generatedEmail]
+      );
+
+      if (emailExists.rows.length > 0) {
+        generatedEmail = `${normalizedRoll}.${Date.now()}@student.local`;
+      }
+
+      const generatedPasswordHash = await bcrypt.hash(`roll:${normalizedRoll}:${Date.now()}`, 10);
+      const inserted = await pool.query(
+        `INSERT INTO users (name, email, password_hash, role, roll_number)
+         VALUES ($1, $2, $3, 'student', $4)
+         RETURNING id, name, email, role, roll_number`,
+        [`Student ${normalizedRoll}`, generatedEmail, generatedPasswordHash, normalizedRoll]
+      );
+
+      result = { rows: [inserted.rows[0]] };
+    }
+
+    const user = result.rows[0];
+
+    const token = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Student login successful',
+      data: {
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          roll_number: user.roll_number || normalizedRoll
+        },
+        token
+      }
+    });
+  } catch (error) {
+    console.error('Student roll login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error during student roll login'
     });
   }
 };
@@ -200,5 +306,6 @@ const getCurrentUser = async (req, res) => {
 module.exports = {
   register,
   login,
+  studentRollLogin,
   getCurrentUser
 };

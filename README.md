@@ -194,7 +194,12 @@ secure-exam-desktop-app/
 │   └── package.json
 ├── main.js                  # Electron main process
 ├── preload.js              # Electron preload script
-├── index.html              # Frontend UI
+├── renderer/               # React frontend (Vite)
+│   ├── index.html
+│   └── src/
+│       ├── App.jsx
+│       ├── api.js
+│       └── pages/LoginPage.jsx
 ├── package.json            # Electron app config
 └── README.md
 ```

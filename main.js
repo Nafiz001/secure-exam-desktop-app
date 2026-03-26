@@ -9,6 +9,8 @@ const { app, BrowserWindow, ipcMain, globalShortcut } = require("electron");
 const psList = require("ps-list");
 const fs = require("fs");
 const path = require("path");
+const http = require("http");
+const { spawn } = require("child_process");
 
 console.log("[MAIN] Electron modules loaded");
 console.log("[MAIN] psList type:", typeof psList);
@@ -19,6 +21,8 @@ let violationCount = 0;
 let examRunning = false;
 let processScanInterval = null;
 let currentUser = null; // Store logged-in user data
+let backendProcess = null;
+const REACT_RENDERER_PATH = path.join(__dirname, "renderer", "dist", "index.html");
 
 const sessionLog = [];
 const MAX_VIOLATIONS = 3;
@@ -40,6 +44,116 @@ function logEvent(type, severity = "info") {
     severity,
     timestamp: new Date().toISOString()
   });
+}
+
+function getBackendPort() {
+  return Number(process.env.BACKEND_PORT || process.env.PORT || 5000);
+}
+
+function getBackendServerPath() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "backend", "server.js");
+  }
+  return path.join(__dirname, "backend", "server.js");
+}
+
+function getBackendWorkingDir() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "backend");
+  }
+  return path.join(__dirname, "backend");
+}
+
+function isBackendResponsive(port = getBackendPort()) {
+  return new Promise((resolve) => {
+    const req = http.get(
+      {
+        host: "127.0.0.1",
+        port,
+        path: "/api/health",
+        timeout: 1200
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode === 200);
+      }
+    );
+
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function waitForBackendReady(port = getBackendPort(), timeoutMs = 15000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    // eslint-disable-next-line no-await-in-loop
+    const ok = await isBackendResponsive(port);
+    if (ok) return true;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return false;
+}
+
+async function startBackendServer() {
+  const port = getBackendPort();
+  const alreadyRunning = await isBackendResponsive(port);
+  if (alreadyRunning) {
+    console.log(`[BACKEND] Existing backend detected on port ${port}. Reusing it.`);
+    return;
+  }
+
+  const serverPath = getBackendServerPath();
+  const backendCwd = getBackendWorkingDir();
+
+  if (!fs.existsSync(serverPath)) {
+    console.error("[BACKEND] server.js not found at:", serverPath);
+    return;
+  }
+
+  console.log("[BACKEND] Starting backend from:", serverPath);
+  backendProcess = spawn(process.execPath, [serverPath], {
+    cwd: backendCwd,
+    env: {
+      ...process.env,
+      PORT: String(port),
+      ELECTRON_RUN_AS_NODE: "1"
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  backendProcess.stdout.on("data", (data) => {
+    process.stdout.write(`[BACKEND] ${data}`);
+  });
+
+  backendProcess.stderr.on("data", (data) => {
+    process.stderr.write(`[BACKEND_ERR] ${data}`);
+  });
+
+  backendProcess.on("exit", (code, signal) => {
+    console.log(`[BACKEND] exited with code=${code} signal=${signal}`);
+    backendProcess = null;
+  });
+
+  const ready = await waitForBackendReady(port, 15000);
+  if (!ready) {
+    console.warn("[BACKEND] Did not become ready within timeout. UI will still open.");
+  } else {
+    console.log(`[BACKEND] Ready on port ${port}`);
+  }
+}
+
+function stopBackendServer() {
+  if (!backendProcess || backendProcess.killed) {
+    return;
+  }
+
+  console.log("[BACKEND] Stopping backend process...");
+  backendProcess.kill();
 }
 
 /* =========================
@@ -64,8 +178,14 @@ function createWindow() {
   });
 
   console.log("[MAIN] Window created, preload:", path.join(__dirname, "preload.js"));
-  
-  mainWindow.loadFile("index.html");
+
+  if (fs.existsSync(REACT_RENDERER_PATH)) {
+    console.log("[MAIN] Loading React renderer:", REACT_RENDERER_PATH);
+    mainWindow.loadFile(REACT_RENDERER_PATH);
+  } else {
+    console.error("[MAIN] React renderer was not found at:", REACT_RENDERER_PATH);
+    mainWindow.loadURL("data:text/html,<h2>Renderer build is missing. Run npm run build:renderer and restart the app.</h2>");
+  }
 
   // Detect focus loss (browser / overlay usage) - ONLY during exam
   mainWindow.on("blur", () => {
@@ -274,7 +394,9 @@ ipcMain.handle("submit-exam", async (event, submissionData) => {
    APP LIFECYCLE
 ========================= */
 app.whenReady().then(() => {
-  createWindow();
+  startBackendServer().finally(() => {
+    createWindow();
+  });
 
   globalShortcut.register("Alt+F4", () => {
     if (!examRunning) return;
@@ -291,9 +413,11 @@ app.whenReady().then(() => {
 });
 
 app.on("will-quit", () => {
+  stopBackendServer();
   globalShortcut.unregisterAll();
 });
 
 app.on("window-all-closed", () => {
+  stopBackendServer();
   app.quit();
 });
