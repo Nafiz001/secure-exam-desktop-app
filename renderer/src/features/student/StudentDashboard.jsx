@@ -66,7 +66,7 @@ function getExamStatusToneClass(status) {
   return "student-chip-wait";
 }
 
-export default function StudentDashboard({ token, user }) {
+export default function StudentDashboard({ token, user, onExamModeChange }) {
   const { showAlert, showConfirm } = useModal();
   const [view, setView] = useState("dashboard");
   const [activeExams, setActiveExams] = useState([]);
@@ -107,7 +107,10 @@ export default function StudentDashboard({ token, user }) {
       wordWrap: "on",
       smoothScrolling: true,
       scrollBeyondLastLine: false,
-      automaticLayout: true
+      automaticLayout: true,
+      readOnly: false,
+      domReadOnly: false,
+      tabSize: 2
     }),
     []
   );
@@ -115,6 +118,12 @@ export default function StudentDashboard({ token, user }) {
   useEffect(() => {
     viewRef.current = view;
   }, [view]);
+
+  useEffect(() => {
+    if (typeof onExamModeChange === "function") {
+      onExamModeChange(view === "exam");
+    }
+  }, [onExamModeChange, view]);
 
   useEffect(() => {
     examDataRef.current = examData;
@@ -693,11 +702,14 @@ export default function StudentDashboard({ token, user }) {
 
   useEffect(() => {
     return () => {
+      if (typeof onExamModeChange === "function") {
+        onExamModeChange(false);
+      }
       clearWaitingPolling();
       clearExamTimer();
       clearWarningTimer();
     };
-  }, [clearExamTimer, clearWaitingPolling, clearWarningTimer]);
+  }, [clearExamTimer, clearWaitingPolling, clearWarningTimer, onExamModeChange]);
 
   function handleMcqAnswerChange(questionId, selectedOption) {
     setExamAnswers((prev) => ({
@@ -763,6 +775,13 @@ export default function StudentDashboard({ token, user }) {
         }
       }));
     }
+  }
+
+  function handleCodeEditorMount(editor) {
+    editor.updateOptions({
+      readOnly: false,
+      domReadOnly: false
+    });
   }
 
   async function handleRunCode(question) {
@@ -1043,21 +1062,21 @@ export default function StudentDashboard({ token, user }) {
                           </div>
                         ) : null}
 
-                        <label>
-                          <span>Code Editor</span>
+                        <div className="student-code-editor-shell">
+                          <p className="student-code-editor-label">Code Editor</p>
                           <Editor
                             height="320px"
                             path={`question-${question.id}.${codeState.language === "cpp" ? "cpp" : codeState.language === "python" ? "py" : "js"}`}
                             language={codeState.language === "cpp" ? "cpp" : codeState.language}
                             value={codeState.code}
                             options={monacoEditorOptions}
-                            keepCurrentModel
                             loading={<div className="muted small">Loading editor...</div>}
+                            onMount={handleCodeEditorMount}
                             onChange={(value) =>
                               handleCodingStateChange(question, { code: value || "" })
                             }
                           />
-                        </label>
+                        </div>
 
                         <label>
                           <span>Custom Input (stdin)</span>

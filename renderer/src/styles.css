@@ -993,6 +993,11 @@ button.danger:hover {
   background: #ffffff;
 }
 
+.teacher-coding-question-text {
+  min-height: 160px;
+  resize: vertical;
+}
+
 @media (max-width: 1080px) {
   .teacher-stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1219,6 +1224,23 @@ button.danger:hover {
   background: #f8fcfb;
 }
 
+.student-code-editor-shell {
+  width: min(70%, 980px);
+  margin: 8px auto 0;
+}
+
+.student-code-editor-label {
+  margin: 0 0 8px;
+  font-size: 0.88rem;
+  color: #3f6661;
+  font-weight: 600;
+}
+
+.student-code-editor-shell .monaco-editor,
+.student-code-editor-shell .monaco-editor-background {
+  border-radius: 10px;
+}
+
 .student-ui .option-row {
   border-color: #cfe2de;
   background: #fbfefd;
@@ -1232,5 +1254,9 @@ button.danger:hover {
   .student-list-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .student-code-editor-shell {
+    width: 100%;
   }
 }

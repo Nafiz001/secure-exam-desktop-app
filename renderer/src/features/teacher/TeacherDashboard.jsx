@@ -913,12 +913,22 @@ export default function TeacherDashboard({ token }) {
 
               <label>
                 <span>Question Text</span>
-                <input
-                  type="text"
-                  value={questionText}
-                  onChange={(event) => setQuestionText(event.target.value)}
-                  required
-                />
+                {questionType === "coding" ? (
+                  <textarea
+                    className="answer-textarea teacher-coding-question-text"
+                    value={questionText}
+                    onChange={(event) => setQuestionText(event.target.value)}
+                    placeholder="Describe the coding task, constraints, and expected behavior..."
+                    required
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={questionText}
+                    onChange={(event) => setQuestionText(event.target.value)}
+                    required
+                  />
+                )}
               </label>
 
               {questionType === "mcq" ? (

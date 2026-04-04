@@ -5,18 +5,27 @@ import StudentDashboard from "./features/student/StudentDashboard";
 import TeacherDashboard from "./features/teacher/TeacherDashboard";
 import LoginPage from "./pages/LoginPage";
 
-function DashboardContent({ token, user }) {
+function DashboardContent({ token, user, onStudentExamModeChange }) {
   const content = useMemo(() => {
-    if (user.role === "student") return <StudentDashboard token={token} user={user} />;
+    if (user.role === "student") {
+      return (
+        <StudentDashboard
+          token={token}
+          user={user}
+          onExamModeChange={onStudentExamModeChange}
+        />
+      );
+    }
     if (user.role === "teacher") return <TeacherDashboard token={token} />;
     return <AdminDashboard />;
-  }, [token, user]);
+  }, [onStudentExamModeChange, token, user]);
 
   return content;
 }
 
 function AppShell() {
   const [token, setToken] = useState(() => localStorage.getItem("token"));
+  const [isStudentExamMode, setIsStudentExamMode] = useState(false);
   const [user, setUser] = useState(() => {
     const rawUser = localStorage.getItem("user");
     if (!rawUser) {
@@ -44,6 +53,7 @@ function AppShell() {
     localStorage.removeItem("user");
     setToken(null);
     setUser(null);
+    setIsStudentExamMode(false);
   }
 
   if (!token || !user) {
@@ -58,13 +68,19 @@ function AppShell() {
           <h1>{user.name}</h1>
           <p className="muted small">{user.email}</p>
         </div>
-        <button className="danger" onClick={handleLogout}>
-          Logout
-        </button>
+        {!(user.role === "student" && isStudentExamMode) ? (
+          <button className="danger" onClick={handleLogout}>
+            Logout
+          </button>
+        ) : null}
       </header>
 
       <div className="content-stack">
-        <DashboardContent token={token} user={user} />
+        <DashboardContent
+          token={token}
+          user={user}
+          onStudentExamModeChange={setIsStudentExamMode}
+        />
       </div>
     </main>
   );

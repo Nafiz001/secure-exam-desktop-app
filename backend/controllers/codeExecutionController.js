@@ -7,6 +7,31 @@ const pool = require('../config/database');
 
 const execAsync = promisify(exec);
 
+function commandNotFound(error) {
+  const text = String(error?.message || error?.stderr || '').toLowerCase();
+  return text.includes('not recognized as an internal or external command')
+    || text.includes('command not found')
+    || text.includes('enoent');
+}
+
+async function runWithFallback(commands, options) {
+  let lastError = null;
+
+  for (const command of commands) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      return await execAsync(command, options);
+    } catch (error) {
+      lastError = error;
+      if (!commandNotFound(error)) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error('No runnable command found');
+}
+
 function normalizeLanguage(rawLanguage) {
   const normalized = String(rawLanguage || '').toLowerCase();
   if (normalized === 'javascript') return 'javascript';
@@ -68,23 +93,30 @@ async function runProgram({ language, code, stdin }) {
     await fs.writeFile(inputPath, stdin || '', 'utf8');
 
     if (language === 'javascript') {
-      const { stdout, stderr } = await execAsync(
-        `node "${selected.sourceFile}" < "${inputPath}"`,
+      const { stdout, stderr } = await runWithFallback(
+        [`node "${selected.sourceFile}" < "${inputPath}"`],
         { timeout: 8000, maxBuffer: 1024 * 1024 }
       );
       return { stdout, stderr };
     }
 
     if (language === 'python') {
-      const { stdout, stderr } = await execAsync(
-        `python "${selected.sourceFile}" < "${inputPath}"`,
+      const { stdout, stderr } = await runWithFallback(
+        [
+          `python "${selected.sourceFile}" < "${inputPath}"`,
+          `python3 "${selected.sourceFile}" < "${inputPath}"`,
+          `py -3 "${selected.sourceFile}" < "${inputPath}"`
+        ],
         { timeout: 8000, maxBuffer: 1024 * 1024 }
       );
       return { stdout, stderr };
     }
 
-    const compileResult = await execAsync(
-      `g++ "${selected.sourceFile}" -std=c++17 -O2 -o "${selected.binaryFile}"`,
+    const compileResult = await runWithFallback(
+      [
+        `g++ "${selected.sourceFile}" -std=c++17 -O2 -o "${selected.binaryFile}"`,
+        `clang++ "${selected.sourceFile}" -std=c++17 -O2 -o "${selected.binaryFile}"`
+      ],
       { timeout: 12000, maxBuffer: 1024 * 1024 }
     );
 
