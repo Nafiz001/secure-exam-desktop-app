@@ -106,6 +106,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
   const [selectedResultDetails, setSelectedResultDetails] = useState(null);
   const [loadingResultDetails, setLoadingResultDetails] = useState(false);
   const [isExamBlocked, setIsExamBlocked] = useState(false);
+  const [isTeacherForceSubmitting, setIsTeacherForceSubmitting] = useState(false);
   const [codeEditorHeight, setCodeEditorHeight] = useState(
     typeof window !== "undefined" && window.innerWidth <= 720 ? "300px" : "420px"
   );
@@ -296,6 +297,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     setWaitingStatusMessage("Auto-checking exam status...");
     setWaitingLastUpdatedAt(null);
     setIsExamBlocked(false);
+    setIsTeacherForceSubmitting(false);
     forceSubmitTriggeredRef.current = false;
   }, [clearExamControlPolling, clearExamTimer, clearWarningTimer]);
 
@@ -516,6 +518,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         if (forceSubmitRequested && !submissionInProgressRef.current && !forceSubmitTriggeredRef.current) {
           forceSubmitTriggeredRef.current = true;
           clearExamControlPolling();
+          setIsTeacherForceSubmitting(true);
           if (submitExamRef.current) {
             submitExamRef.current({
               autoSubmit: true,
@@ -1341,15 +1344,6 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         ) : null}
 
         <section className="card student-panel">
-          {isExamBlocked ? (
-            <div className="student-block-overlay">
-              <div className="student-block-box">
-                <p className="student-block-lock">LOCKED</p>
-                <h3>Teacher blocked you</h3>
-                <p>Your exam is temporarily frozen. Wait for your teacher to unblock you.</p>
-              </div>
-            </div>
-          ) : null}
           <h3 className="student-title">Questions</h3>
           {!examData.questions || examData.questions.length === 0 ? (
             <p className="muted">No questions available.</p>
@@ -1519,6 +1513,37 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         </section>
 
         {examSubmitMessage ? <section className="card error-box">{examSubmitMessage}</section> : null}
+
+        {isExamBlocked && (
+          <div className="student-block-overlay">
+            <div className="student-block-box">
+              <div className="student-block-lock-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="72" height="72">
+                  <path fillRule="evenodd" d="M12 1.5a5.25 5.25 0 00-5.25 5.25v3a3 3 0 00-3 3v6.75a3 3 0 003 3h10.5a3 3 0 003-3v-6.75a3 3 0 00-3-3v-3c0-2.9-2.35-5.25-5.25-5.25zm3.75 8.25v-3a3.75 3.75 0 10-7.5 0v3h7.5z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <h2 className="student-block-title">Screen Locked</h2>
+              <p className="student-block-who">Your teacher has blocked your exam screen.</p>
+              <p className="student-block-desc">You cannot make any changes while blocked. Wait for your teacher to unblock you.</p>
+            </div>
+          </div>
+        )}
+
+        {isTeacherForceSubmitting && (
+          <div className="student-force-submit-overlay">
+            <div className="student-force-submit-box">
+              <div className="student-force-submit-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="72" height="72">
+                  <path fillRule="evenodd" d="M9 1.5H5.625c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0016.5 9h-1.875a1.875 1.875 0 01-1.875-1.875V5.25A3.75 3.75 0 009 1.5zm6.61 10.936a.75.75 0 10-1.22-.872l-3.236 4.53-1.174-1.174a.75.75 0 00-1.06 1.06l1.75 1.75a.75.75 0 001.143-.094l3.797-5.2z" clipRule="evenodd" />
+                  <path d="M12.971 1.816A5.23 5.23 0 0114.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 013.434 1.279 9.768 9.768 0 00-6.963-6.963z" />
+                </svg>
+              </div>
+              <h2 className="student-force-submit-title">Exam Force Submitted</h2>
+              <p className="student-force-submit-msg">Your teacher has force-submitted your exam.</p>
+              <p className="student-force-submit-wait">Submitting your answers, please wait...</p>
+            </div>
+          </div>
+        )}
       </>
     );
   }

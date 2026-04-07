@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ModalProvider } from "./components/modals/ModalProvider";
 import AdminDashboard from "./features/admin/AdminDashboard";
 import StudentDashboard from "./features/student/StudentDashboard";
@@ -26,6 +26,7 @@ function DashboardContent({ token, user, onStudentExamModeChange }) {
 function AppShell() {
   const [token, setToken] = useState(() => localStorage.getItem("token"));
   const [isStudentExamMode, setIsStudentExamMode] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
   const [user, setUser] = useState(() => {
     const rawUser = localStorage.getItem("user");
     if (!rawUser) {
@@ -56,8 +57,30 @@ function AppShell() {
     setIsStudentExamMode(false);
   }
 
+  useEffect(() => {
+    document.body.classList.toggle("theme-dark", theme === "dark");
+    document.body.classList.toggle("theme-light", theme !== "dark");
+    localStorage.setItem("theme", theme);
+  }, [theme]);
+
+  function toggleTheme() {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  }
+
   if (!token || !user) {
-    return <LoginPage onLogin={handleLogin} />;
+    return (
+      <>
+        <button
+          type="button"
+          className="theme-toggle theme-toggle-floating"
+          onClick={toggleTheme}
+          aria-label="Toggle dark mode"
+        >
+          {theme === "dark" ? "Light Mode" : "Dark Mode"}
+        </button>
+        <LoginPage onLogin={handleLogin} />
+      </>
+    );
   }
 
   return (
@@ -68,11 +91,18 @@ function AppShell() {
           <h1>{user.name}</h1>
           <p className="muted small">{user.email}</p>
         </div>
-        {!(user.role === "student" && isStudentExamMode) ? (
-          <button className="danger" onClick={handleLogout}>
-            Logout
-          </button>
-        ) : null}
+        <div className="topbar-actions">
+          {!(user.role === "student" && isStudentExamMode) ? (
+            <>
+              <button type="button" className="theme-toggle" onClick={toggleTheme}>
+                {theme === "dark" ? "Light Mode" : "Dark Mode"}
+              </button>
+              <button className="danger" onClick={handleLogout}>
+                Logout
+              </button>
+            </>
+          ) : null}
+        </div>
       </header>
 
       <div className="content-stack">

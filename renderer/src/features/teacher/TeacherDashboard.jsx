@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiRequest } from "../../api";
 import { useModal } from "../../components/modals/ModalProvider";
+import AIAssistant from "./AIAssistant";
 
 function normalizeQuestionType(rawType) {
   const normalized = String(rawType || "mcq").toLowerCase();
@@ -129,22 +130,32 @@ export default function TeacherDashboard({ token }) {
   }, [showAlert, token]);
 
   const loadParticipants = useCallback(
-    async (examId) => {
+    async (examId, options = {}) => {
       if (!examId) return;
+      const { suppressAlert = false } = options;
       setLoadingParticipants(true);
       try {
         const result = await apiRequest(`/exams/${examId}/participants`, {}, token);
         setParticipants(result.data.participants || []);
       } catch (err) {
-        await showAlert({
-          title: "Error",
-          message: err.message || "Failed to load participants."
-        });
+        const messageText = String(err?.message || "");
+        const lostAccess = messageText.toLowerCase().includes("not found")
+          || messageText.toLowerCase().includes("do not have permission");
+        if (lostAccess) {
+          clearParticipantPolling();
+          setParticipants([]);
+        }
+        if (!suppressAlert) {
+          await showAlert({
+            title: "Error",
+            message: err.message || "Failed to load participants."
+          });
+        }
       } finally {
         setLoadingParticipants(false);
       }
     },
-    [showAlert, token]
+    [clearParticipantPolling, showAlert, token]
   );
 
   const startParticipantPolling = useCallback(
@@ -152,7 +163,7 @@ export default function TeacherDashboard({ token }) {
       clearParticipantPolling();
       loadParticipants(examId);
       participantPollIntervalRef.current = setInterval(() => {
-        loadParticipants(examId);
+        loadParticipants(examId, { suppressAlert: true });
       }, 3000);
     },
     [clearParticipantPolling, loadParticipants]
@@ -316,6 +327,16 @@ export default function TeacherDashboard({ token }) {
 
     try {
       await apiRequest(`/exams/${examId}`, { method: "DELETE" }, token);
+      clearParticipantPolling();
+      setParticipants([]);
+      setCurrentExamId(null);
+      setCurrentExamTitle("");
+      setRoomCode("");
+      setExamStatus("created");
+      setExamStartedAt(null);
+      setView("list");
+      setHighlightExamId(null);
+      setListNotice(`Exam "${title}" deleted successfully.`);
       await loadExams();
     } catch (err) {
       await showAlert({ title: "Error", message: err.message || "Failed to delete exam." });
@@ -950,11 +971,11 @@ export default function TeacherDashboard({ token }) {
               <button
                 className="secondary"
                 onClick={() => {
-                  setView("list");
-                  loadExams();
+                  setView("form");
+                  if (currentExamId) startParticipantPolling(currentExamId);
                 }}
               >
-                Back to Exams
+                Back to Exam
               </button>
             </div>
           </div>
@@ -1188,11 +1209,11 @@ export default function TeacherDashboard({ token }) {
             <button
               className="secondary"
               onClick={() => {
-                setView("list");
-                loadExams();
+                setView("form");
+                if (currentExamId) startParticipantPolling(currentExamId);
               }}
             >
-              Back to Exams
+              Back to Exam
             </button>
           </div>
         </div>
@@ -1441,6 +1462,19 @@ export default function TeacherDashboard({ token }) {
       {view === "questions" ? renderQuestionManagerView() : null}
       {view === "submissions" ? renderSubmissionsView() : null}
       {view === "list" ? renderExamListView() : null}
+
+      <AIAssistant
+        token={token}
+        currentExamId={currentExamId}
+        currentExamTitle={currentExamTitle}
+        currentExamType={currentExamType}
+        formDuration={formDuration}
+        onQuestionAdded={
+          view === "questions" && currentExamId
+            ? () => loadQuestionsForExam(currentExamId)
+            : null
+        }
+      />
     </section>
   );
 }

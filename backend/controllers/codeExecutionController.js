@@ -1,36 +1,8 @@
+const { spawn } = require('child_process');
 const fs = require('fs/promises');
 const os = require('os');
 const path = require('path');
-const { exec } = require('child_process');
-const { promisify } = require('util');
 const pool = require('../config/database');
-
-const execAsync = promisify(exec);
-
-function commandNotFound(error) {
-  const text = String(error?.message || error?.stderr || '').toLowerCase();
-  return text.includes('not recognized as an internal or external command')
-    || text.includes('command not found')
-    || text.includes('enoent');
-}
-
-async function runWithFallback(commands, options) {
-  let lastError = null;
-
-  for (const command of commands) {
-    try {
-      // eslint-disable-next-line no-await-in-loop
-      return await execAsync(command, options);
-    } catch (error) {
-      lastError = error;
-      if (!commandNotFound(error)) {
-        throw error;
-      }
-    }
-  }
-
-  throw lastError || new Error('No runnable command found');
-}
 
 function normalizeLanguage(rawLanguage) {
   const normalized = String(rawLanguage || '').toLowerCase();
@@ -40,98 +12,180 @@ function normalizeLanguage(rawLanguage) {
   return null;
 }
 
-async function ensureStudentExamAccess(examId, studentId) {
-  const examResult = await pool.query(
-    'SELECT id, status FROM exams WHERE id = $1',
-    [examId]
+// Replaces 4 sequential DB round-trips with a single query
+async function validateRunCodeRequest(examId, studentId, questionId) {
+  const { rows } = await pool.query(
+    `SELECT
+       e.status                                    AS exam_status,
+       ep.id                                       AS participant_id,
+       s.id                                        AS submission_id,
+       q.id                                        AS question_id
+     FROM exams e
+     LEFT JOIN exam_participants ep
+            ON ep.exam_id = e.id AND ep.student_id = $2
+     LEFT JOIN submissions s
+            ON s.exam_id = e.id AND s.student_id = $2
+     LEFT JOIN questions q
+            ON q.id = $3 AND q.exam_id = e.id
+               AND COALESCE(q.question_type, 'mcq') = 'coding'
+     WHERE e.id = $1
+     LIMIT 1`,
+    [examId, studentId, questionId]
   );
 
-  if (examResult.rows.length === 0) {
+  if (rows.length === 0)
     return { ok: false, statusCode: 404, message: 'Exam not found' };
-  }
 
-  const exam = examResult.rows[0];
-  if (exam.status !== 'in_progress') {
+  const row = rows[0];
+  if (row.exam_status !== 'in_progress')
     return { ok: false, statusCode: 400, message: 'Code can be run only while exam is in progress' };
-  }
-
-  const participantResult = await pool.query(
-    'SELECT id FROM exam_participants WHERE exam_id = $1 AND student_id = $2',
-    [examId, studentId]
-  );
-
-  if (participantResult.rows.length === 0) {
+  if (!row.participant_id)
     return { ok: false, statusCode: 403, message: 'You have not joined this exam' };
-  }
-
-  const submissionResult = await pool.query(
-    'SELECT id FROM submissions WHERE exam_id = $1 AND student_id = $2',
-    [examId, studentId]
-  );
-
-  if (submissionResult.rows.length > 0) {
+  if (row.submission_id)
     return { ok: false, statusCode: 409, message: 'You already submitted this exam' };
-  }
+  if (!row.question_id)
+    return { ok: false, statusCode: 404, message: 'Coding question not found in this exam' };
 
   return { ok: true };
 }
 
+// spawn() instead of exec() — no shell spawned, stdin piped directly (no temp input file)
+function spawnProcess(command, args, stdinData, timeoutMs = 8000, maxBuffer = 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      settled = true;
+      child.kill();
+      const err = new Error(`Time limit exceeded (${timeoutMs / 1000}s)`);
+      err.stderr = err.message;
+      reject(err);
+    }, timeoutMs);
+
+    child.stdout.on('data', (chunk) => { if (stdout.length < maxBuffer) stdout += chunk; });
+    child.stderr.on('data', (chunk) => { if (stderr.length < maxBuffer) stderr += chunk; });
+    child.stdin.on('error', () => {}); // ignore broken pipe if program ignores stdin
+
+    child.on('close', () => {
+      if (!settled) { settled = true; clearTimeout(timer); resolve({ stdout, stderr }); }
+    });
+    child.on('error', (err) => {
+      if (!settled) { settled = true; clearTimeout(timer); reject(err); }
+    });
+
+    child.stdin.write(stdinData || '');
+    child.stdin.end();
+  });
+}
+
+// Compile without shell — captures only stderr (stdout not needed for g++)
+function compileSpawn(compiler, args, timeoutMs = 12000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(compiler, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      settled = true;
+      child.kill();
+      reject(new Error('Compilation timed out'));
+    }, timeoutMs);
+
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.on('close', (code) => {
+      if (!settled) { settled = true; clearTimeout(timer); resolve({ code, stderr }); }
+    });
+    child.on('error', (err) => {
+      if (!settled) { settled = true; clearTimeout(timer); reject(err); }
+    });
+  });
+}
+
+// Cache the working Python interpreter — probe happens once per server session
+let _pythonEntry = null; // [cmd, extraArgs[]]
+
+async function resolvePython() {
+  if (_pythonEntry) return _pythonEntry;
+
+  const candidates = [
+    ['python', []],
+    ['python3', []],
+    ['py', ['-3']],
+  ];
+
+  for (const [cmd, extraArgs] of candidates) {
+    const available = await new Promise((resolve) => {
+      const proc = spawn(cmd, [...extraArgs, '--version'], { stdio: 'pipe' });
+      proc.on('close', () => resolve(true));
+      proc.on('error', (e) => resolve(e.code !== 'ENOENT'));
+    });
+    if (available) {
+      _pythonEntry = [cmd, extraArgs];
+      return _pythonEntry;
+    }
+  }
+
+  throw new Error('Python interpreter not found on this system');
+}
+
+// Cache the working C++ compiler — probe happens once per server session
+let _cppCompiler = null; // 'g++' | 'clang++'
+
+async function resolveCppCompiler() {
+  if (_cppCompiler) return _cppCompiler;
+
+  for (const compiler of ['g++', 'clang++']) {
+    const available = await new Promise((resolve) => {
+      const proc = spawn(compiler, ['--version'], { stdio: 'pipe' });
+      proc.on('close', () => resolve(true));
+      proc.on('error', (e) => resolve(e.code !== 'ENOENT'));
+    });
+    if (available) {
+      _cppCompiler = compiler;
+      return compiler;
+    }
+  }
+
+  throw new Error('C++ compiler (g++ or clang++) not found on this system');
+}
+
 async function runProgram({ language, code, stdin }) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'invigilo-code-run-'));
-
-  const inputPath = path.join(tempDir, 'input.txt');
-  const sourceMap = {
-    javascript: { sourceFile: path.join(tempDir, 'main.js') },
-    python: { sourceFile: path.join(tempDir, 'main.py') },
-    cpp: { sourceFile: path.join(tempDir, 'main.cpp'), binaryFile: path.join(tempDir, 'main.exe') }
-  };
-
-  const selected = sourceMap[language];
+  const sourceFile = path.join(
+    tempDir,
+    language === 'javascript' ? 'main.js' : language === 'python' ? 'main.py' : 'main.cpp'
+  );
 
   try {
-    await fs.writeFile(selected.sourceFile, code || '', 'utf8');
-    await fs.writeFile(inputPath, stdin || '', 'utf8');
+    await fs.writeFile(sourceFile, code || '', 'utf8');
 
     if (language === 'javascript') {
-      const { stdout, stderr } = await runWithFallback(
-        [`node "${selected.sourceFile}" < "${inputPath}"`],
-        { timeout: 8000, maxBuffer: 1024 * 1024 }
-      );
-      return { stdout, stderr };
+      return await spawnProcess('node', [sourceFile], stdin);
     }
 
     if (language === 'python') {
-      const { stdout, stderr } = await runWithFallback(
-        [
-          `python "${selected.sourceFile}" < "${inputPath}"`,
-          `python3 "${selected.sourceFile}" < "${inputPath}"`,
-          `py -3 "${selected.sourceFile}" < "${inputPath}"`
-        ],
-        { timeout: 8000, maxBuffer: 1024 * 1024 }
-      );
-      return { stdout, stderr };
+      const [cmd, extraArgs] = await resolvePython();
+      return await spawnProcess(cmd, [...extraArgs, sourceFile], stdin);
     }
 
-    const compileResult = await runWithFallback(
-      [
-        `g++ "${selected.sourceFile}" -std=c++17 -O2 -o "${selected.binaryFile}"`,
-        `clang++ "${selected.sourceFile}" -std=c++17 -O2 -o "${selected.binaryFile}"`
-      ],
-      { timeout: 12000, maxBuffer: 1024 * 1024 }
-    );
+    // C++: compile then run
+    const binaryFile = path.join(tempDir, 'main.exe');
+    const compiler = await resolveCppCompiler();
+    // -O0: skip optimization passes — 2-4x faster compilation for small exam programs,
+    //      runtime difference is negligible for typical competitive-programming input sizes
+    const compileResult = await compileSpawn(compiler, [sourceFile, '-std=c++17', '-O0', '-o', binaryFile]);
 
     if (compileResult.stderr && compileResult.stderr.trim()) {
       return { stdout: '', stderr: compileResult.stderr };
     }
 
-    const { stdout, stderr } = await execAsync(
-      `"${selected.binaryFile}" < "${inputPath}"`,
-      { timeout: 8000, maxBuffer: 1024 * 1024 }
-    );
-
-    return { stdout, stderr };
+    return await spawnProcess(binaryFile, [], stdin);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    // Non-blocking cleanup — doesn't delay the HTTP response
+    fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -154,20 +208,9 @@ const runCode = async (req, res) => {
   }
 
   try {
-    const access = await ensureStudentExamAccess(examId, studentId);
+    const access = await validateRunCodeRequest(examId, studentId, Number(question_id));
     if (!access.ok) {
       return res.status(access.statusCode).json({ success: false, message: access.message });
-    }
-
-    const questionResult = await pool.query(
-      `SELECT id
-       FROM questions
-       WHERE id = $1 AND exam_id = $2 AND COALESCE(question_type, 'mcq') = 'coding'`,
-      [Number(question_id), examId]
-    );
-
-    if (questionResult.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Coding question not found in this exam' });
     }
 
     const execution = await runProgram({
