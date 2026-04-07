@@ -968,6 +968,59 @@ button.danger:hover {
   background: linear-gradient(180deg, #ffffff 0%, #f8fcfb 100%);
 }
 
+.teacher-notice {
+  border: 1px solid #bfdad6;
+  border-radius: 10px;
+  background: #ecf7f4;
+  color: #1f4f48;
+  padding: 10px 12px;
+  font-weight: 600;
+}
+
+.teacher-list-item-highlight {
+  border: 2px solid #7cb8ae !important;
+  box-shadow: 0 0 0 3px rgba(124, 184, 174, 0.2);
+}
+
+.teacher-violation-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #cad8d6;
+  background: #f4f8f7;
+  color: #355b56;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.teacher-violation-pill-active {
+  border-color: #efb7af;
+  background: #fff1ef;
+  color: #9d2d22;
+}
+
+.teacher-freeze-pill {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #c8dbd7;
+  background: #f2f9f7;
+  color: #315e58;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.teacher-freeze-pill-active {
+  border-color: #e5b347;
+  background: #fff8e9;
+  color: #8c5a0f;
+}
+
 .teacher-ui.teacher-view-submissions .teacher-panel {
   border-left: 4px solid #9fc7c1;
 }
@@ -1225,8 +1278,8 @@ button.danger:hover {
 }
 
 .student-code-editor-shell {
-  width: min(70%, 980px);
-  margin: 8px auto 0;
+  width: 100%;
+  margin: 8px 0 0;
 }
 
 .student-code-editor-label {
@@ -1239,6 +1292,86 @@ button.danger:hover {
 .student-code-editor-shell .monaco-editor,
 .student-code-editor-shell .monaco-editor-background {
   border-radius: 10px;
+}
+
+.student-coding-layout {
+  display: grid;
+  gap: 12px;
+}
+
+.student-coding-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.student-io-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.student-io-card {
+  border: 1px solid #d8e8e4;
+  border-radius: 10px;
+  background: #f8fcfb;
+  padding: 10px;
+}
+
+.student-io-card pre {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.student-run-output-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.student-run-output-card {
+  border: 1px solid #d1e4df;
+  border-radius: 10px;
+  background: #f7fcfb;
+  padding: 10px;
+}
+
+.student-run-output-card pre {
+  margin: 4px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.student-waiting-status {
+  margin-top: 10px;
+}
+
+.student-block-overlay {
+  position: sticky;
+  top: 8px;
+  z-index: 10;
+  margin-bottom: 12px;
+}
+
+.student-block-box {
+  border: 2px solid #f1b4ae;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fff5f4 0%, #ffe9e7 100%);
+  color: #7f1f17;
+  padding: 16px;
+  text-align: center;
+  box-shadow: 0 12px 24px rgba(127, 31, 23, 0.15);
+}
+
+.student-block-lock {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
 }
 
 .student-ui .option-row {
@@ -1256,7 +1389,8 @@ button.danger:hover {
     align-items: flex-start;
   }
 
-  .student-code-editor-shell {
-    width: 100%;
+  .student-io-grid,
+  .student-run-output-grid {
+    grid-template-columns: 1fr;
   }
 }

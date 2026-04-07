@@ -66,6 +66,17 @@ function getExamStatusToneClass(status) {
   return "student-chip-wait";
 }
 
+function formatDateTime(dateValue) {
+  if (!dateValue) return "N/A";
+  return new Date(dateValue).toLocaleString();
+}
+
+function getEvaluationStatusLabel(status) {
+  return String(status || "pending").toLowerCase() === "completed"
+    ? "Completed"
+    : "Pending Evaluation";
+}
+
 export default function StudentDashboard({ token, user, onExamModeChange }) {
   const { showAlert, showConfirm } = useModal();
   const [view, setView] = useState("dashboard");
@@ -77,6 +88,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
   const [joiningExam, setJoiningExam] = useState(false);
   const [waitingExam, setWaitingExam] = useState(null);
   const [waitingParticipantCount, setWaitingParticipantCount] = useState(0);
+  const [waitingStatusMessage, setWaitingStatusMessage] = useState("Auto-checking exam status...");
+  const [waitingLastUpdatedAt, setWaitingLastUpdatedAt] = useState(null);
   const [examData, setExamData] = useState(null);
   const [examAnswers, setExamAnswers] = useState({});
   const [timerText, setTimerText] = useState("--:--");
@@ -88,11 +101,21 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
   const [warningSeverity, setWarningSeverity] = useState("medium");
   const [violationCount, setViolationCount] = useState(0);
   const [examViolations, setExamViolations] = useState([]);
+  const [results, setResults] = useState([]);
+  const [loadingResults, setLoadingResults] = useState(false);
+  const [selectedResultDetails, setSelectedResultDetails] = useState(null);
+  const [loadingResultDetails, setLoadingResultDetails] = useState(false);
+  const [isExamBlocked, setIsExamBlocked] = useState(false);
+  const [codeEditorHeight, setCodeEditorHeight] = useState(
+    typeof window !== "undefined" && window.innerWidth <= 720 ? "300px" : "420px"
+  );
 
   const waitingPollIntervalRef = useRef(null);
   const examTimerIntervalRef = useRef(null);
+  const examControlIntervalRef = useRef(null);
   const warningTimeoutRef = useRef(null);
   const submissionInProgressRef = useRef(false);
+  const forceSubmitTriggeredRef = useRef(false);
   const viewRef = useRef(view);
   const examDataRef = useRef(examData);
   const examAnswersRef = useRef(examAnswers);
@@ -108,16 +131,27 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       smoothScrolling: true,
       scrollBeyondLastLine: false,
       automaticLayout: true,
-      readOnly: false,
-      domReadOnly: false,
+      readOnly: isExamBlocked,
+      domReadOnly: isExamBlocked,
       tabSize: 2
     }),
-    []
+    [isExamBlocked]
   );
 
   useEffect(() => {
     viewRef.current = view;
   }, [view]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const handleResize = () => {
+      setCodeEditorHeight(window.innerWidth <= 720 ? "300px" : "420px");
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     if (typeof onExamModeChange === "function") {
@@ -155,6 +189,13 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     }
   }, []);
 
+  const clearExamControlPolling = useCallback(() => {
+    if (examControlIntervalRef.current) {
+      clearInterval(examControlIntervalRef.current);
+      examControlIntervalRef.current = null;
+    }
+  }, []);
+
   const clearWarningTimer = useCallback(() => {
     if (warningTimeoutRef.current) {
       clearTimeout(warningTimeoutRef.current);
@@ -177,8 +218,71 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     }
   }, [showAlert, token]);
 
+  const loadMyResults = useCallback(async () => {
+    setLoadingResults(true);
+    try {
+      const result = await apiRequest("/exams/my-results", {}, token);
+      setResults(result.data.results || []);
+    } catch (err) {
+      await showAlert({
+        title: "Error",
+        message: err.message || "Failed to load exam results."
+      });
+    } finally {
+      setLoadingResults(false);
+    }
+  }, [showAlert, token]);
+
+  const loadResultDetails = useCallback(
+    async (submissionId) => {
+      if (!submissionId) return;
+      setLoadingResultDetails(true);
+      try {
+        const result = await apiRequest(`/exams/my-results/${submissionId}`, {}, token);
+        setSelectedResultDetails(result.data.result || null);
+        setView("result-details");
+      } catch (err) {
+        await showAlert({
+          title: "Error",
+          message: err.message || "Failed to load result details."
+        });
+      } finally {
+        setLoadingResultDetails(false);
+      }
+    },
+    [showAlert, token]
+  );
+
+  const reportLiveViolation = useCallback(
+    async (examId, violation) => {
+      if (!examId || !violation?.type) {
+        return;
+      }
+
+      try {
+        await apiRequest(
+          `/exams/${examId}/violations`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              type: violation.type,
+              severity: violation.severity || "medium",
+              timestamp: violation.timestamp || new Date().toISOString()
+            })
+          },
+          token
+        );
+      } catch (error) {
+        // Best-effort live reporting; keep exam flow uninterrupted.
+        console.error("Live violation report error:", error);
+      }
+    },
+    [token]
+  );
+
   const resetExamState = useCallback(() => {
     clearExamTimer();
+    clearExamControlPolling();
     clearWarningTimer();
     setExamData(null);
     setExamAnswers({});
@@ -189,7 +293,11 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     setWarningMessage("");
     setWarningSeverity("medium");
     setExamSubmitMessage("");
-  }, [clearExamTimer, clearWarningTimer]);
+    setWaitingStatusMessage("Auto-checking exam status...");
+    setWaitingLastUpdatedAt(null);
+    setIsExamBlocked(false);
+    forceSubmitTriggeredRef.current = false;
+  }, [clearExamControlPolling, clearExamTimer, clearWarningTimer]);
 
   const forceAutoSubmitExam = useCallback(
     async (examId, autoSubmitReason) => {
@@ -200,6 +308,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       submissionInProgressRef.current = true;
       setSubmittingExam(true);
       clearExamTimer();
+      clearExamControlPolling();
       clearWaitingPolling();
 
       const activeExam = examDataRef.current;
@@ -240,7 +349,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           : `Final score: ${submission.score ?? 0}.`;
 
         const pendingLine = hasWrittenPending
-          ? "\nWritten answers will be evaluated by your teacher."
+          ? "\nManual answers will be evaluated by your teacher."
           : "";
 
         await showAlert({
@@ -253,6 +362,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         setWaitingParticipantCount(0);
         setView("dashboard");
         await loadActiveExams();
+        await loadMyResults();
         return true;
       } catch (err) {
         const messageText = String(err?.message || "");
@@ -271,13 +381,14 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         setWaitingParticipantCount(0);
         setView("dashboard");
         await loadActiveExams();
+        await loadMyResults();
         return alreadySubmitted;
       } finally {
         submissionInProgressRef.current = false;
         setSubmittingExam(false);
       }
     },
-    [clearExamTimer, clearWaitingPolling, loadActiveExams, resetExamState, showAlert, token]
+    [clearExamControlPolling, clearExamTimer, clearWaitingPolling, loadActiveExams, loadMyResults, resetExamState, showAlert, token]
   );
 
   const submitExam = useCallback(
@@ -296,6 +407,14 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         return;
       }
 
+      if (isExamBlocked) {
+        await showAlert({
+          title: "Exam Blocked",
+          message: "Your teacher has blocked your exam screen. Wait until you are unblocked."
+        });
+        return;
+      }
+
       const confirmed = await showConfirm({
         title: "Submit Exam",
         message: "Are you sure you want to submit your exam? You cannot change answers after submission.",
@@ -309,6 +428,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       submissionInProgressRef.current = true;
       setSubmittingExam(true);
       clearExamTimer();
+      clearExamControlPolling();
       clearWaitingPolling();
 
       const formattedAnswers = buildFormattedAnswers(examAnswersRef.current, codingStateRef.current);
@@ -344,7 +464,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           : `Final score: ${submission.score ?? 0}.`;
 
         const pendingLine = hasWrittenPending
-          ? "\nWritten answers will be evaluated by your teacher."
+          ? "\nManual answers will be evaluated by your teacher."
           : "";
 
         await showAlert({
@@ -355,6 +475,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         resetExamState();
         setView("dashboard");
         await loadActiveExams();
+        await loadMyResults();
       } catch (err) {
         setExamSubmitMessage(err.message || "Failed to submit exam. Please try again.");
       } finally {
@@ -364,9 +485,12 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     },
     [
       clearExamTimer,
+      clearExamControlPolling,
       clearWaitingPolling,
       forceAutoSubmitExam,
+      isExamBlocked,
       loadActiveExams,
+      loadMyResults,
       resetExamState,
       showAlert,
       showConfirm,
@@ -377,6 +501,34 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
   useEffect(() => {
     submitExamRef.current = submitExam;
   }, [submitExam]);
+
+  const pollExamControl = useCallback(
+    async (examId) => {
+      if (!examId) return;
+      try {
+        const result = await apiRequest(`/exams/${examId}/status`, {}, token);
+        const data = result.data || {};
+        const frozen = Boolean(data.is_frozen);
+        const forceSubmitRequested = Boolean(data.force_submit_requested);
+
+        setIsExamBlocked(frozen);
+
+        if (forceSubmitRequested && !submissionInProgressRef.current && !forceSubmitTriggeredRef.current) {
+          forceSubmitTriggeredRef.current = true;
+          clearExamControlPolling();
+          if (submitExamRef.current) {
+            submitExamRef.current({
+              autoSubmit: true,
+              autoSubmitReason: "Your teacher force-submitted your exam."
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Exam control poll error:", err);
+      }
+    },
+    [clearExamControlPolling, token]
+  );
 
   const startExamSession = useCallback(
     async (examId) => {
@@ -410,9 +562,12 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         }
 
         clearWaitingPolling();
+        clearExamControlPolling();
         setWaitingExam(null);
         setWaitingParticipantCount(0);
         resetExamState();
+        forceSubmitTriggeredRef.current = false;
+        setIsExamBlocked(false);
         setExamData(exam);
         setView("exam");
 
@@ -425,6 +580,11 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
             window.electronAPI.startExam(exam);
           }, 100);
         }
+
+        pollExamControl(exam.id);
+        examControlIntervalRef.current = setInterval(() => {
+          pollExamControl(exam.id);
+        }, 2000);
       } catch (err) {
         await showAlert({
           title: "Error",
@@ -434,7 +594,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         setExamLoading(false);
       }
     },
-    [clearWaitingPolling, forceAutoSubmitExam, loadActiveExams, resetExamState, showAlert, token, user]
+    [clearExamControlPolling, clearWaitingPolling, forceAutoSubmitExam, loadActiveExams, pollExamControl, resetExamState, showAlert, token, user]
   );
 
   const checkExamStatus = useCallback(
@@ -444,14 +604,17 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         const data = result.data || {};
         const participantCount = data.participants_count ?? data.participant_count ?? 0;
         setWaitingParticipantCount(participantCount);
+        setWaitingLastUpdatedAt(new Date().toISOString());
 
         if (data.status === "in_progress") {
+          setWaitingStatusMessage("Exam started. Opening exam...");
           clearWaitingPolling();
           await startExamSession(examId);
           return;
         }
 
         if (data.status === "completed") {
+          setWaitingStatusMessage("Exam already completed.");
           clearWaitingPolling();
           await forceAutoSubmitExam(
             examId,
@@ -460,12 +623,18 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           setWaitingExam(null);
           setWaitingParticipantCount(0);
           setView("dashboard");
+          await loadMyResults();
+          return;
         }
+
+        setWaitingStatusMessage("Auto-checking exam status...");
       } catch (err) {
+        setWaitingLastUpdatedAt(new Date().toISOString());
+        setWaitingStatusMessage("Auto-check failed. Retrying...");
         console.error("Waiting room status check error:", err);
       }
     },
-    [clearWaitingPolling, forceAutoSubmitExam, startExamSession, token]
+    [clearWaitingPolling, forceAutoSubmitExam, loadMyResults, startExamSession, token]
   );
 
   const enterWaitingRoom = useCallback(
@@ -473,6 +642,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       clearWaitingPolling();
       setWaitingExam(exam);
       setWaitingParticipantCount(0);
+      setWaitingStatusMessage("Auto-checking exam status...");
+      setWaitingLastUpdatedAt(null);
       setView("waiting");
 
       checkExamStatus(exam.id);
@@ -550,6 +721,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     clearWaitingPolling();
     setWaitingExam(null);
     setWaitingParticipantCount(0);
+    setWaitingStatusMessage("Auto-checking exam status...");
+    setWaitingLastUpdatedAt(null);
     setView("dashboard");
     await loadActiveExams();
   }, [clearWaitingPolling, loadActiveExams, showConfirm]);
@@ -572,7 +745,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
 
   useEffect(() => {
     loadActiveExams();
-  }, [loadActiveExams]);
+    loadMyResults();
+  }, [loadActiveExams, loadMyResults]);
 
   useEffect(() => {
     if (!examData?.questions) {
@@ -659,17 +833,21 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         return;
       }
 
+      const violationEntry = {
+        type: data.type || "UNKNOWN",
+        severity: data.severity || "medium",
+        timestamp: new Date().toISOString()
+      };
+
       setViolationCount(data.count || 0);
       setWarningSeverity(data.severity || "medium");
       setWarningMessage(`${String(data.severity || "medium").toUpperCase()} RISK: ${data.type}`);
-      setExamViolations((prev) => [
-        ...prev,
-        {
-          type: data.type || "UNKNOWN",
-          severity: data.severity || "medium",
-          timestamp: new Date().toISOString()
-        }
-      ]);
+      setExamViolations((prev) => [...prev, violationEntry]);
+
+      const currentExamId = examDataRef.current?.id;
+      if (currentExamId) {
+        reportLiveViolation(currentExamId, violationEntry);
+      }
 
       clearWarningTimer();
       warningTimeoutRef.current = setTimeout(() => {
@@ -698,7 +876,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         unsubscribeForceSubmit();
       }
     };
-  }, [clearWarningTimer]);
+  }, [clearWarningTimer, reportLiveViolation]);
 
   useEffect(() => {
     return () => {
@@ -707,11 +885,13 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       }
       clearWaitingPolling();
       clearExamTimer();
+      clearExamControlPolling();
       clearWarningTimer();
     };
-  }, [clearExamTimer, clearWaitingPolling, clearWarningTimer, onExamModeChange]);
+  }, [clearExamControlPolling, clearExamTimer, clearWaitingPolling, clearWarningTimer, onExamModeChange]);
 
   function handleMcqAnswerChange(questionId, selectedOption) {
+    if (isExamBlocked) return;
     setExamAnswers((prev) => ({
       ...prev,
       [questionId]: {
@@ -723,6 +903,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
   }
 
   function handleWrittenAnswerChange(questionId, writtenText) {
+    if (isExamBlocked) return;
     setExamAnswers((prev) => ({
       ...prev,
       [questionId]: {
@@ -734,6 +915,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
   }
 
   function handleCodingStateChange(question, patch) {
+    if (isExamBlocked) return;
     const questionId = Number(question.id);
     let nextForAnswer = null;
 
@@ -779,13 +961,13 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
 
   function handleCodeEditorMount(editor) {
     editor.updateOptions({
-      readOnly: false,
-      domReadOnly: false
+      readOnly: isExamBlocked,
+      domReadOnly: isExamBlocked
     });
   }
 
   async function handleRunCode(question) {
-    if (!examData) {
+    if (!examData || isExamBlocked) {
       return;
     }
 
@@ -828,6 +1010,21 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         stderr: err.message || "Execution failed"
       });
     }
+  }
+
+  function handleResetCode(question) {
+    if (isExamBlocked) return;
+    const questionId = Number(question.id);
+    const current = codingState[questionId] || {
+      language: "javascript"
+    };
+    const language = current.language || "javascript";
+    const nextCode = question.starter_code || defaultCodeForLanguage(language);
+    handleCodingStateChange(question, {
+      code: nextCode,
+      stdout: "",
+      stderr: ""
+    });
   }
 
   function renderDashboardView() {
@@ -922,6 +1119,57 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
             ))}
           </ul>
         </section>
+
+        <section className="card student-panel">
+          <div className="card-head">
+            <div>
+              <h2 className="student-title">My Results</h2>
+              <p className="student-subline">Previously submitted exam outcomes.</p>
+            </div>
+            <button className="secondary" onClick={loadMyResults} disabled={loadingResults}>
+              Refresh
+            </button>
+          </div>
+
+          {loadingResults ? <p>Loading results...</p> : null}
+          {!loadingResults && results.length === 0 ? (
+            <p className="muted">No submitted exams yet.</p>
+          ) : null}
+
+          <ul className="list student-list">
+            {results.map((result) => {
+              const isCompleted = String(result.evaluation_status || "").toLowerCase() === "completed";
+              return (
+                <li key={result.submission_id} className="student-list-item">
+                  <div className="student-list-head">
+                    <strong>{result.exam_title}</strong>
+                    <span className={`student-chip ${isCompleted ? "student-chip-done" : "student-chip-wait"}`}>
+                      {getEvaluationStatusLabel(result.evaluation_status)}
+                    </span>
+                  </div>
+                  <div className="student-meta-row">
+                    <span className="student-meta-chip">Type {result.exam_type || "lab_quiz"}</span>
+                    <span className="student-meta-chip">Submitted {formatDateTime(result.submitted_at)}</span>
+                  </div>
+                  <div className="student-meta-row">
+                    <span className="student-meta-chip">Auto {result.auto_score ?? 0}</span>
+                    <span className="student-meta-chip">Manual {result.manual_score ?? 0}</span>
+                    <span className="student-meta-chip">Total {result.score ?? 0}</span>
+                  </div>
+                  <div className="actions-row">
+                    <button
+                      className="secondary btn-inline"
+                      onClick={() => loadResultDetails(result.submission_id)}
+                      disabled={loadingResultDetails}
+                    >
+                      {loadingResultDetails ? "Opening..." : "View Details"}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       </>
     );
   }
@@ -954,11 +1202,102 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           </div>
         ) : null}
 
+        <p className="muted small student-waiting-status">{waitingStatusMessage}</p>
+        <p className="muted small">
+          Last updated: {waitingLastUpdatedAt ? formatDateTime(waitingLastUpdatedAt) : "Checking..."}
+        </p>
+
         <div className="actions-row">
           <button className="secondary" onClick={handleLeaveWaitingRoom}>
             Leave Waiting Room
           </button>
-          <button onClick={() => waitingExam && checkExamStatus(waitingExam.id)}>Check Now</button>
+        </div>
+      </section>
+    );
+  }
+
+  function renderResultDetailsView() {
+    if (!selectedResultDetails) {
+      return (
+        <section className="card student-panel">
+          <p className="muted">Result details not available.</p>
+          <button className="secondary" onClick={() => setView("dashboard")}>
+            Back to Dashboard
+          </button>
+        </section>
+      );
+    }
+
+    return (
+      <section className="card student-panel">
+        <div className="card-head">
+          <div>
+            <h2 className="student-title">{selectedResultDetails.exam_title}</h2>
+            <p className="student-subline">
+              Submitted: {formatDateTime(selectedResultDetails.submitted_at)} | Status:{" "}
+              {getEvaluationStatusLabel(selectedResultDetails.evaluation_status)}
+            </p>
+          </div>
+          <button className="secondary" onClick={() => setView("dashboard")}>
+            Back
+          </button>
+        </div>
+
+        <div className="student-meta-row">
+          <span className="student-meta-chip">Auto {selectedResultDetails.auto_score ?? 0}</span>
+          <span className="student-meta-chip">Manual {selectedResultDetails.manual_score ?? 0}</span>
+          <span className="student-meta-chip">Total {selectedResultDetails.score ?? 0}</span>
+        </div>
+
+        <div className="question-stack student-question-stack top-spaced">
+          {(selectedResultDetails.answers || []).map((item, index) => {
+            const qType = normalizeQuestionType(item.question_type);
+            return (
+              <article key={item.question_id} className="question-card student-question-card">
+                <p className="question-title">
+                  {index + 1}. {item.question_text}
+                </p>
+                <p className="muted small student-question-meta">
+                  Type: {qType === "written" ? "Written" : qType === "coding" ? "Coding" : "MCQ"} | Marks:{" "}
+                  {item.awarded_marks ?? 0}/{item.max_marks ?? 0}
+                </p>
+
+                {qType === "mcq" ? (
+                  <div className="written-preview">
+                    <p className="muted small">
+                      Selected:{" "}
+                      {item.selected_answer === null || item.selected_answer === undefined
+                        ? "No answer"
+                        : `${String.fromCharCode(65 + Number(item.selected_answer))}`}
+                    </p>
+                    <p className="muted small">
+                      Correct:{" "}
+                      {item.correct_answer === null || item.correct_answer === undefined || item.correct_answer === ""
+                        ? "N/A"
+                        : `${String.fromCharCode(65 + Number(item.correct_answer))}`}
+                    </p>
+                    <p className="muted small">Result: {item.is_correct ? "Correct" : "Incorrect"}</p>
+                  </div>
+                ) : qType === "coding" ? (
+                  <div className="written-preview">
+                    <p className="muted small">Submitted code ({item.language || "unknown"}):</p>
+                    <pre>{item.written_answer || "// No code submitted."}</pre>
+                    <p className="muted small top-spaced">
+                      Teacher comment: {item.evaluation_comment || "No comment"}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="written-preview">
+                    <p className="muted small">Submitted answer:</p>
+                    <pre>{item.written_answer || "No answer submitted."}</pre>
+                    <p className="muted small top-spaced">
+                      Teacher comment: {item.evaluation_comment || "No comment"}
+                    </p>
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
       </section>
     );
@@ -1002,6 +1341,15 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         ) : null}
 
         <section className="card student-panel">
+          {isExamBlocked ? (
+            <div className="student-block-overlay">
+              <div className="student-block-box">
+                <p className="student-block-lock">LOCKED</p>
+                <h3>Teacher blocked you</h3>
+                <p>Your exam is temporarily frozen. Wait for your teacher to unblock you.</p>
+              </div>
+            </div>
+          ) : null}
           <h3 className="student-title">Questions</h3>
           {!examData.questions || examData.questions.length === 0 ? (
             <p className="muted">No questions available.</p>
@@ -1035,37 +1383,45 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
                           value={answerState.written_answer || ""}
                           onChange={(event) => handleWrittenAnswerChange(question.id, event.target.value)}
                           placeholder="Write your answer here..."
+                          disabled={isExamBlocked}
                         />
                       </label>
                     ) : qType === "coding" ? (
-                      <div className="form-stack">
-                        <label>
-                          <span>Language</span>
-                          <select
-                            value={codeState.language}
-                            onChange={(event) =>
-                              handleCodingStateChange(question, { language: event.target.value })
-                            }
-                          >
-                            <option value="javascript">JavaScript</option>
-                            <option value="python">Python</option>
-                            <option value="cpp">C++</option>
-                          </select>
-                        </label>
+                      <div className="student-coding-layout">
+                        <div className="student-coding-head">
+                          <label>
+                            <span>Language</span>
+                            <select
+                              value={codeState.language}
+                              onChange={(event) =>
+                                handleCodingStateChange(question, { language: event.target.value })
+                              }
+                              disabled={isExamBlocked}
+                            >
+                              <option value="javascript">JavaScript</option>
+                              <option value="python">Python</option>
+                              <option value="cpp">C++</option>
+                            </select>
+                          </label>
+                        </div>
 
-                        {question.sample_input || question.sample_output ? (
-                          <div className="written-preview">
-                            <p className="muted small">Sample Input:</p>
-                            <pre>{question.sample_input || "(none)"}</pre>
-                            <p className="muted small">Sample Output:</p>
-                            <pre>{question.sample_output || "(none)"}</pre>
+                        {(question.sample_input || question.sample_output) ? (
+                          <div className="student-io-grid">
+                            <div className="student-io-card">
+                              <p className="muted small">Sample Input</p>
+                              <pre>{question.sample_input || "(none)"}</pre>
+                            </div>
+                            <div className="student-io-card">
+                              <p className="muted small">Sample Output</p>
+                              <pre>{question.sample_output || "(none)"}</pre>
+                            </div>
                           </div>
                         ) : null}
 
                         <div className="student-code-editor-shell">
                           <p className="student-code-editor-label">Code Editor</p>
                           <Editor
-                            height="320px"
+                            height={codeEditorHeight}
                             path={`question-${question.id}.${codeState.language === "cpp" ? "cpp" : codeState.language === "python" ? "py" : "js"}`}
                             language={codeState.language === "cpp" ? "cpp" : codeState.language}
                             value={codeState.code}
@@ -1087,6 +1443,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
                               handleCodingStateChange(question, { stdin: event.target.value })
                             }
                             placeholder="Provide input for your program..."
+                            disabled={isExamBlocked}
                           />
                         </label>
 
@@ -1094,17 +1451,29 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
                           <button
                             type="button"
                             onClick={() => handleRunCode(question)}
-                            disabled={codeState.running}
+                            disabled={codeState.running || isExamBlocked}
                           >
                             {codeState.running ? "Running..." : "Run"}
                           </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => handleResetCode(question)}
+                            disabled={isExamBlocked}
+                          >
+                            Reset to Starter Code
+                          </button>
                         </div>
 
-                        <div className="written-preview">
-                          <p className="muted small">stdout:</p>
-                          <pre>{codeState.stdout || "(empty)"}</pre>
-                          <p className="muted small">stderr:</p>
-                          <pre>{codeState.stderr || "(empty)"}</pre>
+                        <div className="student-run-output-grid">
+                          <div className="student-run-output-card">
+                            <p className="muted small">stdout</p>
+                            <pre>{codeState.stdout || "(empty)"}</pre>
+                          </div>
+                          <div className="student-run-output-card">
+                            <p className="muted small">stderr</p>
+                            <pre>{codeState.stderr || "(empty)"}</pre>
+                          </div>
                         </div>
                       </div>
                     ) : (
@@ -1116,6 +1485,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
                               name={`question-${question.id}`}
                               checked={answerState.selected_answer === optIndex}
                               onChange={() => handleMcqAnswerChange(question.id, optIndex)}
+                              disabled={isExamBlocked}
                             />
                             <span>
                               {String.fromCharCode(65 + optIndex)}. {option}
@@ -1132,7 +1502,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         </section>
 
         <section className="card student-panel actions-row student-submit-row">
-          <button onClick={() => submitExam()} disabled={submittingExam}>
+          <button onClick={() => submitExam()} disabled={submittingExam || isExamBlocked}>
             {submittingExam ? "Submitting..." : "Submit Exam"}
           </button>
           <button
@@ -1158,6 +1528,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       {view === "dashboard" ? renderDashboardView() : null}
       {view === "waiting" ? renderWaitingView() : null}
       {view === "exam" ? renderExamView() : null}
+      {view === "result-details" ? renderResultDetailsView() : null}
     </div>
   );
 }

@@ -79,6 +79,8 @@ export default function TeacherDashboard({ token }) {
   const [currentExamType, setCurrentExamType] = useState("lab_quiz");
   const [participants, setParticipants] = useState([]);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
+  const [listNotice, setListNotice] = useState("");
+  const [highlightExamId, setHighlightExamId] = useState(null);
 
   const [questions, setQuestions] = useState([]);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
@@ -102,8 +104,14 @@ export default function TeacherDashboard({ token }) {
   const [savingEvaluation, setSavingEvaluation] = useState(false);
   const [writtenMarksDraft, setWrittenMarksDraft] = useState({});
   const [writtenCommentDraft, setWrittenCommentDraft] = useState({});
+  const participantPollIntervalRef = useRef(null);
 
-  const clearParticipantPolling = useCallback(() => {}, []);
+  const clearParticipantPolling = useCallback(() => {
+    if (participantPollIntervalRef.current) {
+      clearInterval(participantPollIntervalRef.current);
+      participantPollIntervalRef.current = null;
+    }
+  }, []);
 
   const loadExams = useCallback(async () => {
     setLoadingExams(true);
@@ -141,10 +149,13 @@ export default function TeacherDashboard({ token }) {
 
   const startParticipantPolling = useCallback(
     (examId) => {
-      // Manual refresh only: load once when opening/editing or explicitly requested.
+      clearParticipantPolling();
       loadParticipants(examId);
+      participantPollIntervalRef.current = setInterval(() => {
+        loadParticipants(examId);
+      }, 3000);
     },
-    [loadParticipants]
+    [clearParticipantPolling, loadParticipants]
   );
 
   const loadQuestionsForExam = useCallback(
@@ -214,7 +225,8 @@ export default function TeacherDashboard({ token }) {
         const nextMarks = {};
         const nextComments = {};
         (submission.answer_sheet || []).forEach((answerItem) => {
-          if (normalizeQuestionType(answerItem.question_type) === "written") {
+          const qType = normalizeQuestionType(answerItem.question_type);
+          if (qType === "written" || qType === "coding") {
             nextMarks[answerItem.question_id] = String(answerItem.awarded_marks ?? 0);
             nextComments[answerItem.question_id] = answerItem.evaluation_comment || "";
           }
@@ -245,6 +257,8 @@ export default function TeacherDashboard({ token }) {
 
   async function openCreateForm() {
     clearParticipantPolling();
+    setListNotice("");
+    setHighlightExamId(null);
     setCurrentExamId(null);
     setCurrentExamTitle("");
     setFormTitle("");
@@ -261,6 +275,8 @@ export default function TeacherDashboard({ token }) {
 
   async function openEditForm(examId) {
     clearParticipantPolling();
+    setListNotice("");
+    setHighlightExamId(null);
     try {
       const result = await apiRequest(`/exams/${examId}`, {}, token);
       const exam = result.data.exam;
@@ -322,6 +338,7 @@ export default function TeacherDashboard({ token }) {
 
     setSavingExam(true);
     try {
+      const isCreateMode = !currentExamId;
       const endpoint = currentExamId ? `/exams/${currentExamId}` : "/exams";
       const method = currentExamId ? "PUT" : "POST";
       const result = await apiRequest(
@@ -337,9 +354,16 @@ export default function TeacherDashboard({ token }) {
       setExamStartedAt(exam.started_at || examStartedAt);
       setCurrentExamType(exam.exam_type || examType);
       setFormExamType(exam.exam_type || examType);
-      setView("form");
       await loadExams();
-      if (exam.id) startParticipantPolling(exam.id);
+      if (isCreateMode) {
+        clearParticipantPolling();
+        setView("list");
+        setListNotice(`Exam "${exam.title || title}" created successfully.`);
+        setHighlightExamId(exam.id);
+      } else {
+        setView("form");
+        if (exam.id) startParticipantPolling(exam.id);
+      }
     } catch (err) {
       await showAlert({ title: "Error", message: err.message || "Failed to save exam." });
     } finally {
@@ -550,15 +574,24 @@ export default function TeacherDashboard({ token }) {
   async function saveWrittenEvaluation() {
     if (!selectedSubmissionSheet || !currentExamId) return;
 
-    const writtenItems = (selectedSubmissionSheet.answer_sheet || []).filter(
-      (item) => normalizeQuestionType(item.question_type) === "written"
-    );
+    const manualItems = (selectedSubmissionSheet.answer_sheet || []).filter((item) => {
+      const qType = normalizeQuestionType(item.question_type);
+      return qType === "written" || qType === "coding";
+    });
 
-    const evaluations = writtenItems.map((item) => ({
+    const evaluations = manualItems.map((item) => ({
       question_id: item.question_id,
       awarded_marks: Number(writtenMarksDraft[item.question_id] ?? 0),
       evaluation_comment: writtenCommentDraft[item.question_id] || ""
     }));
+
+    if (evaluations.length === 0) {
+      await showAlert({
+        title: "No Manual Answers",
+        message: "There are no written or coding answers to evaluate in this submission."
+      });
+      return;
+    }
 
     setSavingEvaluation(true);
     try {
@@ -568,13 +601,75 @@ export default function TeacherDashboard({ token }) {
         token
       );
 
-      await showAlert({ title: "Saved", message: "Written evaluation saved successfully." });
+      await showAlert({ title: "Saved", message: "Evaluation saved successfully." });
       await loadSubmissionSheet(selectedSubmissionSheet.id);
       await loadEvaluationParticipants(currentExamId);
     } catch (err) {
-      await showAlert({ title: "Error", message: err.message || "Failed to save written evaluation." });
+      await showAlert({ title: "Error", message: err.message || "Failed to save evaluation." });
     } finally {
       setSavingEvaluation(false);
+    }
+  }
+
+  async function handleForceSubmitParticipant(participant) {
+    if (!currentExamId || !participant?.id) return;
+    const confirmed = await showConfirm({
+      title: "Force Submit",
+      message: `Force submit exam for ${participant.student_name}?`,
+      confirmText: "Force Submit",
+      cancelText: "Cancel"
+    });
+    if (!confirmed) return;
+
+    try {
+      await apiRequest(
+        `/exams/${currentExamId}/participants/${participant.id}/force-submit`,
+        { method: "POST" },
+        token
+      );
+      await showAlert({
+        title: "Requested",
+        message: `Force submit request sent for ${participant.student_name}.`
+      });
+      await loadParticipants(currentExamId);
+    } catch (err) {
+      await showAlert({
+        title: "Error",
+        message: err.message || "Failed to force submit participant."
+      });
+    }
+  }
+
+  async function handleToggleFreezeParticipant(participant) {
+    if (!currentExamId || !participant?.id) return;
+    const nextAction = participant.is_frozen ? "Unfreeze" : "Freeze";
+    const confirmed = await showConfirm({
+      title: `${nextAction} Student`,
+      message: `${nextAction} exam screen for ${participant.student_name}?`,
+      confirmText: nextAction,
+      cancelText: "Cancel"
+    });
+    if (!confirmed) return;
+
+    try {
+      const result = await apiRequest(
+        `/exams/${currentExamId}/participants/${participant.id}/toggle-freeze`,
+        { method: "POST" },
+        token
+      );
+      const frozen = Boolean(result.data?.participant?.is_frozen);
+      await showAlert({
+        title: "Updated",
+        message: frozen
+          ? `${participant.student_name} is now frozen.`
+          : `${participant.student_name} is now unfrozen.`
+      });
+      await loadParticipants(currentExamId);
+    } catch (err) {
+      await showAlert({
+        title: "Error",
+        message: err.message || "Failed to update participant freeze status."
+      });
     }
   }
 
@@ -603,6 +698,8 @@ export default function TeacherDashboard({ token }) {
           </div>
         </div>
         <p className="muted teacher-subtitle">Create, launch, and evaluate exams from one unified control center.</p>
+
+        {listNotice ? <p className="top-spaced teacher-notice">{listNotice}</p> : null}
 
         <div className="teacher-stats-grid">
           <article className="teacher-stat-card">
@@ -637,7 +734,10 @@ export default function TeacherDashboard({ token }) {
           {exams.map((exam) => {
             const effectiveStatus = getEffectiveExamStatus(exam.status, exam.started_at, exam.duration);
             return (
-            <li key={exam.id} className="teacher-list-item">
+            <li
+              key={exam.id}
+              className={`teacher-list-item ${Number(highlightExamId) === Number(exam.id) ? "teacher-list-item-highlight" : ""}`}
+            >
               <div className="teacher-list-head">
                 <strong>{exam.title}</strong>
                 <span className={`teacher-chip ${getStatusToneClass(effectiveStatus)}`}>
@@ -656,16 +756,7 @@ export default function TeacherDashboard({ token }) {
               </div>
               <div className="actions-row teacher-actions">
                 <button className="secondary btn-inline" onClick={() => openEditForm(exam.id)}>
-                  Edit
-                </button>
-                <button className="secondary btn-inline" onClick={() => openQuestionManager(exam.id, exam.title)}>
-                  Questions
-                </button>
-                <button className="secondary btn-inline" onClick={() => openSubmissionsView(exam.id, exam.title)}>
-                  Evaluation
-                </button>
-                <button className="btn-inline" onClick={() => handleDeleteExam(exam.id, exam.title)}>
-                  Delete
+                  Manage Exam
                 </button>
               </div>
             </li>
@@ -687,7 +778,7 @@ export default function TeacherDashboard({ token }) {
             <span className="teacher-section-note">Configure exam details and scheduling.</span>
           </div>
           <div className="card-head">
-            <h2 className="teacher-title">{currentExamId ? "Edit Exam" : "Create Exam"}</h2>
+            <h2 className="teacher-title">{currentExamId ? "Manage Exam" : "Create Exam"}</h2>
             <button
               className="secondary"
               onClick={() => {
@@ -740,6 +831,26 @@ export default function TeacherDashboard({ token }) {
         {currentExamId ? (
           <section className="card teacher-panel">
             <div className="teacher-section-strip">
+              <span className="teacher-section-tag">Exam Actions</span>
+              <span className="teacher-section-note">Open question, evaluation, and deletion actions from one place.</span>
+            </div>
+            <div className="actions-row">
+              <button className="secondary" onClick={() => openQuestionManager(currentExamId, currentExamTitle)}>
+                Question Manager
+              </button>
+              <button className="secondary" onClick={() => openSubmissionsView(currentExamId, currentExamTitle)}>
+                Evaluation Desk
+              </button>
+              <button onClick={() => handleDeleteExam(currentExamId, currentExamTitle || formTitle || "Exam")}>
+                Delete Exam
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+        {currentExamId ? (
+          <section className="card teacher-panel">
+            <div className="teacher-section-strip">
               <span className="teacher-section-tag">Live Room</span>
               <span className="teacher-section-note">Share code, track participants, and launch.</span>
             </div>
@@ -749,9 +860,7 @@ export default function TeacherDashboard({ token }) {
                 <button className="secondary" onClick={() => loadParticipants(currentExamId)}>
                   Refresh Participants
                 </button>
-                <button className="secondary" onClick={() => openQuestionManager(currentExamId, currentExamTitle)}>
-                  Manage Questions
-                </button>
+                <span className="muted small">Teacher controls: start, freeze, force-submit</span>
               </div>
             </div>
 
@@ -778,15 +887,44 @@ export default function TeacherDashboard({ token }) {
 
             {!loadingParticipants && participants.length > 0 ? (
               <ul className="list top-spaced teacher-list">
-                {participants.map((participant) => (
-                  <li key={participant.id} className="teacher-list-item">
-                    <strong>{participant.student_name}</strong>
-                    <span>{participant.student_email}</span>
-                    <span>
-                      Joined: {formatDateTime(participant.joined_at)} | Status: {participant.status}
-                    </span>
-                  </li>
-                ))}
+                {participants.map((participant) => {
+                  const violationCount = Number(participant.violation_count || 0);
+                  const isFrozen = Boolean(participant.is_frozen);
+                  const lastViolation = participant.last_violation_at
+                    ? `${participant.last_violation_severity || "medium"} | ${participant.last_violation_type || "Unknown"} | ${formatDateTime(participant.last_violation_at)}`
+                    : "No live violations";
+                  return (
+                    <li key={participant.id} className="teacher-list-item">
+                      <strong>{participant.student_name}</strong>
+                      <span>{participant.student_email}</span>
+                      <span>
+                        Joined: {formatDateTime(participant.joined_at)} | Status: {participant.status}
+                      </span>
+                      <span className={`teacher-freeze-pill ${isFrozen ? "teacher-freeze-pill-active" : ""}`}>
+                        {isFrozen ? "Frozen" : "Active"}
+                      </span>
+                      <span className={`teacher-violation-pill ${violationCount > 0 ? "teacher-violation-pill-active" : ""}`}>
+                        Violations: {violationCount}
+                      </span>
+                      <span className="muted small">Latest: {lastViolation}</span>
+                      <div className="actions-row teacher-actions">
+                        <button
+                          className="secondary btn-inline"
+                          onClick={() => handleToggleFreezeParticipant(participant)}
+                        >
+                          {isFrozen ? "Unfreeze" : "Freeze"}
+                        </button>
+                        <button
+                          className="btn-inline"
+                          onClick={() => handleForceSubmitParticipant(participant)}
+                          disabled={String(participant.status || "").toLowerCase() === "completed"}
+                        >
+                          Force Submit
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             ) : null}
           </section>
@@ -1036,7 +1174,7 @@ export default function TeacherDashboard({ token }) {
       <section className="card teacher-panel">
         <div className="teacher-section-strip">
           <span className="teacher-section-tag">Evaluation Desk</span>
-          <span className="teacher-section-note">Review submissions and score written answers.</span>
+          <span className="teacher-section-note">Review submissions and score written/coding answers.</span>
         </div>
         <div className="card-head">
           <h2 className="teacher-title">Evaluation: {currentExamTitle}</h2>
@@ -1060,7 +1198,7 @@ export default function TeacherDashboard({ token }) {
         </div>
 
         <p className="muted">
-          Step 1: Choose a student from participants. Step 2: Evaluate written answers in their answer sheet.
+          Step 1: Choose a student from participants. Step 2: Evaluate written/coding answers in their answer sheet.
         </p>
 
         {loadingEvaluationParticipants ? <p>Loading participants...</p> : null}
@@ -1110,9 +1248,10 @@ export default function TeacherDashboard({ token }) {
     if (!selectedSubmissionSheet) return null;
 
     const violations = normalizeViolations(selectedSubmissionSheet.violations);
-    const writtenItems = (selectedSubmissionSheet.answer_sheet || []).filter(
-      (item) => normalizeQuestionType(item.question_type) === "written"
-    );
+    const manualItems = (selectedSubmissionSheet.answer_sheet || []).filter((item) => {
+      const qType = normalizeQuestionType(item.question_type);
+      return qType === "written" || qType === "coding";
+    });
 
     return (
       <div className="content-stack">
@@ -1161,7 +1300,7 @@ export default function TeacherDashboard({ token }) {
                       {index + 1}. {item.question_text}
                     </p>
                     <p className="muted small">
-                      Type: {qType === "written" ? "Written" : "MCQ"} | Max Marks: {maxMarks}
+                      Type: {qType === "written" ? "Written" : qType === "coding" ? "Coding" : "MCQ"} | Max Marks: {maxMarks}
                     </p>
 
                     {qType === "mcq" ? (
@@ -1187,6 +1326,46 @@ export default function TeacherDashboard({ token }) {
                           Auto evaluation: {item.is_correct ? "Correct" : "Wrong"} | Awarded:{" "}
                           {item.awarded_marks}/{maxMarks}
                         </p>
+                      </>
+                    ) : qType === "coding" ? (
+                      <>
+                        <div className="written-preview">
+                          <p className="muted small">Student code ({item.language || "unknown"}):</p>
+                          <pre>{item.written_answer || "// No code submitted."}</pre>
+                        </div>
+
+                        <div className="written-preview">
+                          <p className="muted small">Sample input / output:</p>
+                          <p>Input: {item.sample_input || "(none)"}</p>
+                          <p>Output: {item.sample_output || "(none)"}</p>
+                        </div>
+
+                        <div className="evaluation-box">
+                          <label>
+                            <span>Awarded Marks</span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={maxMarks}
+                              value={writtenMarksDraft[item.question_id] ?? "0"}
+                              onChange={(event) =>
+                                handleWrittenMarkDraftChange(item.question_id, event.target.value, maxMarks)
+                              }
+                            />
+                          </label>
+
+                          <label>
+                            <span>Evaluation Comment (optional)</span>
+                            <textarea
+                              className="answer-textarea"
+                              value={writtenCommentDraft[item.question_id] || ""}
+                              onChange={(event) =>
+                                handleWrittenCommentDraftChange(item.question_id, event.target.value)
+                              }
+                              placeholder="Feedback for this coding answer..."
+                            />
+                          </label>
+                        </div>
                       </>
                     ) : (
                       <>
@@ -1233,17 +1412,17 @@ export default function TeacherDashboard({ token }) {
               })}
             </div>
 
-            {writtenItems.length > 0 ? (
+            {manualItems.length > 0 ? (
               <div className="actions-row top-spaced">
                 <button onClick={saveWrittenEvaluation} disabled={savingEvaluation}>
-                  {savingEvaluation ? "Saving..." : "Save Written Evaluation"}
+                  {savingEvaluation ? "Saving..." : "Save Evaluation"}
                 </button>
                 <button className="secondary" onClick={() => loadSubmissionSheet(selectedSubmissionSheet.id)}>
                   Reload Sheet
                 </button>
               </div>
             ) : (
-              <p className="muted top-spaced">No written questions in this exam. MCQ evaluation is automatic.</p>
+              <p className="muted top-spaced">No manual questions in this exam. MCQ evaluation is automatic.</p>
             )}
           </section>
         ) : null}

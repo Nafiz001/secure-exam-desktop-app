@@ -93,6 +93,12 @@ const initializeSchema = async () => {
         student_name VARCHAR(255),
         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         status VARCHAR(20) DEFAULT 'waiting',
+        violation_count INTEGER DEFAULT 0,
+        last_violation_type VARCHAR(100),
+        last_violation_severity VARCHAR(20),
+        last_violation_at TIMESTAMP NULL,
+        force_submit_requested BOOLEAN DEFAULT FALSE,
+        is_frozen BOOLEAN DEFAULT FALSE,
         UNIQUE(exam_id, student_id)
       );
     `);
@@ -141,6 +147,26 @@ const initializeSchema = async () => {
       ADD COLUMN IF NOT EXISTS evaluated_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
     `);
 
+    await client.query(`
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS violation_count INTEGER DEFAULT 0;
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS last_violation_type VARCHAR(100);
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS last_violation_severity VARCHAR(20);
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS last_violation_at TIMESTAMP NULL;
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS force_submit_requested BOOLEAN DEFAULT FALSE;
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS is_frozen BOOLEAN DEFAULT FALSE;
+    `);
+
     // Backfill score fields for old rows
     await client.query(`
       UPDATE submissions
@@ -172,6 +198,7 @@ const initializeSchema = async () => {
       CREATE INDEX IF NOT EXISTS idx_submissions_eval_status ON submissions(exam_id, evaluation_status);
       CREATE INDEX IF NOT EXISTS idx_exam_participants_exam_id ON exam_participants(exam_id);
       CREATE INDEX IF NOT EXISTS idx_exam_participants_student_id ON exam_participants(student_id);
+      CREATE INDEX IF NOT EXISTS idx_exam_participants_violation_count ON exam_participants(exam_id, violation_count);
     `);
 
     await client.query('COMMIT');

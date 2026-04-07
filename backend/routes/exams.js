@@ -12,7 +12,12 @@ const {
   getExamParticipants,
   startExam,
   getExamStatus,
-  getMyActiveExams
+  getMyActiveExams,
+  getMyResults,
+  getMyResultDetails,
+  recordViolation,
+  forceSubmitParticipant,
+  toggleParticipantFreeze
 } = require('../controllers/examController');
 const { runCode } = require('../controllers/codeExecutionController');
 const {
@@ -29,6 +34,8 @@ const {
 router.post('/', protect, authorize('teacher'), createExam);
 router.get('/', protect, getExams);
 router.get('/my-active', protect, authorize('student'), getMyActiveExams);
+router.get('/my-results', protect, authorize('student'), getMyResults);
+router.get('/my-results/:submissionId', protect, authorize('student'), getMyResultDetails);
 router.get('/:id', protect, getExamById);
 router.put('/:id', protect, authorize('teacher'), updateExam);
 router.delete('/:id', protect, authorize('teacher'), deleteExam);
@@ -36,6 +43,8 @@ router.delete('/:id', protect, authorize('teacher'), deleteExam);
 // Room code system routes
 router.post('/join', protect, authorize('student'), joinExam);
 router.get('/:id/participants', protect, authorize('teacher'), getExamParticipants);
+router.post('/:id/participants/:participantId/force-submit', protect, authorize('teacher'), forceSubmitParticipant);
+router.post('/:id/participants/:participantId/toggle-freeze', protect, authorize('teacher'), toggleParticipantFreeze);
 router.post('/:id/start', protect, authorize('teacher'), startExam);
 router.get('/:id/status', protect, getExamStatus);
 
@@ -47,6 +56,7 @@ router.delete('/questions/:id', protect, authorize('teacher'), deleteQuestion);
 // Submission routes
 router.post('/:id/submit', protect, authorize('student'), submitExam);
 router.post('/:id/run-code', protect, authorize('student'), runCode);
+router.post('/:id/violations', protect, authorize('student'), recordViolation);
 router.get('/:examId/submissions', protect, authorize('teacher'), getExamSubmissions);
 router.get('/:examId/evaluation/participants', protect, authorize('teacher'), getEvaluationParticipants);
 router.get('/:examId/evaluation/submissions/:submissionId', protect, authorize('teacher'), getSubmissionAnswerSheet);

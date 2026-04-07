@@ -34,6 +34,13 @@ function normalizeExamType(rawType) {
   return String(rawType || 'lab_quiz').toLowerCase() === 'lab_test' ? 'lab_test' : 'lab_quiz';
 }
 
+function normalizeViolationSeverity(rawSeverity) {
+  const normalized = String(rawSeverity || '').toLowerCase();
+  if (normalized === 'low') return 'low';
+  if (normalized === 'high') return 'high';
+  return 'medium';
+}
+
 async function syncExpiredExamStatuses() {
   const expiredExamResult = await pool.query(
     `UPDATE exams
@@ -57,6 +64,14 @@ async function syncExpiredExamStatuses() {
        AND status = 'taking'`,
     [expiredExamIds]
   );
+}
+
+async function ensureTeacherOwnsExam(examId, teacherId) {
+  const examCheck = await pool.query(
+    'SELECT id, status FROM exams WHERE id = $1 AND created_by = $2',
+    [examId, teacherId]
+  );
+  return examCheck.rows[0] || null;
 }
 
 /**
@@ -473,6 +488,16 @@ const submitExam = async (req, res) => {
       ]
     );
 
+    await pool.query(
+      `UPDATE exam_participants
+       SET
+         status = 'completed',
+         force_submit_requested = FALSE,
+         is_frozen = FALSE
+       WHERE exam_id = $1 AND student_id = $2`,
+      [examId, studentId]
+    );
+
     res.status(201).json({
       success: true,
       message: hasManualEvaluationQuestions
@@ -548,7 +573,12 @@ const joinExam = async (req, res) => {
 
     if (participantCheck.rows.length > 0) {
       await pool.query(
-        'UPDATE exam_participants SET student_name = $1 WHERE exam_id = $2 AND student_id = $3',
+        `UPDATE exam_participants
+         SET
+           student_name = $1,
+           force_submit_requested = FALSE,
+           is_frozen = FALSE
+         WHERE exam_id = $2 AND student_id = $3`,
         [studentName.trim(), exam.id, studentId]
       );
 
@@ -689,6 +719,15 @@ const startExam = async (req, res) => {
       ['taking', examId]
     );
 
+    await pool.query(
+      `UPDATE exam_participants
+       SET
+         force_submit_requested = FALSE,
+         is_frozen = FALSE
+       WHERE exam_id = $1`,
+      [examId]
+    );
+
     res.status(200).json({
       success: true,
       message: 'Exam started successfully',
@@ -732,9 +771,12 @@ const getExamStatus = async (req, res) => {
 
     const exam = examResult.rows[0];
 
+    let participantData = null;
     if (userRole === 'student') {
       const participantCheck = await pool.query(
-        'SELECT id FROM exam_participants WHERE exam_id = $1 AND student_id = $2',
+        `SELECT id, status, COALESCE(is_frozen, FALSE) as is_frozen, COALESCE(force_submit_requested, FALSE) as force_submit_requested
+         FROM exam_participants
+         WHERE exam_id = $1 AND student_id = $2`,
         [examId, userId]
       );
 
@@ -744,6 +786,7 @@ const getExamStatus = async (req, res) => {
           message: 'You have not joined this exam'
         });
       }
+      participantData = participantCheck.rows[0];
     } else if (userRole === 'teacher' && exam.created_by !== userId) {
       return res.status(403).json({
         success: false,
@@ -764,7 +807,10 @@ const getExamStatus = async (req, res) => {
         status: exam.status,
         started_at: exam.started_at,
         duration: exam.duration,
-        participants_count: parseInt(participantCount.rows[0].count, 10)
+        participants_count: parseInt(participantCount.rows[0].count, 10),
+        participant_status: participantData?.status || null,
+        is_frozen: Boolean(participantData?.is_frozen),
+        force_submit_requested: Boolean(participantData?.force_submit_requested)
       }
     });
   } catch (error) {
@@ -821,6 +867,359 @@ const getMyActiveExams = async (req, res) => {
   }
 };
 
+/**
+ * Get student's submitted exam results summary
+ * GET /api/exams/my-results
+ */
+const getMyResults = async (req, res) => {
+  const studentId = req.user.userId;
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         s.id as submission_id,
+         s.exam_id,
+         s.submitted_at,
+         s.auto_score,
+         s.manual_score,
+         s.score,
+         s.evaluation_status,
+         s.evaluated_at,
+         e.title as exam_title,
+         e.exam_type,
+         e.duration,
+         u.name as teacher_name
+       FROM submissions s
+       JOIN exams e ON s.exam_id = e.id
+       JOIN users u ON e.created_by = u.id
+       WHERE s.student_id = $1
+       ORDER BY s.submitted_at DESC`,
+      [studentId]
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        results: result.rows
+      }
+    });
+  } catch (error) {
+    console.error('Get my results error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching results'
+    });
+  }
+};
+
+/**
+ * Get one submitted exam result with question-level details (Student only)
+ * GET /api/exams/my-results/:submissionId
+ */
+const getMyResultDetails = async (req, res) => {
+  const studentId = req.user.userId;
+  const submissionId = req.params.submissionId;
+
+  try {
+    const submissionResult = await pool.query(
+      `SELECT
+         s.id,
+         s.exam_id,
+         s.submitted_at,
+         s.auto_score,
+         s.manual_score,
+         s.score,
+         s.evaluation_status,
+         s.evaluated_at,
+         s.answers,
+         e.title as exam_title,
+         e.exam_type,
+         e.duration,
+         u.name as teacher_name
+       FROM submissions s
+       JOIN exams e ON s.exam_id = e.id
+       JOIN users u ON e.created_by = u.id
+       WHERE s.id = $1 AND s.student_id = $2`,
+      [submissionId, studentId]
+    );
+
+    if (submissionResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Result not found'
+      });
+    }
+
+    const submission = submissionResult.rows[0];
+    const rawAnswers = Array.isArray(submission.answers)
+      ? submission.answers
+      : (() => {
+          try {
+            const parsed = JSON.parse(submission.answers || '[]');
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (error) {
+            return [];
+          }
+        })();
+
+    const answerMap = new Map();
+    rawAnswers.forEach((answer) => {
+      if (answer && answer.question_id !== undefined && answer.question_id !== null) {
+        answerMap.set(Number(answer.question_id), answer);
+      }
+    });
+
+    const questionsResult = await pool.query(
+      `SELECT
+         id,
+         question_text,
+         COALESCE(question_type, 'mcq') as question_type,
+         options,
+         correct_answer,
+         reference_answer,
+         sample_input,
+         sample_output,
+         marks
+       FROM questions
+       WHERE exam_id = $1
+       ORDER BY id ASC`,
+      [submission.exam_id]
+    );
+
+    const details = questionsResult.rows.map((question) => {
+      const answer = answerMap.get(Number(question.id)) || {};
+      const parsedOptions = Array.isArray(question.options)
+        ? question.options
+        : (() => {
+            try {
+              const parsed = JSON.parse(question.options || '[]');
+              return Array.isArray(parsed) ? parsed : [];
+            } catch (error) {
+              return [];
+            }
+          })();
+
+      return {
+        question_id: Number(question.id),
+        question_text: question.question_text,
+        question_type: normalizeQuestionType(question.question_type),
+        options: parsedOptions,
+        correct_answer: question.correct_answer,
+        reference_answer: question.reference_answer || '',
+        sample_input: question.sample_input || '',
+        sample_output: question.sample_output || '',
+        max_marks: Number(question.marks) || 0,
+        selected_answer: answer.selected_answer ?? null,
+        written_answer: answer.written_answer || '',
+        language: answer.language || '',
+        is_correct: answer.is_correct ?? null,
+        awarded_marks: Number(answer.awarded_marks ?? 0),
+        evaluated: Boolean(answer.evaluated),
+        evaluation_comment: answer.evaluation_comment || ''
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        result: {
+          submission_id: submission.id,
+          exam_id: submission.exam_id,
+          exam_title: submission.exam_title,
+          exam_type: submission.exam_type,
+          duration: submission.duration,
+          teacher_name: submission.teacher_name,
+          submitted_at: submission.submitted_at,
+          auto_score: Number(submission.auto_score) || 0,
+          manual_score: Number(submission.manual_score) || 0,
+          score: Number(submission.score) || 0,
+          evaluation_status: submission.evaluation_status,
+          evaluated_at: submission.evaluated_at,
+          answers: details
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get my result details error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching result details'
+    });
+  }
+};
+
+/**
+ * Record a live violation for an active exam participant
+ * POST /api/exams/:id/violations
+ */
+const recordViolation = async (req, res) => {
+  const examId = req.params.id;
+  const studentId = req.user.userId;
+  const { type, severity } = req.body || {};
+  const normalizedType = String(type || '').trim();
+  const normalizedSeverity = normalizeViolationSeverity(severity);
+
+  if (!normalizedType) {
+    return res.status(400).json({
+      success: false,
+      message: 'Violation type is required'
+    });
+  }
+
+  try {
+    await syncExpiredExamStatuses();
+
+    const examCheck = await pool.query(
+      'SELECT id, status FROM exams WHERE id = $1',
+      [examId]
+    );
+
+    if (examCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam not found'
+      });
+    }
+
+    const exam = examCheck.rows[0];
+    if (exam.status !== 'in_progress') {
+      return res.status(400).json({
+        success: false,
+        message: 'Violations can be recorded only while exam is in progress'
+      });
+    }
+
+    const participantResult = await pool.query(
+      `UPDATE exam_participants
+       SET
+         violation_count = COALESCE(violation_count, 0) + 1,
+         last_violation_type = $1,
+         last_violation_severity = $2,
+         last_violation_at = CURRENT_TIMESTAMP
+       WHERE exam_id = $3 AND student_id = $4
+       RETURNING id, violation_count, last_violation_type, last_violation_severity, last_violation_at`,
+      [normalizedType.slice(0, 100), normalizedSeverity, examId, studentId]
+    );
+
+    if (participantResult.rows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'You have not joined this exam'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: participantResult.rows[0]
+    });
+  } catch (error) {
+    console.error('Record violation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while recording violation'
+    });
+  }
+};
+
+/**
+ * Teacher requests force submit for a participant
+ * POST /api/exams/:id/participants/:participantId/force-submit
+ */
+const forceSubmitParticipant = async (req, res) => {
+  const examId = req.params.id;
+  const participantId = req.params.participantId;
+  const teacherId = req.user.userId;
+
+  try {
+    const exam = await ensureTeacherOwnsExam(examId, teacherId);
+    if (!exam) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam not found or you do not have permission'
+      });
+    }
+
+    const participantResult = await pool.query(
+      `UPDATE exam_participants
+       SET force_submit_requested = TRUE, is_frozen = FALSE
+       WHERE id = $1 AND exam_id = $2
+       RETURNING id, exam_id, student_id, student_name, status, force_submit_requested`,
+      [participantId, examId]
+    );
+
+    if (participantResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Participant not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Force submit requested for participant',
+      data: {
+        participant: participantResult.rows[0]
+      }
+    });
+  } catch (error) {
+    console.error('Force submit participant error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while forcing participant submission'
+    });
+  }
+};
+
+/**
+ * Teacher toggles freeze/unfreeze for a participant
+ * POST /api/exams/:id/participants/:participantId/toggle-freeze
+ */
+const toggleParticipantFreeze = async (req, res) => {
+  const examId = req.params.id;
+  const participantId = req.params.participantId;
+  const teacherId = req.user.userId;
+
+  try {
+    const exam = await ensureTeacherOwnsExam(examId, teacherId);
+    if (!exam) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam not found or you do not have permission'
+      });
+    }
+
+    const toggleResult = await pool.query(
+      `UPDATE exam_participants
+       SET is_frozen = NOT COALESCE(is_frozen, FALSE)
+       WHERE id = $1 AND exam_id = $2
+       RETURNING id, exam_id, student_id, student_name, status, is_frozen`,
+      [participantId, examId]
+    );
+
+    if (toggleResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Participant not found'
+      });
+    }
+
+    const participant = toggleResult.rows[0];
+    res.status(200).json({
+      success: true,
+      message: participant.is_frozen ? 'Participant exam frozen' : 'Participant exam unfrozen',
+      data: {
+        participant
+      }
+    });
+  } catch (error) {
+    console.error('Toggle participant freeze error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while toggling participant freeze'
+    });
+  }
+};
+
 module.exports = {
   createExam,
   getExams,
@@ -832,5 +1231,10 @@ module.exports = {
   getExamParticipants,
   startExam,
   getExamStatus,
-  getMyActiveExams
+  getMyActiveExams,
+  getMyResults,
+  getMyResultDetails,
+  recordViolation,
+  forceSubmitParticipant,
+  toggleParticipantFreeze
 };
