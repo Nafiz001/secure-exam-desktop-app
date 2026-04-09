@@ -5,8 +5,9 @@
   "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "npm --prefix backend install",
     "install:backend": "npm --prefix backend install --omit=dev",
-    "start": "npm run build:renderer && electron .",
+    "start": "npm --prefix backend install && npm run build:renderer && electron .",
     "dev:renderer": "vite --config renderer/vite.config.mjs",
     "build:renderer": "vite build --config renderer/vite.config.mjs",
     "start:react": "npm run start",

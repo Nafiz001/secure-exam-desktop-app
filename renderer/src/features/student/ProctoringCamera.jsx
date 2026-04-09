@@ -10,8 +10,11 @@ function getModelUrl() {
   return "/models"; // Vite dev server
 }
 
-const DETECTION_INTERVAL_MS = 1500; // Upgrade 1: tighter interval (was 2500ms)
-const SNAPSHOT_INTERVAL_MS  = 8000;
+const DETECTION_INTERVAL_MS  = 1500;
+const SNAPSHOT_INTERVAL_MS   = 8000;
+const CAMERA_WARMUP_MS       = 800;  // wait for camera to stabilize before first detection
+const DETECTOR_INPUT_SIZE    = 416;  // TinyFaceDetector input — good match for 640px video
+const DETECTOR_SCORE_THRESH  = 0.3;  // lowered from 0.4 — more sensitive in average lighting
 
 // ─── Head pose thresholds ────────────────────────────────────────────────────
 // Yaw  (left-right): |nose_x - eye_mid_x| / eye_width
@@ -130,8 +133,11 @@ export default function ProctoringCamera({ token, examId, enabled }) {
     try {
       // Use full landmark model (faceLandmark68Net) for accurate pose estimation
       const detections = await faceapi
-        .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
-        .withFaceLandmarks(); // ← full 68-point net (not tiny)
+        .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({
+          inputSize: DETECTOR_INPUT_SIZE,
+          scoreThreshold: DETECTOR_SCORE_THRESH
+        }))
+        .withFaceLandmarks(); // ← full 68-point net
 
       const faceCount = detections.length;
       let status    = classifyFaceStatus(faceCount);
@@ -164,7 +170,12 @@ export default function ProctoringCamera({ token, examId, enabled }) {
       // Persist status on the video element for the snapshot timer to read
       video._proctoringStatus    = status;
       video._proctoringFaceCount = faceCount;
-    } catch { /* non-fatal */ }
+
+      // Debug — open DevTools (Ctrl+Shift+I) to see this
+      console.debug(`[Proctoring] faces:${faceCount} status:${status}${eventType ? " event:" + eventType : ""}`);
+    } catch (err) {
+      console.warn("[Proctoring] Detection error:", err.message);
+    }
   }, [postEvent]);
 
   // ── loops ────────────────────────────────────────────────────────────────
@@ -221,8 +232,10 @@ export default function ProctoringCamera({ token, examId, enabled }) {
           throw Object.assign(new Error("getUserMedia not supported"), { name: "NotSupportedError" });
         }
 
+        // Request higher resolution — more pixels = easier face detection.
+        // Don't specify facingMode; some webcams silently fail that constraint.
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 320, height: 240, facingMode: "user" }
+          video: { width: { ideal: 640 }, height: { ideal: 480 } }
         });
 
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
@@ -234,7 +247,10 @@ export default function ProctoringCamera({ token, examId, enabled }) {
         }
 
         setCameraStatus("ok");
-        startDetectionLoop();
+
+        // Give the camera sensor time to adjust exposure/white-balance
+        // before the first detection runs — prevents false "no face" events.
+        setTimeout(startDetectionLoop, CAMERA_WARMUP_MS);
       } catch (err) {
         if (cancelled) return;
         console.error("[Proctoring] Camera error:", err.name, err.message);
