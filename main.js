@@ -5,7 +5,7 @@
 
 console.log("[MAIN] ====== main.js loading ======");
 
-const { app, BrowserWindow, ipcMain, globalShortcut } = require("electron");
+const { app, BrowserWindow, ipcMain, globalShortcut, session } = require("electron");
 const psList = require("ps-list");
 const fs = require("fs");
 const path = require("path");
@@ -394,6 +394,15 @@ ipcMain.handle("submit-exam", async (event, submissionData) => {
    APP LIFECYCLE
 ========================= */
 app.whenReady().then(() => {
+  // Allow camera access for webcam proctoring
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === "media") {
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
+
   startBackendServer().finally(() => {
     createWindow();
   });

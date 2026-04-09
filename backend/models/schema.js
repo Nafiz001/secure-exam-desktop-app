@@ -103,6 +103,31 @@ const initializeSchema = async () => {
       );
     `);
 
+    // Proctoring events log
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS proctoring_events (
+        id SERIAL PRIMARY KEY,
+        exam_id INTEGER REFERENCES exams(id) ON DELETE CASCADE,
+        student_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        event_type VARCHAR(50) NOT NULL,
+        details TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    // Latest webcam snapshot per student (upserted)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS proctoring_snapshots (
+        exam_id INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+        student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        snapshot_base64 TEXT,
+        face_count INTEGER DEFAULT 0,
+        status VARCHAR(20) DEFAULT 'ok',
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        PRIMARY KEY (exam_id, student_id)
+      );
+    `);
+
     // Safe additive migrations for existing databases
     await client.query(`
       ALTER TABLE exams
@@ -167,6 +192,11 @@ const initializeSchema = async () => {
       ADD COLUMN IF NOT EXISTS is_frozen BOOLEAN DEFAULT FALSE;
     `);
 
+    await client.query(`
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS webcam_required BOOLEAN DEFAULT FALSE;
+    `);
+
     // Backfill score fields for old rows
     await client.query(`
       UPDATE submissions
@@ -199,6 +229,8 @@ const initializeSchema = async () => {
       CREATE INDEX IF NOT EXISTS idx_exam_participants_exam_id ON exam_participants(exam_id);
       CREATE INDEX IF NOT EXISTS idx_exam_participants_student_id ON exam_participants(student_id);
       CREATE INDEX IF NOT EXISTS idx_exam_participants_violation_count ON exam_participants(exam_id, violation_count);
+      CREATE INDEX IF NOT EXISTS idx_proctoring_events_exam ON proctoring_events(exam_id);
+      CREATE INDEX IF NOT EXISTS idx_proctoring_events_student ON proctoring_events(exam_id, student_id);
     `);
 
     await client.query('COMMIT');

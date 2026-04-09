@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { apiRequest } from "../../api";
 import { useModal } from "../../components/modals/ModalProvider";
+import ProctoringCamera from "./ProctoringCamera";
 
 function formatTimerDisplay(totalSeconds) {
   const safeSeconds = Math.max(0, totalSeconds);
@@ -560,6 +561,41 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
               exam.id,
               "Time is up. Your exam was submitted automatically."
             );
+            return;
+          }
+        }
+
+        // Webcam proctoring consent + camera pre-check
+        if (exam.webcam_required) {
+          const agreed = await showConfirm({
+            title: "Webcam Required",
+            message:
+              "This exam requires your webcam for proctoring. Your camera will be active throughout the exam and periodic snapshots will be recorded for the teacher to review. Do you want to allow camera access and proceed?",
+            confirmText: "Allow & Start Exam",
+            cancelText: "Cancel"
+          });
+
+          if (!agreed) {
+            setExamLoading(false);
+            return;
+          }
+
+          // Test camera access before entering — gives a clear error early
+          try {
+            if (!navigator.mediaDevices?.getUserMedia) {
+              throw Object.assign(new Error("getUserMedia not supported"), { name: "NotSupportedError" });
+            }
+            const testStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            testStream.getTracks().forEach((t) => t.stop());
+          } catch (camErr) {
+            let camMessage = "Could not access your camera. Make sure it is connected and not in use by another application, then try again.";
+            if (camErr.name === "NotAllowedError" || camErr.name === "PermissionDeniedError") {
+              camMessage = "Camera access was denied. You must allow camera access to take this proctored exam.";
+            } else if (camErr.name === "NotSupportedError") {
+              camMessage = "Camera API is not available. Please restart the application.";
+            }
+            await showAlert({ title: "Camera Access Failed", message: camMessage });
+            setExamLoading(false);
             return;
           }
         }
@@ -1335,6 +1371,11 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
             </div>
           </div>
           <p className="muted">{examData.description || "No description"}</p>
+          <ProctoringCamera
+            token={token}
+            examId={examData.id}
+            enabled={Boolean(examData.webcam_required)}
+          />
         </section>
 
         {warningMessage ? (

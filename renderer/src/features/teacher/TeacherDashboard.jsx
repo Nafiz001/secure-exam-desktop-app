@@ -74,6 +74,7 @@ export default function TeacherDashboard({ token }) {
   const [formDescription, setFormDescription] = useState("");
   const [formExamType, setFormExamType] = useState("lab_quiz");
   const [formDuration, setFormDuration] = useState("60");
+  const [formWebcamRequired, setFormWebcamRequired] = useState(false);
   const [roomCode, setRoomCode] = useState("");
   const [examStatus, setExamStatus] = useState("created");
   const [examStartedAt, setExamStartedAt] = useState(null);
@@ -97,6 +98,13 @@ export default function TeacherDashboard({ token }) {
   const [questionStarterCode, setQuestionStarterCode] = useState("");
   const [questionMarks, setQuestionMarks] = useState("2");
   const [savingQuestion, setSavingQuestion] = useState(false);
+
+  const [proctoringStudents, setProctoringStudents] = useState([]);
+  const [loadingProctoring, setLoadingProctoring] = useState(false);
+  const [selectedProctoringStudent, setSelectedProctoringStudent] = useState(null);
+  const [proctoringEvents, setProctoringEvents] = useState([]);
+  const [loadingProctoringEvents, setLoadingProctoringEvents] = useState(false);
+  const proctoringPollRef = useRef(null);
 
   const [evaluationParticipants, setEvaluationParticipants] = useState([]);
   const [loadingEvaluationParticipants, setLoadingEvaluationParticipants] = useState(false);
@@ -206,6 +214,25 @@ export default function TeacherDashboard({ token }) {
     [showAlert, token]
   );
 
+  const loadProctoringStatus = useCallback(
+    async (examId, options = {}) => {
+      if (!examId) return;
+      const { silent = false } = options;
+      if (!silent) setLoadingProctoring(true);
+      try {
+        const result = await apiRequest(`/proctoring/${examId}/students`, {}, token);
+        setProctoringStudents(result.data.students || []);
+      } catch (err) {
+        if (!silent) {
+          await showAlert({ title: "Error", message: err.message || "Failed to load proctoring data." });
+        }
+      } finally {
+        if (!silent) setLoadingProctoring(false);
+      }
+    },
+    [showAlert, token]
+  );
+
   const resetQuestionForm = useCallback(() => {
     setCurrentQuestionId(null);
     setQuestionText("");
@@ -263,6 +290,7 @@ export default function TeacherDashboard({ token }) {
   useEffect(() => {
     return () => {
       clearParticipantPolling();
+      if (proctoringPollRef.current) clearInterval(proctoringPollRef.current);
     };
   }, [clearParticipantPolling]);
 
@@ -276,6 +304,7 @@ export default function TeacherDashboard({ token }) {
     setFormDescription("");
     setFormExamType("lab_quiz");
     setFormDuration("60");
+    setFormWebcamRequired(false);
     setRoomCode("");
     setExamStatus("created");
     setExamStartedAt(null);
@@ -297,6 +326,7 @@ export default function TeacherDashboard({ token }) {
       setFormDescription(exam.description || "");
       setFormExamType(exam.exam_type || "lab_quiz");
       setFormDuration(String(exam.duration || 60));
+      setFormWebcamRequired(Boolean(exam.webcam_required));
       setRoomCode(exam.room_code || "");
       setExamStatus(exam.status || "created");
       setExamStartedAt(exam.started_at || null);
@@ -364,7 +394,7 @@ export default function TeacherDashboard({ token }) {
       const method = currentExamId ? "PUT" : "POST";
       const result = await apiRequest(
         endpoint,
-        { method, body: JSON.stringify({ title, description: formDescription, exam_type: examType, duration }) },
+        { method, body: JSON.stringify({ title, description: formDescription, exam_type: examType, duration, webcam_required: formWebcamRequired }) },
         token
       );
       const exam = result.data.exam;
@@ -432,6 +462,20 @@ export default function TeacherDashboard({ token }) {
     setCurrentExamType(selectedExam?.exam_type || "lab_quiz");
     setView("questions");
     await loadQuestionsForExam(examId);
+  }
+
+  async function openProctoringView(examId, examTitle) {
+    clearParticipantPolling();
+    if (proctoringPollRef.current) clearInterval(proctoringPollRef.current);
+    setSelectedProctoringStudent(null);
+    setProctoringEvents([]);
+    setCurrentExamId(examId);
+    setCurrentExamTitle(examTitle);
+    setView("proctoring");
+    await loadProctoringStatus(examId);
+    proctoringPollRef.current = setInterval(() => {
+      loadProctoringStatus(examId, { silent: true });
+    }, 10000);
   }
 
   async function openSubmissionsView(examId, examTitle) {
@@ -843,6 +887,20 @@ export default function TeacherDashboard({ token }) {
               />
             </label>
 
+            <div className="teacher-webcam-toggle-row">
+              <label className="teacher-webcam-toggle-label">
+                <input
+                  type="checkbox"
+                  checked={formWebcamRequired}
+                  onChange={(e) => setFormWebcamRequired(e.target.checked)}
+                />
+                <span>Require webcam proctoring</span>
+              </label>
+              <p className="teacher-webcam-toggle-hint">
+                Students must allow camera access. Face detection will monitor for suspicious activity during the exam.
+              </p>
+            </div>
+
             <button type="submit" disabled={savingExam}>
               {savingExam ? "Saving..." : "Save Exam"}
             </button>
@@ -861,6 +919,9 @@ export default function TeacherDashboard({ token }) {
               </button>
               <button className="secondary" onClick={() => openSubmissionsView(currentExamId, currentExamTitle)}>
                 Evaluation Desk
+              </button>
+              <button className="secondary" onClick={() => openProctoringView(currentExamId, currentExamTitle)}>
+                Proctoring
               </button>
               <button onClick={() => handleDeleteExam(currentExamId, currentExamTitle || formTitle || "Exam")}>
                 Delete Exam
@@ -1456,11 +1517,154 @@ export default function TeacherDashboard({ token }) {
     return renderEvaluationParticipantsView();
   }
 
+  function getProctoringStatusClass(status) {
+    if (status === "violation") return "proctor-status-violation";
+    if (status === "warning") return "proctor-status-warning";
+    if (status === "ok") return "proctor-status-ok";
+    return "proctor-status-unknown";
+  }
+
+  async function loadStudentProctoringEvents(student) {
+    setSelectedProctoringStudent(student);
+    setProctoringEvents([]);
+    setLoadingProctoringEvents(true);
+    try {
+      const result = await apiRequest(`/proctoring/${currentExamId}/events/${student.student_id}`, {}, token);
+      setProctoringEvents(result.data.events || []);
+    } catch (err) {
+      await showAlert({ title: "Error", message: err.message || "Failed to load events." });
+    } finally {
+      setLoadingProctoringEvents(false);
+    }
+  }
+
+  function renderProctoringView() {
+    return (
+      <div className="content-stack teacher-stack">
+        <section className="card teacher-panel">
+          <div className="teacher-section-strip">
+            <span className="teacher-section-tag">Proctoring</span>
+            <span className="teacher-section-note">Live webcam status and face-detection events per student.</span>
+          </div>
+          <div className="card-head">
+            <h2 className="teacher-title">Proctoring: {currentExamTitle}</h2>
+            <div className="actions-row">
+              <button className="secondary" onClick={() => loadProctoringStatus(currentExamId)}>
+                Refresh
+              </button>
+              <button
+                className="secondary"
+                onClick={() => {
+                  if (proctoringPollRef.current) clearInterval(proctoringPollRef.current);
+                  setSelectedProctoringStudent(null);
+                  setProctoringEvents([]);
+                  setView("form");
+                  if (currentExamId) startParticipantPolling(currentExamId);
+                }}
+              >
+                Back to Exam
+              </button>
+            </div>
+          </div>
+
+          <div className="proctor-legend">
+            <span className="proctor-dot proctor-status-ok" /> OK
+            <span className="proctor-dot proctor-status-warning" /> Warning
+            <span className="proctor-dot proctor-status-violation" /> Violation
+            <span className="proctor-dot proctor-status-unknown" /> No data
+          </div>
+
+          {loadingProctoring ? <p className="muted top-spaced">Loading proctoring data...</p> : null}
+          {!loadingProctoring && proctoringStudents.length === 0 ? (
+            <p className="muted top-spaced">No students have joined this exam yet.</p>
+          ) : null}
+
+          {!loadingProctoring && proctoringStudents.length > 0 ? (
+            <ul className="list top-spaced teacher-list">
+              {proctoringStudents.map((s) => (
+                <li key={s.student_id} className="teacher-list-item proctor-student-row">
+                  <div className="proctor-student-head">
+                    <span className={`proctor-dot ${getProctoringStatusClass(s.proctoring_status)}`} />
+                    <strong>{s.student_name}</strong>
+                    <span className="muted small">
+                      Faces: {s.face_count} &nbsp;|&nbsp;
+                      Events: {s.total_events} &nbsp;|&nbsp;
+                      No-face: {s.no_face_count} &nbsp;|&nbsp;
+                      Multi-face: {s.multiple_faces_count} &nbsp;|&nbsp;
+                      Looking away: {s.looking_away_count} &nbsp;|&nbsp;
+                      Looking down: {s.looking_down_count}
+                    </span>
+                    {s.snapshot_at ? (
+                      <span className="muted small">Last snapshot: {formatDateTime(s.snapshot_at)}</span>
+                    ) : (
+                      <span className="muted small">No snapshot yet</span>
+                    )}
+                  </div>
+                  <div className="actions-row teacher-actions">
+                    <button
+                      className="secondary btn-inline"
+                      onClick={() => loadStudentProctoringEvents(s)}
+                    >
+                      View Events
+                    </button>
+                  </div>
+                  {selectedProctoringStudent?.student_id === s.student_id && s.snapshot_base64 ? (
+                    <div className="proctor-snapshot-wrap">
+                      <img
+                        src={s.snapshot_base64}
+                        alt="Latest webcam snapshot"
+                        className="proctor-snapshot-img"
+                      />
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+
+        {selectedProctoringStudent ? (
+          <section className="card teacher-panel">
+            <div className="teacher-section-strip">
+              <span className="teacher-section-tag">Event Log</span>
+              <span className="teacher-section-note">{selectedProctoringStudent.student_name}</span>
+            </div>
+            <div className="card-head">
+              <h3 className="teacher-title">Events: {selectedProctoringStudent.student_name}</h3>
+              <button className="secondary" onClick={() => setSelectedProctoringStudent(null)}>
+                Close
+              </button>
+            </div>
+
+            {loadingProctoringEvents ? <p className="muted">Loading events...</p> : null}
+            {!loadingProctoringEvents && proctoringEvents.length === 0 ? (
+              <p className="muted top-spaced">No events recorded for this student.</p>
+            ) : null}
+            {!loadingProctoringEvents && proctoringEvents.length > 0 ? (
+              <ul className="list top-spaced teacher-list">
+                {proctoringEvents.map((ev) => (
+                  <li key={ev.id} className="teacher-list-item">
+                    <span className={`proctor-event-tag proctor-event-${ev.event_type}`}>
+                      {ev.event_type.replace(/_/g, " ")}
+                    </span>
+                    <span className="muted small">{formatDateTime(ev.created_at)}</span>
+                    {ev.details ? <span className="muted small">{ev.details}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <section className={`teacher-ui teacher-view-${view}`}>
       {view === "form" ? renderExamFormView() : null}
       {view === "questions" ? renderQuestionManagerView() : null}
       {view === "submissions" ? renderSubmissionsView() : null}
+      {view === "proctoring" ? renderProctoringView() : null}
       {view === "list" ? renderExamListView() : null}
 
       <AIAssistant

@@ -79,9 +79,10 @@ async function ensureTeacherOwnsExam(examId, teacherId) {
  * POST /api/exams
  */
 const createExam = async (req, res) => {
-  const { title, description, duration, exam_type } = req.body;
+  const { title, description, duration, exam_type, webcam_required } = req.body;
   const teacherId = req.user.userId;
   const normalizedExamType = normalizeExamType(exam_type);
+  const webcamRequired = webcam_required === true || webcam_required === 'true';
 
   if (!title || !duration) {
     return res.status(400).json({
@@ -101,10 +102,10 @@ const createExam = async (req, res) => {
     const roomCode = await generateUniqueRoomCode();
 
     const result = await pool.query(
-      `INSERT INTO exams (title, description, exam_type, duration, created_by, room_code, status) 
-       VALUES ($1, $2, $3, $4, $5, $6, 'created') 
-       RETURNING id, title, description, exam_type, duration, created_by, room_code, status, created_at`,
-      [title, description || '', normalizedExamType, duration, teacherId, roomCode]
+      `INSERT INTO exams (title, description, exam_type, duration, created_by, room_code, status, webcam_required)
+       VALUES ($1, $2, $3, $4, $5, $6, 'created', $7)
+       RETURNING id, title, description, exam_type, duration, created_by, room_code, status, webcam_required, created_at`,
+      [title, description || '', normalizedExamType, duration, teacherId, roomCode, webcamRequired]
     );
 
     res.status(201).json({
@@ -281,9 +282,10 @@ const getExamById = async (req, res) => {
  */
 const updateExam = async (req, res) => {
   const examId = req.params.id;
-  const { title, description, duration, exam_type } = req.body;
+  const { title, description, duration, exam_type, webcam_required } = req.body;
   const teacherId = req.user.userId;
   const normalizedExamType = exam_type === undefined ? null : normalizeExamType(exam_type);
+  const webcamRequired = webcam_required === undefined ? null : (webcam_required === true || webcam_required === 'true');
 
   try {
     const checkResult = await pool.query(
@@ -299,15 +301,16 @@ const updateExam = async (req, res) => {
     }
 
     const result = await pool.query(
-      `UPDATE exams 
+      `UPDATE exams
        SET title = COALESCE($1, title),
            description = COALESCE($2, description),
            duration = COALESCE($3, duration),
            exam_type = COALESCE($4, exam_type),
+           webcam_required = COALESCE($5, webcam_required),
            updated_at = CURRENT_TIMESTAMP
-         WHERE id = $5 AND created_by = $6
+       WHERE id = $6 AND created_by = $7
        RETURNING *`,
-        [title, description, duration, normalizedExamType, examId, teacherId]
+      [title, description, duration, normalizedExamType, webcamRequired, examId, teacherId]
     );
 
     res.status(200).json({
