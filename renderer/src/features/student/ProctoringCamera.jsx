@@ -1,283 +1,294 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import * as faceapi from "@vladmandic/face-api";
+import * as tf from "@tensorflow/tfjs";
+import "@tensorflow/tfjs-backend-webgl"; // GPU backend — no WASM needed
+import * as blazeface from "@tensorflow-models/blazeface";
 
-// In Electron the page loads via file:// — "/models" maps to filesystem root, not the app.
-// Use document.baseURI so the path resolves relative to index.html in both dev and production.
-function getModelUrl() {
-  if (typeof window !== "undefined" && window.location.protocol === "file:") {
-    return new URL("models", document.baseURI).href;
-  }
-  return "/models"; // Vite dev server
-}
+// ─── Thresholds ──────────────────────────────────────────────────────────────
+// Yaw (left-right): (noseTip.x - eyeMid.x) / eyeWidth
+const YAW_THRESHOLD        = 0.20;
+// Pitch (up-down):  (noseTip.y - eyeMid.y) / faceHeight
+const PITCH_DOWN_THRESHOLD = 0.58;  // head dropped → phone/notes
+const PITCH_UP_THRESHOLD   = 0.12;  // head raised → looking up/away
 
-const DETECTION_INTERVAL_MS  = 1500;
-const SNAPSHOT_INTERVAL_MS   = 8000;
-const CAMERA_WARMUP_MS       = 800;  // wait for camera to stabilize before first detection
-const DETECTOR_INPUT_SIZE    = 416;  // TinyFaceDetector input — good match for 640px video
-const DETECTOR_SCORE_THRESH  = 0.3;  // lowered from 0.4 — more sensitive in average lighting
+// Snapshot upload interval (ms) — still throttled, no need for 30fps uploads
+const SNAPSHOT_INTERVAL_MS = 8000;
 
-// ─── Head pose thresholds ────────────────────────────────────────────────────
-// Yaw  (left-right): |nose_x - eye_mid_x| / eye_width
-//   Normal ~0.0, looking sideways → exceeds YAW_THRESHOLD
-const YAW_THRESHOLD   = 0.20;
+// Per-event throttle — don't resend same event within this window
+const EVENT_THROTTLE_MS = 10000;
 
-// Pitch (up-down):  (nose_y - eye_mid_y) / (chin_y - eye_mid_y)
-//   Normal ~0.38-0.48. Looking down (phone) → exceeds PITCH_DOWN_THRESHOLD
-//                       Looking up          → below  PITCH_UP_THRESHOLD
-const PITCH_DOWN_THRESHOLD = 0.58;
-const PITCH_UP_THRESHOLD   = 0.12;
+// Camera warmup — give sensor time to adjust before first detection
+const CAMERA_WARMUP_MS = 800;
 
-// ─── Head pose from 68 landmarks ────────────────────────────────────────────
-// Returns { yaw, pitch } — dimensionless ratios relative to face geometry.
-// Upgrade 2: proper geometric calculation replacing the old single-axis heuristic.
-function estimateHeadPose(detection) {
+// ─── Head pose from BlazeFace keypoints ──────────────────────────────────────
+// BlazeFace landmark order: 0=rightEye, 1=leftEye, 2=noseTip, 3=mouth,
+//                           4=rightEar, 5=leftEar
+function estimateHeadPose(prediction) {
   try {
-    const pts = detection.landmarks.positions;
-    //  pts[36]  outer left-eye corner
-    //  pts[45]  outer right-eye corner
-    //  pts[30]  nose tip
-    //  pts[8]   chin tip
-    const leftEye  = pts[36];
-    const rightEye = pts[45];
-    const noseTip  = pts[30];
-    const chin     = pts[8];
+    const lms      = prediction.landmarks; // [[x,y], ...]
+    const rightEye = lms[0];
+    const leftEye  = lms[1];
+    const noseTip  = lms[2];
 
-    const eyeMidX  = (leftEye.x + rightEye.x) / 2;
-    const eyeWidth = Math.abs(rightEye.x - leftEye.x);
-    const eyeMidY  = (leftEye.y + rightEye.y) / 2;
-    const faceH    = chin.y - eyeMidY;
+    const eyeMidX  = (leftEye[0] + rightEye[0]) / 2;
+    const eyeMidY  = (leftEye[1] + rightEye[1]) / 2;
+    const eyeWidth = Math.abs(rightEye[0] - leftEye[0]);
+    const faceH    = prediction.bottomRight[1] - prediction.topLeft[1];
 
     if (eyeWidth < 1 || faceH < 1) return { yaw: 0, pitch: 0.40 };
 
-    // Yaw:   positive = nose right of eye centre (looking left from camera POV)
-    //        negative = nose left  of eye centre (looking right)
-    const yaw   = (noseTip.x - eyeMidX) / eyeWidth;
-
-    // Pitch: ~0.40 when looking straight at screen
-    //        > 0.58 when chin drops (looking down at desk/phone)
-    //        < 0.12 when head tilts up
-    const pitch = (noseTip.y - eyeMidY) / faceH;
-
+    const yaw   = (noseTip[0] - eyeMidX) / eyeWidth; // left-right
+    const pitch = (noseTip[1] - eyeMidY) / faceH;    // up-down
     return { yaw, pitch };
   } catch {
     return { yaw: 0, pitch: 0.40 };
   }
 }
 
-function classifyFaceStatus(faceCount) {
-  if (faceCount === 0) return "violation";
-  if (faceCount > 1)  return "violation";
-  return "ok";
+// ─── Draw live face boxes on overlay canvas ───────────────────────────────────
+function drawOverlay(canvas, video, predictions) {
+  if (!canvas || !video) return;
+  const ctx    = canvas.getContext("2d");
+  const scaleX = canvas.width  / (video.videoWidth  || 640);
+  const scaleY = canvas.height / (video.videoHeight || 480);
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  predictions.forEach((pred) => {
+    const [x1, y1] = pred.topLeft;
+    const [x2, y2] = pred.bottomRight;
+    const w = (x2 - x1) * scaleX;
+    const h = (y2 - y1) * scaleY;
+    const x = x1 * scaleX;
+    const y = y1 * scaleY;
+
+    // Box colour: green = 1 face OK, red = suspicious
+    const ok = predictions.length === 1;
+    ctx.strokeStyle = ok ? "#22c55e" : "#ef4444";
+    ctx.lineWidth   = 2;
+    ctx.strokeRect(x, y, w, h);
+
+    // Confidence label
+    const score = (pred.probability?.[0] ?? 0);
+    ctx.fillStyle = ok ? "#22c55e" : "#ef4444";
+    ctx.font      = "bold 10px sans-serif";
+    ctx.fillText(`${Math.round(score * 100)}%`, x + 2, y - 3);
+  });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function ProctoringCamera({ token, examId, enabled }) {
-  const videoRef            = useRef(null);
-  const canvasRef           = useRef(null);
-  const streamRef           = useRef(null);
-  const modelsLoadedRef     = useRef(false);
-  const detectionTimerRef   = useRef(null);
-  const snapshotTimerRef    = useRef(null);
-  const lastEventRef        = useRef({}); // keyed by event type for per-type throttle
+  const videoRef          = useRef(null);
+  const overlayRef        = useRef(null); // live face-box canvas
+  const snapshotCanvasRef = useRef(null); // off-screen snapshot canvas
+  const streamRef         = useRef(null);
+  const modelRef          = useRef(null);
+  const rafRef            = useRef(null);
+  const snapshotTimerRef  = useRef(null);
+  const isDetectingRef    = useRef(false);
+  const cancelledRef      = useRef(false);
+  const lastEventRef      = useRef({});   // { eventType: timestamp }
+  const lastStatusRef     = useRef({ faceCount: 0, status: "ok" });
 
   // 'loading' | 'ok' | 'denied' | 'model_error' | 'camera_error'
   const [cameraStatus, setCameraStatus] = useState("loading");
 
-  // ── network helpers ──────────────────────────────────────────────────────
-  const postEvent = useCallback(
-    async (eventType, details) => {
-      // Per-type throttle: don't resend the same event within 10s
-      const now = Date.now();
-      if (lastEventRef.current[eventType] && now - lastEventRef.current[eventType] < 10000) return;
-      lastEventRef.current[eventType] = now;
+  // ── network helpers ───────────────────────────────────────────────────────
+  const postEvent = useCallback(async (eventType, details) => {
+    const now = Date.now();
+    if (lastEventRef.current[eventType] &&
+        now - lastEventRef.current[eventType] < EVENT_THROTTLE_MS) return;
+    lastEventRef.current[eventType] = now;
+    try {
+      await fetch(`http://localhost:5000/api/proctoring/${examId}/event`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ event_type: eventType, details })
+      });
+    } catch { /* never crash the exam */ }
+  }, [examId, token]);
 
-      try {
-        await fetch(`http://localhost:5000/api/proctoring/${examId}/event`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ event_type: eventType, details })
-        });
-      } catch { /* silent — never crash the exam */ }
-    },
-    [examId, token]
-  );
+  const postSnapshot = useCallback(async (base64, faceCount, status) => {
+    try {
+      await fetch(`http://localhost:5000/api/proctoring/${examId}/snapshot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ snapshot_base64: base64, face_count: faceCount, status })
+      });
+    } catch { /* silent */ }
+  }, [examId, token]);
 
-  const postSnapshot = useCallback(
-    async (base64, faceCount, status) => {
-      try {
-        await fetch(`http://localhost:5000/api/proctoring/${examId}/snapshot`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ snapshot_base64: base64, face_count: faceCount, status })
-        });
-      } catch { /* silent */ }
-    },
-    [examId, token]
-  );
-
-  // ── snapshot capture ─────────────────────────────────────────────────────
-  const captureSnapshot = useCallback((faceCount, status) => {
+  const captureAndUploadSnapshot = useCallback(() => {
     const video  = videoRef.current;
-    const canvas = canvasRef.current;
-    if (!video || !canvas) return;
+    const canvas = snapshotCanvasRef.current;
+    if (!video || !canvas || video.readyState < 2) return;
     canvas.width  = 320;
     canvas.height = 240;
     canvas.getContext("2d").drawImage(video, 0, 0, 320, 240);
+    const { faceCount, status } = lastStatusRef.current;
     postSnapshot(canvas.toDataURL("image/jpeg", 0.5), faceCount, status);
   }, [postSnapshot]);
 
-  // ── detection loop ───────────────────────────────────────────────────────
-  const runDetection = useCallback(async () => {
+  // ── live detection frame ──────────────────────────────────────────────────
+  const runDetectionFrame = useCallback(async () => {
     const video = videoRef.current;
-    if (!video || video.readyState < 2 || !modelsLoadedRef.current) return;
+    if (!video || video.readyState < 2 || !modelRef.current) return;
 
-    try {
-      // Use full landmark model (faceLandmark68Net) for accurate pose estimation
-      const detections = await faceapi
-        .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({
-          inputSize: DETECTOR_INPUT_SIZE,
-          scoreThreshold: DETECTOR_SCORE_THRESH
-        }))
-        .withFaceLandmarks(); // ← full 68-point net
+    // returnTensors=false → plain JS arrays, no manual tensor cleanup needed
+    const predictions = await modelRef.current.estimateFaces(video, false);
+    const faceCount   = predictions.length;
 
-      const faceCount = detections.length;
-      let status    = classifyFaceStatus(faceCount);
-      let eventType = null;
-      let details   = `faces:${faceCount}`;
+    // Draw live face boxes
+    drawOverlay(overlayRef.current, video, predictions);
 
-      if (faceCount === 0) {
-        eventType = "no_face";
-      } else if (faceCount > 1) {
-        eventType = "multiple_faces";
-      } else {
-        // Single face — check head pose
-        const { yaw, pitch } = estimateHeadPose(detections[0]);
-        details = `faces:1 yaw:${yaw.toFixed(2)} pitch:${pitch.toFixed(2)}`;
+    // Classify state
+    let status    = faceCount === 1 ? "ok" : "violation";
+    let eventType = null;
+    let details   = `faces:${faceCount}`;
 
-        if (Math.abs(yaw) > YAW_THRESHOLD) {
-          eventType = "looking_away";
-          status    = "warning";
-        } else if (pitch > PITCH_DOWN_THRESHOLD) {
-          eventType = "looking_down"; // head tilted down — likely looking at phone/notes
-          status    = "warning";
-        } else if (pitch < PITCH_UP_THRESHOLD) {
-          eventType = "looking_away"; // tilted up / away from screen
-          status    = "warning";
-        }
+    if (faceCount === 0) {
+      eventType = "no_face";
+    } else if (faceCount > 1) {
+      eventType = "multiple_faces";
+    } else {
+      const { yaw, pitch } = estimateHeadPose(predictions[0]);
+      details = `faces:1 yaw:${yaw.toFixed(2)} pitch:${pitch.toFixed(2)}`;
+
+      if (Math.abs(yaw) > YAW_THRESHOLD) {
+        eventType = "looking_away";
+        status    = "warning";
+      } else if (pitch > PITCH_DOWN_THRESHOLD) {
+        eventType = "looking_down";
+        status    = "warning";
+      } else if (pitch < PITCH_UP_THRESHOLD) {
+        eventType = "looking_away";
+        status    = "warning";
       }
-
-      if (eventType) await postEvent(eventType, details);
-
-      // Persist status on the video element for the snapshot timer to read
-      video._proctoringStatus    = status;
-      video._proctoringFaceCount = faceCount;
-
-      // Debug — open DevTools (Ctrl+Shift+I) to see this
-      console.debug(`[Proctoring] faces:${faceCount} status:${status}${eventType ? " event:" + eventType : ""}`);
-    } catch (err) {
-      console.warn("[Proctoring] Detection error:", err.message);
     }
+
+    if (eventType) postEvent(eventType, details); // fire-and-forget
+
+    lastStatusRef.current = { faceCount, status };
+
+    // Live debug line (open DevTools → Console to see)
+    console.debug(`[Proctoring] ${faceCount} face(s) | ${status}${eventType ? " | " + eventType : ""}`);
   }, [postEvent]);
 
-  // ── loops ────────────────────────────────────────────────────────────────
+  // ── RAF loop — runs on every frame, detection gated by isDetectingRef ─────
   const startDetectionLoop = useCallback(() => {
-    if (detectionTimerRef.current) clearInterval(detectionTimerRef.current);
-    if (snapshotTimerRef.current)  clearInterval(snapshotTimerRef.current);
+    cancelledRef.current = false;
 
-    detectionTimerRef.current = setInterval(runDetection, DETECTION_INTERVAL_MS);
+    function loop() {
+      if (cancelledRef.current) return;
+      rafRef.current = requestAnimationFrame(loop);
 
-    snapshotTimerRef.current = setInterval(() => {
-      const video = videoRef.current;
-      if (!video) return;
-      captureSnapshot(
-        video._proctoringFaceCount ?? 0,
-        video._proctoringStatus    ?? "ok"
-      );
-    }, SNAPSHOT_INTERVAL_MS);
-  }, [captureSnapshot, runDetection]);
+      if (!isDetectingRef.current) {
+        isDetectingRef.current = true;
+        runDetectionFrame().catch((err) => {
+          console.warn("[Proctoring] Frame error:", err.message);
+        }).finally(() => {
+          isDetectingRef.current = false;
+        });
+      }
+    }
+
+    rafRef.current = requestAnimationFrame(loop);
+  }, [runDetectionFrame]);
 
   const stopAll = useCallback(() => {
-    if (detectionTimerRef.current) clearInterval(detectionTimerRef.current);
-    if (snapshotTimerRef.current)  clearInterval(snapshotTimerRef.current);
+    cancelledRef.current = true;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (snapshotTimerRef.current) clearInterval(snapshotTimerRef.current);
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
+    // Clear overlay
+    const canvas = overlayRef.current;
+    if (canvas) canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
   }, []);
 
-  // ── init ─────────────────────────────────────────────────────────────────
+  // ── init ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!enabled) return undefined;
-
-    let cancelled = false;
+    cancelledRef.current = false;
 
     async function init() {
-      // Step 1 — load face detection models
+      // Step 1 — init TF.js WebGL backend + load BlazeFace model
       try {
-        if (!modelsLoadedRef.current) {
-          const url = getModelUrl();
-          await faceapi.nets.tinyFaceDetector.loadFromUri(url);
-          await faceapi.nets.faceLandmark68Net.loadFromUri(url); // ← full model (upgrade 2)
-          modelsLoadedRef.current = true;
-        }
+        await tf.setBackend("webgl");
+        await tf.ready();
+        modelRef.current = await blazeface.load({
+          maxFaces: 4,
+          scoreThreshold: 0.5,
+          iouThreshold: 0.3
+        });
       } catch (err) {
-        if (cancelled) return;
+        if (cancelledRef.current) return;
         console.error("[Proctoring] Model load failed:", err);
         setCameraStatus("model_error");
         return;
       }
 
-      // Step 2 — access camera
+      // Step 2 — camera access
       try {
         if (!navigator.mediaDevices?.getUserMedia) {
           throw Object.assign(new Error("getUserMedia not supported"), { name: "NotSupportedError" });
         }
-
-        // Request higher resolution — more pixels = easier face detection.
-        // Don't specify facingMode; some webcams silently fail that constraint.
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 640 }, height: { ideal: 480 } }
         });
-
-        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        if (cancelledRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
 
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          await video.play();
+
+          // Sync overlay canvas size to video element size after it renders
+          video.addEventListener("loadedmetadata", () => {
+            const ov = overlayRef.current;
+            if (ov) { ov.width = video.clientWidth; ov.height = video.clientHeight; }
+          }, { once: true });
         }
 
         setCameraStatus("ok");
 
-        // Give the camera sensor time to adjust exposure/white-balance
-        // before the first detection runs — prevents false "no face" events.
-        setTimeout(startDetectionLoop, CAMERA_WARMUP_MS);
+        // Warm-up delay, then start RAF loop + snapshot timer
+        setTimeout(() => {
+          if (cancelledRef.current) return;
+          startDetectionLoop();
+          snapshotTimerRef.current = setInterval(captureAndUploadSnapshot, SNAPSHOT_INTERVAL_MS);
+        }, CAMERA_WARMUP_MS);
+
       } catch (err) {
-        if (cancelled) return;
+        if (cancelledRef.current) return;
         console.error("[Proctoring] Camera error:", err.name, err.message);
         setCameraStatus(
           err.name === "NotAllowedError" || err.name === "PermissionDeniedError"
-            ? "denied"
-            : "camera_error"
+            ? "denied" : "camera_error"
         );
       }
     }
 
     init();
-    return () => { cancelled = true; stopAll(); };
-  }, [enabled, startDetectionLoop, stopAll]);
+    return () => stopAll();
+  }, [enabled, startDetectionLoop, captureAndUploadSnapshot, stopAll]);
 
   if (!enabled) return null;
 
   const statusMessages = {
-    loading:      "Loading camera...",
+    loading:      "Loading detection model...",
     denied:       "Camera access denied. Enable camera permission to continue.",
-    model_error:  "Failed to load face detection models. Please restart the app.",
+    model_error:  "Failed to load face detection model. Check your internet connection and restart.",
     camera_error: "Could not access camera. Check that no other app is using it."
   };
 
   return (
     <div className="proctor-cam-wrap">
-      <canvas ref={canvasRef} style={{ display: "none" }} />
+      {/* Off-screen canvas for snapshot capture only */}
+      <canvas ref={snapshotCanvasRef} style={{ display: "none" }} />
 
       {cameraStatus !== "ok" ? (
         <div className={`proctor-cam-status ${cameraStatus !== "loading" ? "proctor-cam-denied" : ""}`}>
@@ -285,16 +296,24 @@ export default function ProctoringCamera({ token, examId, enabled }) {
         </div>
       ) : null}
 
+      {/* Live video feed */}
       <video
         ref={videoRef}
         muted
         playsInline
         className={`proctor-cam-video ${cameraStatus === "ok" ? "proctor-cam-visible" : ""}`}
-        aria-label="Webcam proctoring preview"
+        aria-label="Webcam proctoring feed"
+      />
+
+      {/* Live face-box overlay — sits on top of video */}
+      <canvas
+        ref={overlayRef}
+        className="proctor-cam-overlay"
+        aria-hidden="true"
       />
 
       {cameraStatus === "ok" ? (
-        <div className="proctor-cam-badge">Proctored</div>
+        <div className="proctor-cam-badge">Live</div>
       ) : null}
     </div>
   );
