@@ -10,6 +10,12 @@ function normalizeQuestionType(rawType) {
   return "mcq";
 }
 
+function normalizeQuestionFlowMode(rawMode) {
+  return String(rawMode || "all_at_once").toLowerCase() === "one_by_one"
+    ? "one_by_one"
+    : "all_at_once";
+}
+
 function getEffectiveExamStatus(status, startedAt, durationMinutes) {
   if (String(status || "").toLowerCase() !== "in_progress") {
     return status || "created";
@@ -62,6 +68,10 @@ function getExamTypeToneClass(examType) {
   return "teacher-meta-chip-quiz";
 }
 
+function getQuestionFlowLabel(modeValue) {
+  return normalizeQuestionFlowMode(modeValue) === "one_by_one" ? "One by one" : "All at once";
+}
+
 export default function TeacherDashboard({ token }) {
   const { showAlert, showConfirm } = useModal();
   const [view, setView] = useState("list");
@@ -75,6 +85,8 @@ export default function TeacherDashboard({ token }) {
   const [formExamType, setFormExamType] = useState("lab_quiz");
   const [formDuration, setFormDuration] = useState("60");
   const [formWebcamRequired, setFormWebcamRequired] = useState(false);
+  const [formQuestionFlowMode, setFormQuestionFlowMode] = useState("all_at_once");
+  const [formRandomizeQuestionOrder, setFormRandomizeQuestionOrder] = useState(false);
   const [roomCode, setRoomCode] = useState("");
   const [examStatus, setExamStatus] = useState("created");
   const [examStartedAt, setExamStartedAt] = useState(null);
@@ -83,6 +95,7 @@ export default function TeacherDashboard({ token }) {
   const [loadingParticipants, setLoadingParticipants] = useState(false);
   const [listNotice, setListNotice] = useState("");
   const [highlightExamId, setHighlightExamId] = useState(null);
+  const [isExamDetailsEditing, setIsExamDetailsEditing] = useState(false);
 
   const [questions, setQuestions] = useState([]);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
@@ -298,6 +311,7 @@ export default function TeacherDashboard({ token }) {
     clearParticipantPolling();
     setListNotice("");
     setHighlightExamId(null);
+    setIsExamDetailsEditing(true);
     setCurrentExamId(null);
     setCurrentExamTitle("");
     setFormTitle("");
@@ -305,6 +319,8 @@ export default function TeacherDashboard({ token }) {
     setFormExamType("lab_quiz");
     setFormDuration("60");
     setFormWebcamRequired(false);
+    setFormQuestionFlowMode("all_at_once");
+    setFormRandomizeQuestionOrder(false);
     setRoomCode("");
     setExamStatus("created");
     setExamStartedAt(null);
@@ -320,6 +336,7 @@ export default function TeacherDashboard({ token }) {
     try {
       const result = await apiRequest(`/exams/${examId}`, {}, token);
       const exam = result.data.exam;
+      setIsExamDetailsEditing(false);
       setCurrentExamId(exam.id);
       setCurrentExamTitle(exam.title || "");
       setFormTitle(exam.title || "");
@@ -327,6 +344,8 @@ export default function TeacherDashboard({ token }) {
       setFormExamType(exam.exam_type || "lab_quiz");
       setFormDuration(String(exam.duration || 60));
       setFormWebcamRequired(Boolean(exam.webcam_required));
+      setFormQuestionFlowMode(normalizeQuestionFlowMode(exam.question_flow_mode));
+      setFormRandomizeQuestionOrder(Boolean(exam.randomize_question_order));
       setRoomCode(exam.room_code || "");
       setExamStatus(exam.status || "created");
       setExamStartedAt(exam.started_at || null);
@@ -389,32 +408,43 @@ export default function TeacherDashboard({ token }) {
 
     setSavingExam(true);
     try {
-      const isCreateMode = !currentExamId;
       const endpoint = currentExamId ? `/exams/${currentExamId}` : "/exams";
       const method = currentExamId ? "PUT" : "POST";
       const result = await apiRequest(
         endpoint,
-        { method, body: JSON.stringify({ title, description: formDescription, exam_type: examType, duration, webcam_required: formWebcamRequired }) },
+        {
+          method,
+          body: JSON.stringify({
+            title,
+            description: formDescription,
+            exam_type: examType,
+            duration,
+            webcam_required: formWebcamRequired,
+            question_flow_mode: formQuestionFlowMode,
+            randomize_question_order: formRandomizeQuestionOrder
+          })
+        },
         token
       );
       const exam = result.data.exam;
       setCurrentExamId(exam.id);
       setCurrentExamTitle(exam.title || title);
+      setFormTitle(exam.title ?? title);
+      setFormDescription(exam.description ?? formDescription);
       setRoomCode(exam.room_code || roomCode);
       setExamStatus(exam.status || examStatus);
       setExamStartedAt(exam.started_at || examStartedAt);
       setCurrentExamType(exam.exam_type || examType);
       setFormExamType(exam.exam_type || examType);
+      setFormQuestionFlowMode(normalizeQuestionFlowMode(exam.question_flow_mode || formQuestionFlowMode));
+      setFormRandomizeQuestionOrder(Boolean(exam.randomize_question_order));
       await loadExams();
-      if (isCreateMode) {
-        clearParticipantPolling();
-        setView("list");
-        setListNotice(`Exam "${exam.title || title}" created successfully.`);
-        setHighlightExamId(exam.id);
-      } else {
-        setView("form");
-        if (exam.id) startParticipantPolling(exam.id);
-      }
+      clearParticipantPolling();
+      setView("form");
+      setListNotice("");
+      setHighlightExamId(null);
+      setIsExamDetailsEditing(false);
+      if (exam.id) startParticipantPolling(exam.id);
     } catch (err) {
       await showAlert({ title: "Error", message: err.message || "Failed to save exam." });
     } finally {
@@ -475,7 +505,7 @@ export default function TeacherDashboard({ token }) {
     await loadProctoringStatus(examId);
     proctoringPollRef.current = setInterval(() => {
       loadProctoringStatus(examId, { silent: true });
-    }, 10000);
+    }, 3000);
   }
 
   async function openSubmissionsView(examId, examTitle) {
@@ -814,6 +844,10 @@ export default function TeacherDashboard({ token }) {
                 <span className="teacher-meta-chip">Questions {exam.question_count || 0}</span>
                 <span className="teacher-meta-chip">Written {exam.written_question_count || 0}</span>
                 <span className="teacher-meta-chip">Coding {exam.coding_question_count || 0}</span>
+                <span className="teacher-meta-chip">Flow {getQuestionFlowLabel(exam.question_flow_mode)}</span>
+                <span className="teacher-meta-chip">
+                  {Boolean(exam.randomize_question_order) ? "Order Randomized" : "Order Fixed"}
+                </span>
                 <span className={`teacher-meta-chip ${getExamTypeToneClass(exam.exam_type)}`}>
                   Type {exam.exam_type || "lab_quiz"}
                 </span>
@@ -834,77 +868,140 @@ export default function TeacherDashboard({ token }) {
 
   function renderExamFormView() {
     const effectiveExamStatus = getEffectiveExamStatus(examStatus, examStartedAt, formDuration);
+    const isCreateMode = !currentExamId;
+    const showDetailsForm = isCreateMode || isExamDetailsEditing;
 
     return (
       <div className="content-stack teacher-stack">
         <section className="card teacher-panel">
           <div className="teacher-section-strip">
             <span className="teacher-section-tag">Exam Setup</span>
-            <span className="teacher-section-note">Configure exam details and scheduling.</span>
+            <span className="teacher-section-note">
+              {isCreateMode
+                ? "Configure exam details and scheduling."
+                : "Review exam details, then use edit mode to update settings."}
+            </span>
           </div>
           <div className="card-head">
-            <h2 className="teacher-title">{currentExamId ? "Manage Exam" : "Create Exam"}</h2>
-            <button
-              className="secondary"
-              onClick={() => {
-                clearParticipantPolling();
-                setView("list");
-                loadExams();
-              }}
-            >
-              Back to Exams
-            </button>
+            <h2 className="teacher-title">{isCreateMode ? "Create Exam" : "Manage Exam"}</h2>
+            <div className="actions-row">
+              {!isCreateMode ? (
+                <button
+                  className="secondary"
+                  onClick={() => setIsExamDetailsEditing((previousValue) => !previousValue)}
+                >
+                  {isExamDetailsEditing ? "Cancel Edit" : "Edit Details"}
+                </button>
+              ) : null}
+              <button
+                className="secondary"
+                onClick={() => {
+                  clearParticipantPolling();
+                  setView("list");
+                  loadExams();
+                }}
+              >
+                Back to Exams
+              </button>
+            </div>
           </div>
 
-          <form className="form-stack" onSubmit={handleSaveExam}>
-            <label>
-              <span>Exam Title</span>
-              <input value={formTitle} onChange={(event) => setFormTitle(event.target.value)} required />
-            </label>
-
-            <label>
-              <span>Description</span>
-              <input value={formDescription} onChange={(event) => setFormDescription(event.target.value)} />
-            </label>
-
-            <label>
-              <span>Exam Type</span>
-              <select value={formExamType} onChange={(event) => setFormExamType(event.target.value)}>
-                <option value="lab_quiz">Lab Quiz</option>
-                <option value="lab_test">Lab Test</option>
-              </select>
-            </label>
-
-            <label>
-              <span>Duration (minutes)</span>
-              <input
-                type="number"
-                min={1}
-                max={300}
-                value={formDuration}
-                onChange={(event) => setFormDuration(event.target.value)}
-                required
-              />
-            </label>
-
-            <div className="teacher-webcam-toggle-row">
-              <label className="teacher-webcam-toggle-label">
-                <input
-                  type="checkbox"
-                  checked={formWebcamRequired}
-                  onChange={(e) => setFormWebcamRequired(e.target.checked)}
-                />
-                <span>Require webcam proctoring</span>
-              </label>
-              <p className="teacher-webcam-toggle-hint">
-                Students must allow camera access. Face detection will monitor for suspicious activity during the exam.
-              </p>
+          {!isCreateMode ? (
+            <div className="teacher-meta-row top-spaced">
+              <span className="teacher-meta-chip">Title {currentExamTitle || formTitle || "Untitled Exam"}</span>
+              <span className="teacher-meta-chip">
+                Description {formDescription ? formDescription : "Not set"}
+              </span>
+              <span className={`teacher-meta-chip ${getExamTypeToneClass(formExamType)}`}>
+                Type {formExamType || "lab_quiz"}
+              </span>
+              <span className="teacher-meta-chip">Duration {formDuration} mins</span>
+              <span className="teacher-meta-chip">Flow {getQuestionFlowLabel(formQuestionFlowMode)}</span>
+              <span className="teacher-meta-chip">
+                {formRandomizeQuestionOrder ? "Order Randomized" : "Order Fixed"}
+              </span>
+              <span className="teacher-meta-chip">{formWebcamRequired ? "Webcam Required" : "Webcam Optional"}</span>
             </div>
+          ) : null}
 
-            <button type="submit" disabled={savingExam}>
-              {savingExam ? "Saving..." : "Save Exam"}
-            </button>
-          </form>
+          {showDetailsForm ? (
+            <form className="form-stack" onSubmit={handleSaveExam}>
+              <label>
+                <span>Exam Title</span>
+                <input value={formTitle} onChange={(event) => setFormTitle(event.target.value)} required />
+              </label>
+
+              <label>
+                <span>Description</span>
+                <input value={formDescription} onChange={(event) => setFormDescription(event.target.value)} />
+              </label>
+
+              <label>
+                <span>Exam Type</span>
+                <select value={formExamType} onChange={(event) => setFormExamType(event.target.value)}>
+                  <option value="lab_quiz">Lab Quiz</option>
+                  <option value="lab_test">Lab Test</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Duration (minutes)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={300}
+                  value={formDuration}
+                  onChange={(event) => setFormDuration(event.target.value)}
+                  required
+                />
+              </label>
+
+              <label>
+                <span>Question Presentation</span>
+                <select
+                  value={formQuestionFlowMode}
+                  onChange={(event) => setFormQuestionFlowMode(normalizeQuestionFlowMode(event.target.value))}
+                >
+                  <option value="all_at_once">All questions at once</option>
+                  <option value="one_by_one">One question at a time</option>
+                </select>
+              </label>
+
+              <div className="teacher-webcam-toggle-row teacher-exam-option-row">
+                <label className="teacher-webcam-toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={formRandomizeQuestionOrder}
+                    onChange={(event) => setFormRandomizeQuestionOrder(event.target.checked)}
+                  />
+                  <span>Randomize question order for students</span>
+                </label>
+                <p className="teacher-webcam-toggle-hint">
+                  Each student receives a shuffled question order that stays stable for that student during the exam.
+                </p>
+              </div>
+
+              <div className="teacher-webcam-toggle-row">
+                <label className="teacher-webcam-toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={formWebcamRequired}
+                    onChange={(e) => setFormWebcamRequired(e.target.checked)}
+                  />
+                  <span>Require webcam proctoring</span>
+                </label>
+                <p className="teacher-webcam-toggle-hint">
+                  Students must allow camera access. Face detection will monitor for suspicious activity during the exam.
+                </p>
+              </div>
+
+              <button type="submit" disabled={savingExam}>
+                {savingExam ? "Saving..." : isCreateMode ? "Create Exam" : "Update Exam"}
+              </button>
+            </form>
+          ) : (
+            <p className="muted top-spaced">Click "Edit Details" to update title, description, and exam settings.</p>
+          )}
         </section>
 
         {currentExamId ? (
@@ -1539,19 +1636,19 @@ export default function TeacherDashboard({ token }) {
   }
 
   function renderProctoringView() {
+    const violations = proctoringStudents.filter((s) => s.proctoring_status === "violation").length;
+    const warnings   = proctoringStudents.filter((s) => s.proctoring_status === "warning").length;
+
     return (
       <div className="content-stack teacher-stack">
         <section className="card teacher-panel">
           <div className="teacher-section-strip">
-            <span className="teacher-section-tag">Proctoring</span>
-            <span className="teacher-section-note">Live webcam status and face-detection events per student.</span>
+            <span className="teacher-section-tag">Live Monitor</span>
+            <span className="teacher-section-note">Refreshes every 3 seconds. Snapshots update every 3 seconds.</span>
           </div>
           <div className="card-head">
             <h2 className="teacher-title">Proctoring: {currentExamTitle}</h2>
             <div className="actions-row">
-              <button className="secondary" onClick={() => loadProctoringStatus(currentExamId)}>
-                Refresh
-              </button>
               <button
                 className="secondary"
                 onClick={() => {
@@ -1567,76 +1664,124 @@ export default function TeacherDashboard({ token }) {
             </div>
           </div>
 
-          <div className="proctor-legend">
-            <span className="proctor-dot proctor-status-ok" /> OK
-            <span className="proctor-dot proctor-status-warning" /> Warning
-            <span className="proctor-dot proctor-status-violation" /> Violation
-            <span className="proctor-dot proctor-status-unknown" /> No data
+          {/* Summary bar */}
+          <div className="proctor-summary-bar">
+            <span className="proctor-summary-item">
+              <span className="proctor-dot proctor-status-ok" />
+              {proctoringStudents.length - violations - warnings} OK
+            </span>
+            <span className="proctor-summary-item">
+              <span className="proctor-dot proctor-status-warning" />
+              {warnings} Warning
+            </span>
+            <span className="proctor-summary-item">
+              <span className="proctor-dot proctor-status-violation" />
+              {violations} Violation
+            </span>
+            <span className="proctor-summary-item proctor-summary-total">
+              {proctoringStudents.length} students
+            </span>
           </div>
 
-          {loadingProctoring ? <p className="muted top-spaced">Loading proctoring data...</p> : null}
+          {loadingProctoring && proctoringStudents.length === 0 ? (
+            <p className="muted top-spaced">Loading...</p>
+          ) : null}
           {!loadingProctoring && proctoringStudents.length === 0 ? (
             <p className="muted top-spaced">No students have joined this exam yet.</p>
           ) : null}
 
-          {!loadingProctoring && proctoringStudents.length > 0 ? (
-            <ul className="list top-spaced teacher-list">
-              {proctoringStudents.map((s) => (
-                <li key={s.student_id} className="teacher-list-item proctor-student-row">
-                  <div className="proctor-student-head">
-                    <span className={`proctor-dot ${getProctoringStatusClass(s.proctoring_status)}`} />
-                    <strong>{s.student_name}</strong>
-                    <span className="muted small">
-                      Faces: {s.face_count} &nbsp;|&nbsp;
-                      Events: {s.total_events} &nbsp;|&nbsp;
-                      No-face: {s.no_face_count} &nbsp;|&nbsp;
-                      Multi-face: {s.multiple_faces_count} &nbsp;|&nbsp;
-                      Looking away: {s.looking_away_count} &nbsp;|&nbsp;
-                      Looking down: {s.looking_down_count}
-                    </span>
-                    {s.snapshot_at ? (
-                      <span className="muted small">Last snapshot: {formatDateTime(s.snapshot_at)}</span>
-                    ) : (
-                      <span className="muted small">No snapshot yet</span>
-                    )}
-                  </div>
-                  <div className="actions-row teacher-actions">
-                    <button
-                      className="secondary btn-inline"
-                      onClick={() => loadStudentProctoringEvents(s)}
-                    >
-                      View Events
-                    </button>
-                  </div>
-                  {selectedProctoringStudent?.student_id === s.student_id && s.snapshot_base64 ? (
-                    <div className="proctor-snapshot-wrap">
-                      <img
-                        src={s.snapshot_base64}
-                        alt="Latest webcam snapshot"
-                        className="proctor-snapshot-img"
-                      />
+          {/* Live monitoring grid — each card is one student */}
+          {proctoringStudents.length > 0 ? (
+            <div className="proctor-grid">
+              {proctoringStudents.map((s) => {
+                const isSelected = selectedProctoringStudent?.student_id === s.student_id;
+                const statusCls  = getProctoringStatusClass(s.proctoring_status);
+                return (
+                  <div
+                    key={s.student_id}
+                    className={`proctor-card proctor-card-${s.proctoring_status || "unknown"} ${isSelected ? "proctor-card-selected" : ""}`}
+                  >
+                    {/* Snapshot — always visible */}
+                    <div className="proctor-card-img-wrap">
+                      {s.snapshot_base64 ? (
+                        <img
+                          src={s.snapshot_base64}
+                          alt={s.student_name}
+                          className="proctor-card-img"
+                        />
+                      ) : (
+                        <div className="proctor-card-placeholder">
+                          <span>No feed</span>
+                        </div>
+                      )}
+                      {/* Status dot overlay */}
+                      <span className={`proctor-card-dot ${statusCls}`} />
+                      {/* Face count badge */}
+                      <span className="proctor-card-face-badge">
+                        {s.face_count} {Number(s.face_count) === 1 ? "face" : "faces"}
+                      </span>
                     </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+
+                    {/* Student info */}
+                    <div className="proctor-card-info">
+                      <strong className="proctor-card-name" title={s.student_name}>
+                        {s.student_name}
+                      </strong>
+                      <div className="proctor-card-stats">
+                        {Number(s.no_face_count) > 0 && (
+                          <span className="proctor-mini-tag proctor-mini-no-face">
+                            Away ×{s.no_face_count}
+                          </span>
+                        )}
+                        {Number(s.multiple_faces_count) > 0 && (
+                          <span className="proctor-mini-tag proctor-mini-multi">
+                            Multi ×{s.multiple_faces_count}
+                          </span>
+                        )}
+                        {Number(s.looking_away_count) > 0 && (
+                          <span className="proctor-mini-tag proctor-mini-look">
+                            Look ×{s.looking_away_count}
+                          </span>
+                        )}
+                        {Number(s.looking_down_count) > 0 && (
+                          <span className="proctor-mini-tag proctor-mini-look">
+                            Down ×{s.looking_down_count}
+                          </span>
+                        )}
+                        {Number(s.total_events) === 0 && (
+                          <span className="proctor-mini-tag proctor-mini-ok">Clean</span>
+                        )}
+                      </div>
+                      <button
+                        className="proctor-card-btn"
+                        onClick={() => isSelected
+                          ? setSelectedProctoringStudent(null)
+                          : loadStudentProctoringEvents(s)
+                        }
+                      >
+                        {isSelected ? "Close log" : `Events (${s.total_events})`}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           ) : null}
         </section>
 
+        {/* Event log panel — slides in below grid when a student is selected */}
         {selectedProctoringStudent ? (
           <section className="card teacher-panel">
-            <div className="teacher-section-strip">
-              <span className="teacher-section-tag">Event Log</span>
-              <span className="teacher-section-note">{selectedProctoringStudent.student_name}</span>
-            </div>
             <div className="card-head">
-              <h3 className="teacher-title">Events: {selectedProctoringStudent.student_name}</h3>
+              <h3 className="teacher-title">
+                Event log — {selectedProctoringStudent.student_name}
+              </h3>
               <button className="secondary" onClick={() => setSelectedProctoringStudent(null)}>
                 Close
               </button>
             </div>
 
-            {loadingProctoringEvents ? <p className="muted">Loading events...</p> : null}
+            {loadingProctoringEvents ? <p className="muted">Loading...</p> : null}
             {!loadingProctoringEvents && proctoringEvents.length === 0 ? (
               <p className="muted top-spaced">No events recorded for this student.</p>
             ) : null}

@@ -17,7 +17,8 @@ const {
   getMyResultDetails,
   recordViolation,
   forceSubmitParticipant,
-  toggleParticipantFreeze
+  toggleParticipantFreeze,
+  joinByRoom
 } = require('../controllers/examController');
 const { runCode } = require('../controllers/codeExecutionController');
 const {
@@ -41,6 +42,7 @@ router.put('/:id', protect, authorize('teacher'), updateExam);
 router.delete('/:id', protect, authorize('teacher'), deleteExam);
 
 // Room code system routes
+router.post('/join-by-room', joinByRoom); // public — issues its own token
 router.post('/join', protect, authorize('student'), joinExam);
 router.get('/:id/participants', protect, authorize('teacher'), getExamParticipants);
 router.post('/:id/participants/:participantId/force-submit', protect, authorize('teacher'), forceSubmitParticipant);

@@ -1,4 +1,6 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
+
+const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 const SYSTEM_INSTRUCTION = `You are an expert educational assistant helping university teachers create and manage exams at KUET (Khulna University of Engineering & Technology).
 
@@ -11,15 +13,14 @@ You help with:
 
 Be concise, practical, and helpful. Use clear formatting with bullet points or numbered lists where appropriate.`;
 
-function getModel() {
-  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
-    throw new Error('GEMINI_API_KEY is not configured. Please add it to your .env file.');
+function getGroqClient() {
+  const key = process.env.GROQ_API_KEY;
+  if (!key || key === 'your_groq_api_key_here') {
+    const err = new Error('GROQ_API_KEY is not configured. Add it to backend/.env and restart.');
+    err.statusCode = 500;
+    throw err;
   }
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-  return genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
-    systemInstruction: SYSTEM_INSTRUCTION
-  });
+  return new Groq({ apiKey: key });
 }
 
 /**
@@ -34,44 +35,39 @@ const chat = async (req, res) => {
   }
 
   try {
-    const model = getModel();
+    const groq = getGroqClient();
 
-    // Build Gemini-format history from all messages except the last one
-    let history = messages.slice(0, -1).map((msg) => ({
-      role: msg.role === 'user' ? 'user' : 'model',
-      parts: [{ text: String(msg.text || '') }]
-    }));
+    // Build OpenAI-format message array
+    const groqMessages = [{ role: 'system', content: SYSTEM_INSTRUCTION }];
 
-    // Gemini requires history to start with a 'user' turn — drop any leading model messages
-    while (history.length > 0 && history[0].role !== 'user') {
-      history.shift();
+    // Attach exam context as a prefix on the first user message
+    let contextPrefix = '';
+    if (examContext?.title) {
+      contextPrefix = `[Exam context: "${examContext.title}", type: ${examContext.type || 'lab_quiz'}, duration: ${examContext.duration || '?'} min]\n\n`;
     }
 
-    // Attach exam context to the first user message in history (if any)
-    if (history.length > 0 && examContext?.title) {
-      history[0].parts[0].text =
-        `[Exam context: "${examContext.title}", type: ${examContext.type || 'lab_quiz'}, duration: ${examContext.duration || '?'} min]\n\n` +
-        history[0].parts[0].text;
-    }
+    messages.forEach((msg, i) => {
+      const role    = msg.role === 'user' ? 'user' : 'assistant';
+      const content = (i === 0 && contextPrefix)
+        ? contextPrefix + String(msg.text || '')
+        : String(msg.text || '');
+      groqMessages.push({ role, content });
+    });
 
-    const lastMsg = messages[messages.length - 1];
-    let lastText = String(lastMsg.text || '');
+    const completion = await groq.chat.completions.create({
+      model: GROQ_MODEL,
+      messages: groqMessages,
+      temperature: 0.7,
+      max_tokens: 2048
+    });
 
-    // If no history at all, attach context to the first real user message instead
-    if (history.length === 0 && examContext?.title) {
-      lastText =
-        `[Exam context: "${examContext.title}", type: ${examContext.type || 'lab_quiz'}, duration: ${examContext.duration || '?'} min]\n\n` +
-        lastText;
-    }
-
-    const chatSession = model.startChat({ history });
-    const result = await chatSession.sendMessage(lastText);
-    const reply = result.response.text();
-
+    const reply = completion.choices[0].message.content;
     res.json({ success: true, data: { reply } });
+
   } catch (error) {
-    console.error('AI chat error:', error.message);
-    res.status(500).json({ success: false, message: error.message || 'AI service error' });
+    console.error('[AI] chat error:', error.message);
+    const statusCode = Number(error?.statusCode) || 500;
+    res.status(statusCode).json({ success: false, message: error.message || 'AI service error' });
   }
 };
 
@@ -86,13 +82,9 @@ const generateQuestions = async (req, res) => {
     return res.status(400).json({ success: false, message: 'topic is required' });
   }
 
-  const normalizedType = ['mcq', 'written', 'coding'].includes(String(type).toLowerCase())
-    ? String(type).toLowerCase()
-    : 'mcq';
-  const normalizedDifficulty = ['easy', 'medium', 'hard'].includes(String(difficulty).toLowerCase())
-    ? String(difficulty).toLowerCase()
-    : 'medium';
-  const normalizedCount = Math.min(Math.max(Number(count) || 3, 1), 8);
+  const normalizedType       = ['mcq', 'written', 'coding'].includes(String(type).toLowerCase()) ? String(type).toLowerCase() : 'mcq';
+  const normalizedDifficulty = ['easy', 'medium', 'hard'].includes(String(difficulty).toLowerCase()) ? String(difficulty).toLowerCase() : 'medium';
+  const normalizedCount      = Math.min(Math.max(Number(count) || 3, 1), 8);
 
   const examCtx = examContext?.title
     ? ` for an exam titled "${examContext.title}" (${examContext.type || 'lab_quiz'})`
@@ -139,18 +131,37 @@ Important:
 - Generate exactly ${normalizedCount} question(s)`;
 
   try {
-    const model = getModel();
-    const result = await model.generateContent(prompt);
-    let raw = result.response.text().trim();
+    const groq = getGroqClient();
 
-    // Strip any accidental markdown code fences
-    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const completion = await groq.chat.completions.create({
+      model: GROQ_MODEL,
+      messages: [
+        { role: 'system', content: 'You are a JSON-only API. Return only valid JSON, no prose.' },
+        { role: 'user',   content: prompt }
+      ],
+      temperature: 0.6,
+      max_tokens: 4096,
+      response_format: { type: 'json_object' } // Groq guarantees valid JSON
+    });
 
-    // Extract JSON array if there's surrounding text
-    const arrayStart = raw.indexOf('[');
-    const arrayEnd = raw.lastIndexOf(']');
-    if (arrayStart !== -1 && arrayEnd !== -1) {
-      raw = raw.slice(arrayStart, arrayEnd + 1);
+    let raw = completion.choices[0].message.content.trim();
+
+    // response_format json_object may wrap in an object — unwrap the array if needed
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        raw = JSON.stringify(parsed);
+      } else {
+        // Find the array value inside the object
+        const arrayVal = Object.values(parsed).find((v) => Array.isArray(v));
+        if (arrayVal) raw = JSON.stringify(arrayVal);
+      }
+    } catch {
+      // Strip markdown fences just in case
+      raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+      const arrayStart = raw.indexOf('[');
+      const arrayEnd   = raw.lastIndexOf(']');
+      if (arrayStart !== -1 && arrayEnd !== -1) raw = raw.slice(arrayStart, arrayEnd + 1);
     }
 
     let questions;
@@ -158,11 +169,8 @@ Important:
       questions = JSON.parse(raw);
       if (!Array.isArray(questions)) throw new Error('Response is not a JSON array');
     } catch (parseErr) {
-      console.error('AI JSON parse error. Raw response:', raw);
-      return res.status(500).json({
-        success: false,
-        message: 'AI returned an unexpected format. Please try again.'
-      });
+      console.error('[AI] JSON parse error. Raw:', raw);
+      return res.status(500).json({ success: false, message: 'AI returned an unexpected format. Please try again.' });
     }
 
     // Sanitize each question
@@ -182,17 +190,19 @@ Important:
       }
       return {
         ...base,
-        sample_input: String(q.sample_input || '').trim(),
-        sample_output: String(q.sample_output || '').trim(),
-        starter_code: String(q.starter_code || '').trim(),
+        sample_input:    String(q.sample_input    || '').trim(),
+        sample_output:   String(q.sample_output   || '').trim(),
+        starter_code:    String(q.starter_code    || '').trim(),
         reference_answer: String(q.reference_answer || '').trim()
       };
     }).filter((q) => q.question_text.length > 0);
 
     res.json({ success: true, data: { questions } });
+
   } catch (error) {
-    console.error('AI generate-questions error:', error.message);
-    res.status(500).json({ success: false, message: error.message || 'AI service error' });
+    console.error('[AI] generate-questions error:', error.message);
+    const statusCode = Number(error?.statusCode) || 500;
+    res.status(statusCode).json({ success: false, message: error.message || 'AI service error' });
   }
 };
 

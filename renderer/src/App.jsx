@@ -17,7 +17,7 @@ function DashboardContent({ token, user, onStudentExamModeChange }) {
       );
     }
     if (user.role === "teacher") return <TeacherDashboard token={token} />;
-    return <AdminDashboard />;
+    return <AdminDashboard token={token} />;
   }, [onStudentExamModeChange, token, user]);
 
   return content;

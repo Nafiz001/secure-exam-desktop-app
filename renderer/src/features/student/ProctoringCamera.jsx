@@ -10,8 +10,12 @@ const YAW_THRESHOLD        = 0.20;
 const PITCH_DOWN_THRESHOLD = 0.58;  // head dropped → phone/notes
 const PITCH_UP_THRESHOLD   = 0.12;  // head raised → looking up/away
 
-// Snapshot upload interval (ms) — still throttled, no need for 30fps uploads
-const SNAPSHOT_INTERVAL_MS = 8000;
+// Snapshot upload interval — 3s so teacher sees near-live frames
+const SNAPSHOT_INTERVAL_MS = 3000;
+
+// Canvas display size must match the CSS .proctor-cam-video dimensions exactly
+const DISPLAY_W = 200;
+const DISPLAY_H = 150;
 
 // Per-event throttle — don't resend same event within this window
 const EVENT_THROTTLE_MS = 10000;
@@ -47,9 +51,12 @@ function estimateHeadPose(prediction) {
 // ─── Draw live face boxes on overlay canvas ───────────────────────────────────
 function drawOverlay(canvas, video, predictions) {
   if (!canvas || !video) return;
+  // Always draw at the fixed display resolution — avoids 0×0 from clientWidth
+  if (canvas.width !== DISPLAY_W)  canvas.width  = DISPLAY_W;
+  if (canvas.height !== DISPLAY_H) canvas.height = DISPLAY_H;
   const ctx    = canvas.getContext("2d");
-  const scaleX = canvas.width  / (video.videoWidth  || 640);
-  const scaleY = canvas.height / (video.videoHeight || 480);
+  const scaleX = DISPLAY_W / (video.videoWidth  || 640);
+  const scaleY = DISPLAY_H / (video.videoHeight || 480);
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -245,12 +252,11 @@ export default function ProctoringCamera({ token, examId, enabled }) {
         if (video) {
           video.srcObject = stream;
           await video.play();
-
-          // Sync overlay canvas size to video element size after it renders
-          video.addEventListener("loadedmetadata", () => {
-            const ov = overlayRef.current;
-            if (ov) { ov.width = video.clientWidth; ov.height = video.clientHeight; }
-          }, { once: true });
+          // Set overlay canvas to fixed display size immediately
+          if (overlayRef.current) {
+            overlayRef.current.width  = DISPLAY_W;
+            overlayRef.current.height = DISPLAY_H;
+          }
         }
 
         setCameraStatus("ok");

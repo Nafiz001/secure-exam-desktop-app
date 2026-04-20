@@ -34,6 +34,45 @@ function normalizeExamType(rawType) {
   return String(rawType || 'lab_quiz').toLowerCase() === 'lab_test' ? 'lab_test' : 'lab_quiz';
 }
 
+function normalizeQuestionFlowMode(rawMode) {
+  return String(rawMode || 'all_at_once').toLowerCase() === 'one_by_one' ? 'one_by_one' : 'all_at_once';
+}
+
+function normalizeBoolean(value, fallback = false) {
+  if (value === undefined || value === null) return fallback;
+  if (value === true || value === 'true' || value === 1 || value === '1') return true;
+  if (value === false || value === 'false' || value === 0 || value === '0') return false;
+  return fallback;
+}
+
+function hashSeed(input) {
+  const text = String(input || '');
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function seededRandomFactory(seedValue) {
+  let seed = seedValue >>> 0;
+  return () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+}
+
+function deterministicShuffle(items, seedKey) {
+  const shuffled = Array.isArray(items) ? [...items] : [];
+  const nextRandom = seededRandomFactory(hashSeed(seedKey));
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(nextRandom() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
 function normalizeViolationSeverity(rawSeverity) {
   const normalized = String(rawSeverity || '').toLowerCase();
   if (normalized === 'low') return 'low';
@@ -79,10 +118,20 @@ async function ensureTeacherOwnsExam(examId, teacherId) {
  * POST /api/exams
  */
 const createExam = async (req, res) => {
-  const { title, description, duration, exam_type, webcam_required } = req.body;
+  const {
+    title,
+    description,
+    duration,
+    exam_type,
+    webcam_required,
+    question_flow_mode,
+    randomize_question_order
+  } = req.body;
   const teacherId = req.user.userId;
   const normalizedExamType = normalizeExamType(exam_type);
-  const webcamRequired = webcam_required === true || webcam_required === 'true';
+  const webcamRequired = normalizeBoolean(webcam_required, false);
+  const questionFlowMode = normalizeQuestionFlowMode(question_flow_mode);
+  const randomizeQuestionOrder = normalizeBoolean(randomize_question_order, false);
 
   if (!title || !duration) {
     return res.status(400).json({
@@ -102,10 +151,43 @@ const createExam = async (req, res) => {
     const roomCode = await generateUniqueRoomCode();
 
     const result = await pool.query(
-      `INSERT INTO exams (title, description, exam_type, duration, created_by, room_code, status, webcam_required)
-       VALUES ($1, $2, $3, $4, $5, $6, 'created', $7)
-       RETURNING id, title, description, exam_type, duration, created_by, room_code, status, webcam_required, created_at`,
-      [title, description || '', normalizedExamType, duration, teacherId, roomCode, webcamRequired]
+      `INSERT INTO exams (
+         title,
+         description,
+         exam_type,
+         duration,
+         created_by,
+         room_code,
+         status,
+         webcam_required,
+         question_flow_mode,
+         randomize_question_order
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8, $9)
+       RETURNING
+         id,
+         title,
+         description,
+         exam_type,
+         duration,
+         created_by,
+         room_code,
+         status,
+         webcam_required,
+         question_flow_mode,
+         randomize_question_order,
+         created_at`,
+      [
+        title,
+        description || '',
+        normalizedExamType,
+        duration,
+        teacherId,
+        roomCode,
+        webcamRequired,
+        questionFlowMode,
+        randomizeQuestionOrder
+      ]
     );
 
     res.status(201).json({
@@ -256,13 +338,17 @@ const getExamById = async (req, res) => {
     }
 
     const questionsResult = await pool.query(questionsQuery, [examId]);
+    const shouldRandomize = role === 'student' && normalizeBoolean(exam.randomize_question_order, false);
+    const questions = shouldRandomize
+      ? deterministicShuffle(questionsResult.rows, `exam:${examId}:student:${userId}`)
+      : questionsResult.rows;
 
     res.status(200).json({
       success: true,
       data: {
         exam: {
           ...exam,
-          questions: questionsResult.rows,
+          questions,
           has_submitted: hasSubmitted
         }
       }
@@ -282,10 +368,22 @@ const getExamById = async (req, res) => {
  */
 const updateExam = async (req, res) => {
   const examId = req.params.id;
-  const { title, description, duration, exam_type, webcam_required } = req.body;
+  const {
+    title,
+    description,
+    duration,
+    exam_type,
+    webcam_required,
+    question_flow_mode,
+    randomize_question_order
+  } = req.body;
   const teacherId = req.user.userId;
   const normalizedExamType = exam_type === undefined ? null : normalizeExamType(exam_type);
-  const webcamRequired = webcam_required === undefined ? null : (webcam_required === true || webcam_required === 'true');
+  const webcamRequired = webcam_required === undefined ? null : normalizeBoolean(webcam_required, false);
+  const questionFlowMode = question_flow_mode === undefined ? null : normalizeQuestionFlowMode(question_flow_mode);
+  const randomizeQuestionOrder = randomize_question_order === undefined
+    ? null
+    : normalizeBoolean(randomize_question_order, false);
 
   try {
     const checkResult = await pool.query(
@@ -307,10 +405,22 @@ const updateExam = async (req, res) => {
            duration = COALESCE($3, duration),
            exam_type = COALESCE($4, exam_type),
            webcam_required = COALESCE($5, webcam_required),
+           question_flow_mode = COALESCE($6, question_flow_mode),
+           randomize_question_order = COALESCE($7, randomize_question_order),
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $6 AND created_by = $7
+       WHERE id = $8 AND created_by = $9
        RETURNING *`,
-      [title, description, duration, normalizedExamType, webcamRequired, examId, teacherId]
+      [
+        title,
+        description,
+        duration,
+        normalizedExamType,
+        webcamRequired,
+        questionFlowMode,
+        randomizeQuestionOrder,
+        examId,
+        teacherId
+      ]
     );
 
     res.status(200).json({
@@ -1223,6 +1333,95 @@ const toggleParticipantFreeze = async (req, res) => {
   }
 };
 
+/**
+ * POST /api/exams/join-by-room
+ * No login required — student provides roomCode + roll to enter an exam directly.
+ * Body: { roomCode, roll }
+ */
+const joinByRoom = async (req, res) => {
+  const { roomCode, roll } = req.body;
+
+  if (!roomCode || !roll) {
+    return res.status(400).json({ success: false, message: 'roomCode and roll are required' });
+  }
+
+  const normalizedRoll = String(roll).trim();
+  const normalizedCode = String(roomCode).trim().toUpperCase();
+
+  try {
+    // Find active student by roll
+    const studentResult = await pool.query(
+      `SELECT id, name, email, role, roll_number, status FROM users
+       WHERE role = 'student' AND roll_number = $1 LIMIT 1`,
+      [normalizedRoll]
+    );
+
+    if (studentResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'No student found with this roll number. Contact admin.' });
+    }
+
+    const student = studentResult.rows[0];
+    if (student.status === 'inactive') {
+      return res.status(403).json({ success: false, message: 'Your account is inactive. Contact admin.' });
+    }
+
+    // Find exam by room code
+    const examResult = await pool.query(
+      `SELECT id, title, exam_type, duration, status, webcam_required, question_flow_mode, randomize_question_order, started_at
+       FROM exams WHERE room_code = $1 LIMIT 1`,
+      [normalizedCode]
+    );
+
+    if (examResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Invalid room code' });
+    }
+
+    const exam = examResult.rows[0];
+    if (exam.status === 'completed') {
+      return res.status(400).json({ success: false, message: 'This exam has already ended' });
+    }
+
+    // Check if already submitted
+    const submissionCheck = await pool.query(
+      'SELECT id FROM submissions WHERE exam_id = $1 AND student_id = $2',
+      [exam.id, student.id]
+    );
+    if (submissionCheck.rows.length > 0) {
+      return res.status(400).json({ success: false, message: 'You have already submitted this exam' });
+    }
+
+    // Upsert participant
+    await pool.query(
+      `INSERT INTO exam_participants (exam_id, student_id, student_name, status)
+       VALUES ($1, $2, $3, 'waiting')
+       ON CONFLICT (exam_id, student_id) DO NOTHING`,
+      [exam.id, student.id, student.name]
+    );
+
+    // Issue short-lived JWT so student can make authenticated API calls during exam
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign(
+      { userId: student.id, email: student.email, role: 'student' },
+      process.env.JWT_SECRET,
+      { expiresIn: '4h' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Joined exam successfully',
+      data: {
+        user: { id: student.id, name: student.name, email: student.email, role: 'student', roll_number: student.roll_number },
+        token,
+        exam
+      }
+    });
+
+  } catch (error) {
+    console.error('[joinByRoom] error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   createExam,
   getExams,
@@ -1231,6 +1430,7 @@ module.exports = {
   deleteExam,
   submitExam,
   joinExam,
+  joinByRoom,
   getExamParticipants,
   startExam,
   getExamStatus,

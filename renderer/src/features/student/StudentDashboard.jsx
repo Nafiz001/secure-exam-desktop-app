@@ -18,6 +18,12 @@ function normalizeQuestionType(rawType) {
   return "mcq";
 }
 
+function normalizeQuestionFlowMode(rawMode) {
+  return String(rawMode || "all_at_once").toLowerCase() === "one_by_one"
+    ? "one_by_one"
+    : "all_at_once";
+}
+
 function defaultCodeForLanguage(language) {
   if (language === "python") {
     return "# Write your Python solution here\n";
@@ -38,6 +44,28 @@ function defaultCodeForLanguage(language) {
     ].join("\n");
   }
   return "// Write your JavaScript solution here\n";
+}
+
+function isQuestionAnswered(question, answerState, codeState) {
+  const qType = normalizeQuestionType(question?.question_type);
+  if (qType === "mcq") {
+    return answerState?.selected_answer !== null
+      && answerState?.selected_answer !== undefined
+      && answerState?.selected_answer !== "";
+  }
+  if (qType === "written") {
+    return String(answerState?.written_answer || "").trim().length > 0;
+  }
+
+  const currentCode = String(codeState?.code || "");
+  if (currentCode.trim().length === 0) {
+    return false;
+  }
+  const teacherStarterCode = String(question?.starter_code || "");
+  if (!teacherStarterCode.trim()) {
+    return true;
+  }
+  return currentCode.trim() !== teacherStarterCode.trim();
 }
 
 function buildFormattedAnswers(answerSource, codingSource) {
@@ -98,6 +126,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
   const [submittingExam, setSubmittingExam] = useState(false);
   const [examSubmitMessage, setExamSubmitMessage] = useState("");
   const [codingState, setCodingState] = useState({});
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [warningMessage, setWarningMessage] = useState("");
   const [warningSeverity, setWarningSeverity] = useState("medium");
   const [violationCount, setViolationCount] = useState(0);
@@ -289,6 +318,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     setExamData(null);
     setExamAnswers({});
     setCodingState({});
+    setCurrentQuestionIndex(0);
     setExamViolations([]);
     setViolationCount(0);
     setTimerText("--:--");
@@ -608,6 +638,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         forceSubmitTriggeredRef.current = false;
         setIsExamBlocked(false);
         setExamData(exam);
+        setCurrentQuestionIndex(0);
         setView("exam");
 
         if (window.electronAPI?.setUserData) {
@@ -872,15 +903,26 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         return;
       }
 
+      const violationTimestamp = data.timestamp || new Date().toISOString();
+      const violationType = data.type || "UNKNOWN";
+      const violationSeverity = data.severity || "medium";
+      const violationMetaDetail = data.shortcut
+        ? ` (${data.shortcut})`
+        : data.processName
+          ? ` (${data.processName})`
+          : data.durationMs
+            ? ` (${Math.round(Number(data.durationMs) / 1000)}s)`
+            : "";
+
       const violationEntry = {
-        type: data.type || "UNKNOWN",
-        severity: data.severity || "medium",
-        timestamp: new Date().toISOString()
+        type: violationType,
+        severity: violationSeverity,
+        timestamp: violationTimestamp
       };
 
-      setViolationCount(data.count || 0);
-      setWarningSeverity(data.severity || "medium");
-      setWarningMessage(`${String(data.severity || "medium").toUpperCase()} RISK: ${data.type}`);
+      setViolationCount((prev) => Number(data.count || prev + 1));
+      setWarningSeverity(violationSeverity);
+      setWarningMessage(`${String(violationSeverity).toUpperCase()} RISK: ${violationType}${violationMetaDetail}`);
       setExamViolations((prev) => [...prev, violationEntry]);
 
       const currentExamId = examDataRef.current?.id;
@@ -1360,6 +1402,36 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       );
     }
 
+    const questionFlowMode = normalizeQuestionFlowMode(examData.question_flow_mode);
+    const isOneByOneFlow = questionFlowMode === "one_by_one";
+    const questions = Array.isArray(examData.questions) ? examData.questions : [];
+    const totalQuestions = questions.length;
+    const safeQuestionIndex = totalQuestions > 0
+      ? Math.min(Math.max(currentQuestionIndex, 0), totalQuestions - 1)
+      : 0;
+    const visibleQuestions = isOneByOneFlow
+      ? questions.slice(safeQuestionIndex, safeQuestionIndex + 1)
+      : questions;
+    const activeQuestion = isOneByOneFlow && totalQuestions > 0 ? questions[safeQuestionIndex] : null;
+    const activeAnswerState = activeQuestion ? (examAnswers[activeQuestion.id] || {}) : {};
+    const activeCodeState = activeQuestion
+      ? (codingState[Number(activeQuestion.id)] || {
+          language: "javascript",
+          code: activeQuestion.starter_code || defaultCodeForLanguage("javascript"),
+          stdin: activeQuestion.sample_input || "",
+          stdout: "",
+          stderr: "",
+          running: false
+        })
+      : null;
+    const activeQuestionAnswered = activeQuestion
+      ? isQuestionAnswered(activeQuestion, activeAnswerState, activeCodeState)
+      : false;
+    const canGoPrevious = isOneByOneFlow && safeQuestionIndex > 0;
+    const canGoNext = isOneByOneFlow
+      && safeQuestionIndex < totalQuestions - 1
+      && activeQuestionAnswered;
+
     return (
       <>
         <section className="card student-panel student-panel-exam-header">
@@ -1386,11 +1458,16 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
 
         <section className="card student-panel">
           <h3 className="student-title">Questions</h3>
-          {!examData.questions || examData.questions.length === 0 ? (
+          <p className="muted small">
+            Mode: {isOneByOneFlow ? "One question at a time" : "All questions at once"}
+            {Boolean(examData.randomize_question_order) ? " | Order is randomized per student." : "."}
+          </p>
+          {totalQuestions === 0 ? (
             <p className="muted">No questions available.</p>
           ) : (
             <div className="question-stack student-question-stack">
-              {examData.questions.map((question, index) => {
+              {visibleQuestions.map((question, visibleIndex) => {
+                const index = isOneByOneFlow ? safeQuestionIndex : visibleIndex;
                 const qType = normalizeQuestionType(question.question_type);
                 const answerState = examAnswers[question.id] || {};
                 const codeState = codingState[Number(question.id)] || {
@@ -1532,6 +1609,43 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
                   </article>
                 );
               })}
+
+              {isOneByOneFlow ? (
+                <div className="student-question-nav-shell">
+                  <div className="student-meta-row">
+                    <span className="student-meta-chip">
+                      Question {safeQuestionIndex + 1} of {totalQuestions}
+                    </span>
+                    <span className="student-meta-chip">
+                      {Boolean(examData.randomize_question_order) ? "Randomized Order" : "Fixed Order"}
+                    </span>
+                  </div>
+                  <p className="muted small">
+                    {safeQuestionIndex === totalQuestions - 1
+                      ? "This is the last question. Review your answers and submit when ready."
+                      : activeQuestionAnswered
+                        ? "Answer saved. Continue when ready."
+                        : "Answer this question to unlock Next."}
+                  </p>
+                  <div className="actions-row student-question-nav-actions">
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => setCurrentQuestionIndex((prev) => Math.max(prev - 1, 0))}
+                      disabled={!canGoPrevious || isExamBlocked}
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentQuestionIndex((prev) => Math.min(prev + 1, totalQuestions - 1))}
+                      disabled={!canGoNext || isExamBlocked}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </section>
