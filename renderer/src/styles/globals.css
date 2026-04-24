@@ -1,0 +1,53 @@
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg text-ink antialiased;
+    font-family: theme("fontFamily.sans");
+    font-feature-settings: "cv11", "ss01", "ss03";
+  }
+
+  *:focus-visible {
+    @apply outline-none ring-2 ring-primary-ring ring-offset-2 ring-offset-bg;
+  }
+
+  ::selection {
+    @apply bg-primary-subtle text-ink;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-ink;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong);
+    border-radius: 9999px;
+    border: 2px solid var(--color-bg);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-subtle);
+  }
+}

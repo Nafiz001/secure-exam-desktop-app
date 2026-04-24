@@ -1,29 +1,84 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import {
+  Bot,
+  Send,
+  Sparkles,
+  X,
+  MessageSquare,
+  Wand2,
+  Check,
+  Plus,
+  Loader2,
+  AlertCircle,
+  ChevronDown,
+} from "lucide-react";
 import { apiRequest } from "../../api";
+import {
+  Button,
+  IconButton,
+  Input,
+  Textarea,
+  FormField,
+  Badge,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "../../components/ui";
+import { cn } from "../../lib/cn";
 
 const WELCOME_MESSAGE = {
   role: "model",
-  text: "Hi! I'm your AI teaching assistant.\n\nI can help you:\n• Generate MCQ, Written, and Coding questions\n• Review your exam structure\n• Suggest difficulty balance and marks\n• Answer any teaching question\n\nWhat would you like help with?"
+  text: "Hi! I'm your AI teaching assistant.\n\nI can help you:\n• Generate MCQ, Written, and Coding questions\n• Review your exam structure\n• Suggest difficulty balance and marks\n• Answer any teaching question\n\nWhat would you like help with?",
 };
 
 function MessageBubble({ msg }) {
   const isUser = msg.role === "user";
   return (
-    <div className={`aip-msg ${isUser ? "aip-msg-user" : "aip-msg-ai"}`}>
-      {!isUser && (
-        <div className="aip-avatar">
-          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-            <path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.73A2 2 0 0112 2zM3 16v1a7 7 0 0014 0v-1H3z"/>
-          </svg>
-        </div>
+    <div
+      className={cn(
+        "flex gap-2 max-w-full",
+        isUser ? "justify-end" : "justify-start"
       )}
-      <div className="aip-bubble">{msg.text}</div>
+    >
+      {!isUser ? (
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-info-subtle text-info">
+          <Bot className="h-4 w-4" />
+        </div>
+      ) : null}
+      <div
+        className={cn(
+          "rounded-lg px-3 py-2 text-sm whitespace-pre-wrap break-words max-w-[85%]",
+          isUser
+            ? "bg-primary text-primary-foreground rounded-br-sm"
+            : "bg-bg border border-border text-ink rounded-bl-sm"
+        )}
+      >
+        {msg.text}
+      </div>
     </div>
   );
 }
 
-export default function AIAssistant({ token, currentExamId, currentExamTitle, currentExamType, formDuration, onQuestionAdded }) {
+function ThinkingDots() {
+  return (
+    <div className="flex items-center gap-1 py-2 px-1">
+      <span className="h-1.5 w-1.5 rounded-full bg-ink-subtle animate-pulse" />
+      <span className="h-1.5 w-1.5 rounded-full bg-ink-subtle animate-pulse [animation-delay:150ms]" />
+      <span className="h-1.5 w-1.5 rounded-full bg-ink-subtle animate-pulse [animation-delay:300ms]" />
+    </div>
+  );
+}
+
+export default function AIAssistant({
+  token,
+  currentExamId,
+  currentExamTitle,
+  currentExamType,
+  formDuration,
+  onQuestionAdded,
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("chat");
 
@@ -80,7 +135,7 @@ export default function AIAssistant({ token, currentExamId, currentExamTitle, cu
     } catch (err) {
       setMessages((prev) => [
         ...prev,
-        { role: "model", text: `Sorry, something went wrong: ${err.message || "Unknown error."}` }
+        { role: "model", text: `Sorry, something went wrong: ${err.message || "Unknown error."}` },
       ]);
     } finally {
       setChatLoading(false);
@@ -111,8 +166,8 @@ export default function AIAssistant({ token, currentExamId, currentExamTitle, cu
             type: genType,
             difficulty: genDifficulty,
             count: Number(genCount),
-            examContext
-          })
+            examContext,
+          }),
         },
         token
       );
@@ -126,267 +181,347 @@ export default function AIAssistant({ token, currentExamId, currentExamTitle, cu
     }
   }, [genTopic, genType, genDifficulty, genCount, genLoading, examContext, token]);
 
-  const addToExam = useCallback(async (question, idx) => {
-    if (!currentExamId || addingIdx !== null || addedIdxs.has(idx)) return;
-    setAddingIdx(idx);
-    try {
-      await apiRequest(
-        `/exams/${currentExamId}/questions`,
-        { method: "POST", body: JSON.stringify(question) },
-        token
-      );
-      setAddedIdxs((prev) => new Set([...prev, idx]));
-      if (typeof onQuestionAdded === "function") onQuestionAdded();
-    } catch (err) {
-      alert(err.message || "Failed to add question.");
-    } finally {
-      setAddingIdx(null);
-    }
-  }, [currentExamId, addingIdx, addedIdxs, token, onQuestionAdded]);
+  const addToExam = useCallback(
+    async (question, idx) => {
+      if (!currentExamId || addingIdx !== null || addedIdxs.has(idx)) return;
+      setAddingIdx(idx);
+      try {
+        await apiRequest(
+          `/exams/${currentExamId}/questions`,
+          { method: "POST", body: JSON.stringify(question) },
+          token
+        );
+        setAddedIdxs((prev) => new Set([...prev, idx]));
+        if (typeof onQuestionAdded === "function") onQuestionAdded();
+      } catch (err) {
+        alert(err.message || "Failed to add question.");
+      } finally {
+        setAddingIdx(null);
+      }
+    },
+    [currentExamId, addingIdx, addedIdxs, token, onQuestionAdded]
+  );
 
   const panel = (
     <>
-      {/* Backdrop (mobile) */}
-      {isOpen && <div className="aip-backdrop" onClick={() => setIsOpen(false)} />}
+      {isOpen ? (
+        <div
+          className="fixed inset-0 z-40 bg-ink/20 backdrop-blur-sm md:hidden"
+          onClick={() => setIsOpen(false)}
+        />
+      ) : null}
 
-      {/* Panel */}
-      <div className={`aip-panel ${isOpen ? "aip-panel-open" : ""}`}>
-
-        {/* Header */}
-        <div className="aip-header">
-          <div className="aip-header-icon">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18">
-              <path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.73A2 2 0 0112 2zM3 16v1a7 7 0 0014 0v-1H3z"/>
-            </svg>
+      <div
+        className={cn(
+          "fixed z-50 bg-surface border border-border shadow-lg rounded-xl flex flex-col overflow-hidden",
+          "transition-all duration-200",
+          "right-4 bottom-4 w-[calc(100vw-2rem)] md:w-[420px] h-[80vh] md:h-[640px] max-h-[calc(100vh-2rem)]",
+          isOpen ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-4 pointer-events-none"
+        )}
+      >
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-border bg-gradient-to-r from-info-subtle/60 to-primary-subtle/40">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-info text-white">
+            <Bot className="h-5 w-5" />
           </div>
-          <div className="aip-header-text">
-            <span className="aip-header-title">AI Assistant</span>
-            <span className="aip-header-sub">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-ink">AI Assistant</p>
+            <p className="text-xs text-ink-muted truncate">
               {examContext ? examContext.title : "No exam selected"}
-            </span>
+            </p>
           </div>
-          <button className="aip-close-btn" onClick={() => setIsOpen(false)} title="Close">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-              <path fillRule="evenodd" d="M5.47 5.47a.75.75 0 011.06 0L12 10.94l5.47-5.47a.75.75 0 111.06 1.06L13.06 12l5.47 5.47a.75.75 0 11-1.06 1.06L12 13.06l-5.47 5.47a.75.75 0 01-1.06-1.06L10.94 12 5.47 6.53a.75.75 0 010-1.06z" clipRule="evenodd" />
-            </svg>
-          </button>
+          <IconButton
+            aria-label="Close AI assistant"
+            tooltip="Close"
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsOpen(false)}
+          >
+            <X className="h-4 w-4" />
+          </IconButton>
         </div>
 
-        {/* Tabs */}
-        <div className="aip-tabs">
-          <button
-            className={`aip-tab ${activeTab === "chat" ? "aip-tab-on" : ""}`}
-            onClick={() => setActiveTab("chat")}
-          >
-            Chat
-          </button>
-          <button
-            className={`aip-tab ${activeTab === "generate" ? "aip-tab-on" : ""}`}
-            onClick={() => setActiveTab("generate")}
-          >
-            Generate Questions
-          </button>
-        </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col flex-1 min-h-0">
+          <div className="px-4 pt-3">
+            <TabsList className="w-full grid grid-cols-2">
+              <TabsTrigger value="chat" className="justify-center">
+                <MessageSquare className="h-4 w-4" /> Chat
+              </TabsTrigger>
+              <TabsTrigger value="generate" className="justify-center">
+                <Wand2 className="h-4 w-4" /> Generate
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-        {/* ── CHAT ── */}
-        {activeTab === "chat" && (
-          <div className="aip-chat">
-            <div className="aip-messages">
+          <TabsContent value="chat" className="flex-1 min-h-0 flex flex-col">
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3">
               {messages.map((msg, i) => (
                 <MessageBubble key={i} msg={msg} />
               ))}
-              {chatLoading && (
-                <div className="aip-msg aip-msg-ai">
-                  <div className="aip-avatar">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                      <path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.73A2 2 0 0112 2zM3 16v1a7 7 0 0014 0v-1H3z"/>
-                    </svg>
+              {chatLoading ? (
+                <div className="flex gap-2">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-info-subtle text-info">
+                    <Bot className="h-4 w-4" />
                   </div>
-                  <div className="aip-bubble aip-thinking">
-                    <span className="aip-dot" /><span className="aip-dot" /><span className="aip-dot" />
+                  <div className="rounded-lg bg-bg border border-border rounded-bl-sm">
+                    <ThinkingDots />
                   </div>
                 </div>
-              )}
+              ) : null}
               <div ref={messagesEndRef} />
             </div>
 
-            <div className="aip-input-row">
-              <textarea
+            <div className="p-3 border-t border-border bg-bg/40 space-y-2">
+              <Textarea
                 ref={chatInputRef}
-                className="aip-textarea"
                 rows={2}
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask anything… Enter to send"
+                placeholder="Ask anything… Enter to send, Shift+Enter for new line"
                 disabled={chatLoading}
+                className="resize-none"
               />
-              <div className="aip-input-actions">
-                <button className="aip-clear" onClick={() => { setMessages([WELCOME_MESSAGE]); setChatInput(""); }}>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setMessages([WELCOME_MESSAGE]);
+                    setChatInput("");
+                  }}
+                >
                   Clear
-                </button>
-                <button
-                  className="aip-send"
+                </Button>
+                <Button
+                  size="sm"
                   onClick={sendChat}
                   disabled={!chatInput.trim() || chatLoading}
                 >
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                    <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
-                  </svg>
-                  Send
-                </button>
+                  <Send className="h-4 w-4" /> Send
+                </Button>
               </div>
             </div>
-          </div>
-        )}
+          </TabsContent>
 
-        {/* ── GENERATE ── */}
-        {activeTab === "generate" && (
-          <div className="aip-generate">
-            <div className="aip-gen-form">
-              <div className="aip-field">
-                <label className="aip-label">Topic</label>
-                <input
-                  className="aip-input"
+          <TabsContent value="generate" className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+            <div className="space-y-3">
+              <FormField label="Topic" htmlFor="ai-topic">
+                <Input
+                  id="ai-topic"
                   type="text"
                   value={genTopic}
                   onChange={(e) => setGenTopic(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && runGenerate()}
                   placeholder="e.g. Binary Search Trees, Recursion…"
                 />
-              </div>
+              </FormField>
 
-              <div className="aip-field-row">
-                <div className="aip-field">
-                  <label className="aip-label">Type</label>
-                  <select className="aip-select" value={genType} onChange={(e) => { setGenType(e.target.value); setGeneratedQuestions([]); setAddedIdxs(new Set()); }}>
+              <div className="grid grid-cols-3 gap-2">
+                <FormField label="Type" htmlFor="ai-type">
+                  <select
+                    id="ai-type"
+                    value={genType}
+                    onChange={(e) => {
+                      setGenType(e.target.value);
+                      setGeneratedQuestions([]);
+                      setAddedIdxs(new Set());
+                    }}
+                    className="h-10 w-full rounded-md bg-surface border border-border px-3 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary-ring"
+                  >
                     <option value="mcq">MCQ</option>
                     <option value="written">Written</option>
                     <option value="coding">Coding</option>
                   </select>
-                </div>
-                <div className="aip-field">
-                  <label className="aip-label">Difficulty</label>
-                  <select className="aip-select" value={genDifficulty} onChange={(e) => setGenDifficulty(e.target.value)}>
+                </FormField>
+                <FormField label="Difficulty" htmlFor="ai-diff">
+                  <select
+                    id="ai-diff"
+                    value={genDifficulty}
+                    onChange={(e) => setGenDifficulty(e.target.value)}
+                    className="h-10 w-full rounded-md bg-surface border border-border px-3 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary-ring"
+                  >
                     <option value="easy">Easy</option>
                     <option value="medium">Medium</option>
                     <option value="hard">Hard</option>
                   </select>
-                </div>
-                <div className="aip-field">
-                  <label className="aip-label">Count</label>
-                  <select className="aip-select" value={genCount} onChange={(e) => setGenCount(e.target.value)}>
-                    {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
+                </FormField>
+                <FormField label="Count" htmlFor="ai-count">
+                  <select
+                    id="ai-count"
+                    value={genCount}
+                    onChange={(e) => setGenCount(e.target.value)}
+                    className="h-10 w-full rounded-md bg-surface border border-border px-3 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary-ring"
+                  >
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
                   </select>
-                </div>
+                </FormField>
               </div>
 
-              <button className="aip-gen-btn" onClick={runGenerate} disabled={!genTopic.trim() || genLoading}>
+              <Button
+                className="w-full"
+                onClick={runGenerate}
+                disabled={!genTopic.trim() || genLoading}
+              >
                 {genLoading ? (
-                  <><span className="aip-spinner" /> Generating…</>
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" /> Generating…
+                  </>
                 ) : (
-                  <><svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path fillRule="evenodd" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813A3.75 3.75 0 007.466 7.89l.813-2.846A.75.75 0 019 4.5z" clipRule="evenodd" /></svg> Generate</>
+                  <>
+                    <Sparkles className="h-4 w-4" /> Generate
+                  </>
                 )}
-              </button>
+              </Button>
             </div>
 
-            {genError && <div className="aip-error">{genError}</div>}
+            {genError ? (
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded-md border border-danger-subtle bg-danger-subtle/40 px-3 py-2 text-sm text-danger"
+              >
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>{genError}</span>
+              </div>
+            ) : null}
 
-            {generatedQuestions.length > 0 && (
-              <div className="aip-qlist">
-                {!currentExamId && (
-                  <div className="aip-notice">
-                    Open an exam in the Questions view to enable "Add to Exam".
+            {generatedQuestions.length > 0 ? (
+              <div className="space-y-3">
+                {!currentExamId ? (
+                  <div className="rounded-md border border-warning-subtle bg-warning-subtle/40 px-3 py-2 text-xs text-warning">
+                    Open an exam in the Questions view to enable Add-to-Exam.
                   </div>
-                )}
+                ) : null}
                 {generatedQuestions.map((q, idx) => (
-                  <div key={idx} className="aip-qcard">
-                    <div className="aip-qcard-top">
-                      <span className="aip-qtype">{q.question_type?.toUpperCase()}</span>
-                      <span className="aip-qmarks">{q.marks} marks</span>
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-border bg-bg p-3 space-y-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Badge variant={q.question_type === "mcq" ? "info" : q.question_type === "coding" ? "warning" : "outline"}>
+                        {String(q.question_type || "").toUpperCase()}
+                      </Badge>
+                      <Badge variant="neutral">{q.marks} marks</Badge>
                     </div>
 
-                    <p className="aip-qtext">{q.question_text}</p>
+                    <p className="text-sm text-ink whitespace-pre-wrap">{q.question_text}</p>
 
-                    {q.question_type === "mcq" && Array.isArray(q.options) && (
-                      <ul className="aip-opts">
-                        {q.options.map((opt, oi) => (
-                          <li key={oi} className={oi === Number(q.correct_answer) ? "aip-opt-correct" : "aip-opt"}>
-                            <span className="aip-opt-letter">{String.fromCharCode(65 + oi)}</span>
-                            {opt}
-                            {oi === Number(q.correct_answer) && <span className="aip-tick">✓</span>}
-                          </li>
-                        ))}
+                    {q.question_type === "mcq" && Array.isArray(q.options) ? (
+                      <ul className="space-y-1">
+                        {q.options.map((opt, oi) => {
+                          const correct = oi === Number(q.correct_answer);
+                          return (
+                            <li
+                              key={oi}
+                              className={cn(
+                                "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs",
+                                correct
+                                  ? "bg-success-subtle/50 text-success"
+                                  : "bg-surface text-ink-muted border border-border"
+                              )}
+                            >
+                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-surface border border-current text-[11px] font-semibold">
+                                {String.fromCharCode(65 + oi)}
+                              </span>
+                              <span className="flex-1">{opt}</span>
+                              {correct ? <Check className="h-3.5 w-3.5" /> : null}
+                            </li>
+                          );
+                        })}
                       </ul>
-                    )}
+                    ) : null}
 
-                    {q.question_type === "written" && q.reference_answer && (
-                      <details className="aip-details">
-                        <summary>Reference Answer</summary>
-                        <p className="aip-details-body">{q.reference_answer}</p>
+                    {q.question_type === "written" && q.reference_answer ? (
+                      <details className="rounded-md border border-border bg-surface overflow-hidden">
+                        <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-ink flex items-center gap-1 select-none">
+                          <ChevronDown className="h-3.5 w-3.5" /> Reference answer
+                        </summary>
+                        <p className="px-3 pb-3 text-xs text-ink-muted whitespace-pre-wrap">
+                          {q.reference_answer}
+                        </p>
                       </details>
-                    )}
+                    ) : null}
 
-                    {q.question_type === "coding" && (
-                      <div className="aip-coding-info">
-                        {q.sample_input && (
-                          <div className="aip-io-row">
-                            <span className="aip-io-label">Input</span>
-                            <code className="aip-io-code">{q.sample_input}</code>
+                    {q.question_type === "coding" ? (
+                      <div className="space-y-2">
+                        {q.sample_input ? (
+                          <div className="flex gap-2 text-xs">
+                            <span className="text-ink-subtle w-14 shrink-0">Input</span>
+                            <code className="flex-1 bg-surface border border-border rounded px-2 py-1 text-ink font-mono">
+                              {q.sample_input}
+                            </code>
                           </div>
-                        )}
-                        {q.sample_output && (
-                          <div className="aip-io-row">
-                            <span className="aip-io-label">Output</span>
-                            <code className="aip-io-code">{q.sample_output}</code>
+                        ) : null}
+                        {q.sample_output ? (
+                          <div className="flex gap-2 text-xs">
+                            <span className="text-ink-subtle w-14 shrink-0">Output</span>
+                            <code className="flex-1 bg-surface border border-border rounded px-2 py-1 text-ink font-mono">
+                              {q.sample_output}
+                            </code>
                           </div>
-                        )}
-                        {q.reference_answer && (
-                          <details className="aip-details">
-                            <summary>Reference Solution</summary>
-                            <pre className="aip-code-block">{q.reference_answer}</pre>
+                        ) : null}
+                        {q.reference_answer ? (
+                          <details className="rounded-md border border-border bg-surface overflow-hidden">
+                            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-ink flex items-center gap-1 select-none">
+                              <ChevronDown className="h-3.5 w-3.5" /> Reference solution
+                            </summary>
+                            <pre className="px-3 pb-3 text-xs text-ink-muted font-mono whitespace-pre-wrap">
+                              {q.reference_answer}
+                            </pre>
                           </details>
-                        )}
+                        ) : null}
                       </div>
-                    )}
+                    ) : null}
 
-                    <div className="aip-qcard-footer">
+                    <div className="flex justify-end pt-1">
                       {currentExamId ? (
                         addedIdxs.has(idx) ? (
-                          <span className="aip-added">Added to exam ✓</span>
+                          <Badge variant="success">
+                            <Check className="h-3 w-3" /> Added to exam
+                          </Badge>
                         ) : (
-                          <button
-                            className="aip-add-btn"
+                          <Button
+                            size="sm"
                             onClick={() => addToExam(q, idx)}
                             disabled={addingIdx !== null}
                           >
-                            {addingIdx === idx ? "Adding…" : "+ Add to Exam"}
-                          </button>
+                            {addingIdx === idx ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin" /> Adding…
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="h-4 w-4" /> Add to exam
+                              </>
+                            )}
+                          </Button>
                         )
-                      ) : <span />}
+                      ) : null}
                     </div>
                   </div>
                 ))}
               </div>
-            )}
-          </div>
-        )}
+            ) : null}
+          </TabsContent>
+        </Tabs>
       </div>
 
-      {/* Floating Action Button */}
-      <button
-        className={`aip-fab ${isOpen ? "aip-fab-hidden" : ""}`}
-        onClick={() => setIsOpen(true)}
-        title="AI Teaching Assistant"
-      >
-        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-          <path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.73A2 2 0 0112 2zM3 16v1a7 7 0 0014 0v-1H3z"/>
-        </svg>
-        <span>AI Assistant</span>
-      </button>
+      {!isOpen ? (
+        <button
+          type="button"
+          onClick={() => setIsOpen(true)}
+          className="fixed z-40 bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-info text-white px-4 py-3 shadow-lg hover:bg-info/90 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          aria-label="Open AI teaching assistant"
+        >
+          <Sparkles className="h-5 w-5" />
+          <span className="text-sm font-medium hidden sm:inline">AI Assistant</span>
+        </button>
+      ) : null}
     </>
   );
 
-  // Portal: renders outside .teacher-ui (which has isolation:isolate) so z-index works correctly
   return createPortal(panel, document.body);
 }

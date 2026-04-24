@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
-import { ModalProvider } from "./components/modals/ModalProvider";
+import { LogOut, ChevronDown, ShieldCheck, GraduationCap, User } from "lucide-react";
+import { ModalProvider, useModal } from "./components/modals/ModalProvider";
+import {
+  TooltipProvider,
+  Toaster,
+  IconButton,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  Badge,
+} from "./components/ui";
+import { Logo } from "./components/brand/Logo";
 import AdminDashboard from "./features/admin/AdminDashboard";
 import StudentDashboard from "./features/student/StudentDashboard";
 import TeacherDashboard from "./features/teacher/TeacherDashboard";
@@ -23,10 +37,95 @@ function DashboardContent({ token, user, onStudentExamModeChange }) {
   return content;
 }
 
+function RoleBadge({ role }) {
+  const map = {
+    admin: { icon: ShieldCheck, label: "Admin", tone: "info" },
+    teacher: { icon: GraduationCap, label: "Teacher", tone: "primary" },
+    student: { icon: User, label: "Student", tone: "success" },
+  };
+  const cfg = map[role] || { icon: User, label: role, tone: "neutral" };
+  const Icon = cfg.icon;
+  return (
+    <Badge variant={cfg.tone} size="md" className="capitalize">
+      <Icon className="h-3 w-3" />
+      {cfg.label}
+    </Badge>
+  );
+}
+
+function UserMenu({ user, onLogout }) {
+  const { showConfirm } = useModal();
+  const initials = (user.name || user.email || "?")
+    .split(" ")
+    .map((s) => s[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  async function handleLogoutClick() {
+    const ok = await showConfirm({
+      title: "Sign out of Invigilo?",
+      message: "You will be returned to the login page.",
+      confirmText: "Sign out",
+      cancelText: "Stay signed in",
+    });
+    if (ok) onLogout();
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="group inline-flex items-center gap-2 rounded-full border border-border bg-surface pl-1 pr-3 py-1 hover:border-border-strong transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          aria-label="Open user menu"
+        >
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-subtle text-primary-hover font-semibold text-xs">
+            {initials}
+          </span>
+          <span className="text-left hidden sm:block leading-tight">
+            <span className="block text-sm font-medium text-ink truncate max-w-[180px]">
+              {user.name || user.email}
+            </span>
+            <span className="block text-[11px] text-ink-subtle capitalize">
+              {user.role}
+            </span>
+          </span>
+          <ChevronDown className="h-4 w-4 text-ink-subtle group-hover:text-ink transition-colors" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="min-w-[240px]">
+        <DropdownMenuLabel>Signed in as</DropdownMenuLabel>
+        <div className="px-2 pb-2">
+          <p className="text-sm font-medium text-ink truncate">
+            {user.name || user.email}
+          </p>
+          {user.email ? (
+            <p className="text-xs text-ink-muted truncate">{user.email}</p>
+          ) : null}
+          <div className="mt-2">
+            <RoleBadge role={user.role} />
+          </div>
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            handleLogoutClick();
+          }}
+          className="text-danger focus:bg-danger-subtle focus:text-danger"
+        >
+          <LogOut className="h-4 w-4" />
+          Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function AppShell() {
   const [token, setToken] = useState(() => localStorage.getItem("token"));
   const [isStudentExamMode, setIsStudentExamMode] = useState(false);
-  const [theme, setTheme] = useState(() => localStorage.getItem("theme") || "light");
   const [user, setUser] = useState(() => {
     const rawUser = localStorage.getItem("user");
     if (!rawUser) {
@@ -41,6 +140,11 @@ function AppShell() {
       return null;
     }
   });
+
+  useEffect(() => {
+    document.body.classList.remove("theme-dark", "theme-light");
+    localStorage.removeItem("theme");
+  }, []);
 
   function handleLogin(nextToken, nextUser) {
     localStorage.setItem("token", nextToken);
@@ -57,69 +161,54 @@ function AppShell() {
     setIsStudentExamMode(false);
   }
 
-  useEffect(() => {
-    document.body.classList.toggle("theme-dark", theme === "dark");
-    document.body.classList.toggle("theme-light", theme !== "dark");
-    localStorage.setItem("theme", theme);
-  }, [theme]);
-
-  function toggleTheme() {
-    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
-  }
-
   if (!token || !user) {
-    return (
-      <>
-        <button
-          type="button"
-          className="theme-toggle theme-toggle-floating"
-          onClick={toggleTheme}
-          aria-label="Toggle dark mode"
-        >
-          {theme === "dark" ? "Light Mode" : "Dark Mode"}
-        </button>
-        <LoginPage onLogin={handleLogin} />
-      </>
-    );
+    return <LoginPage onLogin={handleLogin} />;
   }
+
+  const hideTopbar = user.role === "student" && isStudentExamMode;
 
   return (
-    <main className="page">
-      <header className="topbar">
-        <div>
-          <p className="muted">Logged in as</p>
-          <h1>{user.name}</h1>
-          <p className="muted small">{user.email}</p>
-        </div>
-        <div className="topbar-actions">
-          {!(user.role === "student" && isStudentExamMode) ? (
-            <>
-              <button type="button" className="theme-toggle" onClick={toggleTheme}>
-                {theme === "dark" ? "Light Mode" : "Dark Mode"}
-              </button>
-              <button className="danger" onClick={handleLogout}>
-                Logout
-              </button>
-            </>
-          ) : null}
-        </div>
-      </header>
+    <div className="min-h-screen w-full bg-bg text-ink flex flex-col">
+      {!hideTopbar ? (
+        <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b border-border bg-surface/95 backdrop-blur px-4 sm:px-6">
+          <div className="flex items-center gap-4">
+            <Logo size={28} />
+            <div className="hidden sm:flex items-center gap-2 pl-4 border-l border-border">
+              <RoleBadge role={user.role} />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <UserMenu user={user} onLogout={handleLogout} />
+            <IconButton
+              aria-label="Sign out"
+              tooltip="Sign out"
+              variant="ghost"
+              onClick={handleLogout}
+            >
+              <LogOut className="h-4 w-4" />
+            </IconButton>
+          </div>
+        </header>
+      ) : null}
 
-      <div className="content-stack">
+      <div className="flex-1 w-full">
         <DashboardContent
           token={token}
           user={user}
           onStudentExamModeChange={setIsStudentExamMode}
         />
       </div>
-    </main>
+    </div>
   );
 }
 
 export default function App() {
   return (
-    <ModalProvider>
-      <AppShell />
-    </ModalProvider>
+    <TooltipProvider>
+      <ModalProvider>
+        <AppShell />
+        <Toaster />
+      </ModalProvider>
+    </TooltipProvider>
   );
 }

@@ -1,7 +1,55 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
+import {
+  RefreshCw,
+  KeyRound,
+  User,
+  Hourglass,
+  Play,
+  Eye,
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Send,
+  Lock,
+  Clock,
+  ShieldAlert,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  Code2,
+  FileText,
+  RotateCcw,
+  CircleDot,
+  LogIn,
+  BookOpenCheck,
+  Timer,
+  Award,
+  Info,
+  XCircle,
+  Trophy,
+  Users,
+  ShieldCheck,
+} from "lucide-react";
 import { apiRequest } from "../../api";
 import { useModal } from "../../components/modals/ModalProvider";
+import {
+  Button,
+  IconButton,
+  Input,
+  Textarea,
+  FormField,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardBody,
+  Badge,
+  Stat,
+  Spinner,
+  EmptyState,
+} from "../../components/ui";
+import { cn } from "../../lib/cn";
 import ProctoringCamera from "./ProctoringCamera";
 
 function formatTimerDisplay(totalSeconds) {
@@ -40,7 +88,7 @@ function defaultCodeForLanguage(language) {
       "  // Write your C++ solution here",
       "",
       "  return 0;",
-      "}"
+      "}",
     ].join("\n");
   }
   return "// Write your JavaScript solution here\n";
@@ -76,7 +124,7 @@ function buildFormattedAnswers(answerSource, codingSource) {
       ...(mergedAnswers[questionId] || {}),
       selected_answer: null,
       written_answer: coding?.code || "",
-      language: coding?.language || "javascript"
+      language: coding?.language || "javascript",
     };
   });
 
@@ -84,15 +132,15 @@ function buildFormattedAnswers(answerSource, codingSource) {
     question_id: Number(questionId),
     selected_answer: answer.selected_answer ?? null,
     written_answer: answer.written_answer ?? "",
-    language: answer.language || ""
+    language: answer.language || "",
   }));
 }
 
-function getExamStatusToneClass(status) {
+function getExamStatusBadgeVariant(status) {
   const normalized = String(status || "waiting").toLowerCase();
-  if (normalized === "in_progress") return "student-chip-live";
-  if (normalized === "completed") return "student-chip-done";
-  return "student-chip-wait";
+  if (normalized === "in_progress") return "success";
+  if (normalized === "completed") return "neutral";
+  return "warning";
 }
 
 function formatDateTime(dateValue) {
@@ -164,7 +212,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       automaticLayout: true,
       readOnly: isExamBlocked,
       domReadOnly: isExamBlocked,
-      tabSize: 2
+      tabSize: 2,
     }),
     [isExamBlocked]
   );
@@ -242,7 +290,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     } catch (err) {
       await showAlert({
         title: "Error",
-        message: err.message || "Failed to load active exams."
+        message: err.message || "Failed to load active exams.",
       });
     } finally {
       setLoadingActiveExams(false);
@@ -257,7 +305,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     } catch (err) {
       await showAlert({
         title: "Error",
-        message: err.message || "Failed to load exam results."
+        message: err.message || "Failed to load exam results.",
       });
     } finally {
       setLoadingResults(false);
@@ -275,7 +323,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       } catch (err) {
         await showAlert({
           title: "Error",
-          message: err.message || "Failed to load result details."
+          message: err.message || "Failed to load result details.",
         });
       } finally {
         setLoadingResultDetails(false);
@@ -298,13 +346,12 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
             body: JSON.stringify({
               type: violation.type,
               severity: violation.severity || "medium",
-              timestamp: violation.timestamp || new Date().toISOString()
-            })
+              timestamp: violation.timestamp || new Date().toISOString(),
+            }),
           },
           token
         );
       } catch (error) {
-        // Best-effort live reporting; keep exam flow uninterrupted.
         console.error("Live violation report error:", error);
       }
     },
@@ -358,8 +405,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
             method: "POST",
             body: JSON.stringify({
               answers: formattedAnswers,
-              violations: violationSource
-            })
+              violations: violationSource,
+            }),
           },
           token
         );
@@ -368,7 +415,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           try {
             await window.electronAPI.submitExam({
               examId,
-              answers: formattedAnswers
+              answers: formattedAnswers,
             });
           } catch (electronError) {
             console.error("Electron submitExam error:", electronError);
@@ -387,7 +434,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
 
         await showAlert({
           title: "Submission Complete",
-          message: `${autoSubmitReason}\n\nExam submitted successfully.\n${scoreLine}${pendingLine}`
+          message: `${autoSubmitReason}\n\nExam submitted successfully.\n${scoreLine}${pendingLine}`,
         });
 
         resetExamState();
@@ -405,7 +452,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           setExamSubmitMessage(messageText || "Failed to auto-submit exam. Please contact your teacher.");
           await showAlert({
             title: "Auto Submission Issue",
-            message: `${autoSubmitReason}\n\n${messageText || "Failed to auto-submit exam."}`
+            message: `${autoSubmitReason}\n\n${messageText || "Failed to auto-submit exam."}`,
           });
         }
 
@@ -443,7 +490,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       if (isExamBlocked) {
         await showAlert({
           title: "Exam Blocked",
-          message: "Your teacher has blocked your exam screen. Wait until you are unblocked."
+          message: "Your teacher has blocked your exam screen. Wait until you are unblocked.",
         });
         return;
       }
@@ -452,7 +499,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         title: "Submit Exam",
         message: "Are you sure you want to submit your exam? You cannot change answers after submission.",
         confirmText: "Submit",
-        cancelText: "Cancel"
+        cancelText: "Cancel",
       });
       if (!confirmed) {
         return;
@@ -473,8 +520,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
             method: "POST",
             body: JSON.stringify({
               answers: formattedAnswers,
-              violations: examViolationsRef.current
-            })
+              violations: examViolationsRef.current,
+            }),
           },
           token
         );
@@ -483,7 +530,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           try {
             await window.electronAPI.submitExam({
               examId: activeExam.id,
-              answers: formattedAnswers
+              answers: formattedAnswers,
             });
           } catch (electronError) {
             console.error("Electron submitExam error:", electronError);
@@ -502,7 +549,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
 
         await showAlert({
           title: "Submission Complete",
-          message: `Exam submitted successfully.\n${scoreLine}${pendingLine}`
+          message: `Exam submitted successfully.\n${scoreLine}${pendingLine}`,
         });
 
         resetExamState();
@@ -527,7 +574,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       resetExamState,
       showAlert,
       showConfirm,
-      token
+      token,
     ]
   );
 
@@ -553,7 +600,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           if (submitExamRef.current) {
             submitExamRef.current({
               autoSubmit: true,
-              autoSubmitReason: "Your teacher force-submitted your exam."
+              autoSubmitReason: "Your teacher force-submitted your exam.",
             });
           }
         }
@@ -574,7 +621,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         if (exam.has_submitted) {
           await showAlert({
             title: "Already Submitted",
-            message: "You have already submitted this exam. You cannot take it again."
+            message: "You have already submitted this exam. You cannot take it again.",
           });
           await loadActiveExams();
           return;
@@ -595,14 +642,13 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           }
         }
 
-        // Webcam proctoring consent + camera pre-check
         if (exam.webcam_required) {
           const agreed = await showConfirm({
             title: "Webcam Required",
             message:
               "This exam requires your webcam for proctoring. Your camera will be active throughout the exam and periodic snapshots will be recorded for the teacher to review. Do you want to allow camera access and proceed?",
             confirmText: "Allow & Start Exam",
-            cancelText: "Cancel"
+            cancelText: "Cancel",
           });
 
           if (!agreed) {
@@ -610,7 +656,6 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
             return;
           }
 
-          // Test camera access before entering — gives a clear error early
           try {
             if (!navigator.mediaDevices?.getUserMedia) {
               throw Object.assign(new Error("getUserMedia not supported"), { name: "NotSupportedError" });
@@ -658,7 +703,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       } catch (err) {
         await showAlert({
           title: "Error",
-          message: err.message || "Failed to start exam."
+          message: err.message || "Failed to start exam.",
         });
       } finally {
         setExamLoading(false);
@@ -751,8 +796,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
             method: "POST",
             body: JSON.stringify({
               roomCode: normalizedRoomCode,
-              studentName: normalizedName
-            })
+              studentName: normalizedName,
+            }),
           },
           token
         );
@@ -781,7 +826,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       title: "Leave Waiting Room",
       message: "Are you sure you want to leave the waiting room?",
       confirmText: "Leave",
-      cancelText: "Stay"
+      cancelText: "Stay",
     });
 
     if (!confirmed) {
@@ -806,7 +851,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       } catch (err) {
         await showAlert({
           title: "Error",
-          message: err.message || "Failed to rejoin exam."
+          message: err.message || "Failed to rejoin exam.",
         });
       }
     },
@@ -837,7 +882,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         stdin: question.sample_input || "",
         stdout: "",
         stderr: "",
-        running: false
+        running: false,
       };
     });
 
@@ -851,7 +896,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
             ...(merged[questionId] || {}),
             selected_answer: null,
             written_answer: state.code,
-            language: state.language
+            language: state.language,
           };
         });
         return merged;
@@ -877,7 +922,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         if (submitExamRef.current) {
           submitExamRef.current({
             autoSubmit: true,
-            autoSubmitReason: "Time is up. Your exam was submitted automatically."
+            autoSubmitReason: "Time is up. Your exam was submitted automatically.",
           });
         }
         return;
@@ -917,7 +962,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       const violationEntry = {
         type: violationType,
         severity: violationSeverity,
-        timestamp: violationTimestamp
+        timestamp: violationTimestamp,
       };
 
       setViolationCount((prev) => Number(data.count || prev + 1));
@@ -944,7 +989,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       if (submitExamRef.current) {
         submitExamRef.current({
           autoSubmit: true,
-          autoSubmitReason: "Exam auto-submitted due to forbidden application."
+          autoSubmitReason: "Exam auto-submitted due to forbidden application.",
         });
       }
     });
@@ -978,8 +1023,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       [questionId]: {
         ...(prev[questionId] || {}),
         selected_answer: selectedOption,
-        written_answer: prev[questionId]?.written_answer || ""
-      }
+        written_answer: prev[questionId]?.written_answer || "",
+      },
     }));
   }
 
@@ -990,8 +1035,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       [questionId]: {
         ...(prev[questionId] || {}),
         selected_answer: prev[questionId]?.selected_answer ?? null,
-        written_answer: writtenText
-      }
+        written_answer: writtenText,
+      },
     }));
   }
 
@@ -1007,7 +1052,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         stdin: question.sample_input || "",
         stdout: "",
         stderr: "",
-        running: false
+        running: false,
       };
 
       const next = { ...current, ...patch };
@@ -1022,7 +1067,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
 
       return {
         ...prev,
-        [questionId]: next
+        [questionId]: next,
       };
     });
 
@@ -1034,8 +1079,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           ...(prev[questionId] || {}),
           selected_answer: null,
           written_answer: prev[questionId]?.written_answer || "",
-          language: languageValue
-        }
+          language: languageValue,
+        },
       }));
     }
   }
@@ -1043,7 +1088,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
   function handleCodeEditorMount(editor) {
     editor.updateOptions({
       readOnly: isExamBlocked,
-      domReadOnly: isExamBlocked
+      domReadOnly: isExamBlocked,
     });
   }
 
@@ -1059,7 +1104,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       stdin: question.sample_input || "",
       stdout: "",
       stderr: "",
-      running: false
+      running: false,
     };
 
     handleCodingStateChange(question, { running: true, stdout: "", stderr: "" });
@@ -1073,8 +1118,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
             question_id: questionId,
             language: current.language,
             code: current.code,
-            stdin: current.stdin
-          })
+            stdin: current.stdin,
+          }),
         },
         token
       );
@@ -1082,13 +1127,13 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       handleCodingStateChange(question, {
         running: false,
         stdout: result.data?.stdout || "",
-        stderr: result.data?.stderr || ""
+        stderr: result.data?.stderr || "",
       });
     } catch (err) {
       handleCodingStateChange(question, {
         running: false,
         stdout: "",
-        stderr: err.message || "Execution failed"
+        stderr: err.message || "Execution failed",
       });
     }
   }
@@ -1097,308 +1142,527 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     if (isExamBlocked) return;
     const questionId = Number(question.id);
     const current = codingState[questionId] || {
-      language: "javascript"
+      language: "javascript",
     };
     const language = current.language || "javascript";
     const nextCode = question.starter_code || defaultCodeForLanguage(language);
     handleCodingStateChange(question, {
       code: nextCode,
       stdout: "",
-      stderr: ""
+      stderr: "",
     });
   }
 
+  // ─── RENDER: Dashboard ────────────────────────────────────────────
   function renderDashboardView() {
     const waitingCount = activeExams.filter((exam) => String(exam.status || "").toLowerCase() === "waiting").length;
     const liveCount = activeExams.filter((exam) => String(exam.status || "").toLowerCase() === "in_progress").length;
 
     return (
-      <>
-        <section className="card student-panel student-panel-hero">
-          <div className="student-panel-glow" aria-hidden="true" />
-          <p className="student-kicker">Student Access</p>
-          <h2 className="student-title">Join Exam</h2>
-          <p className="muted student-subtitle">Enter your name and room code provided by your teacher.</p>
+      <div className="space-y-6">
+        <div>
+          <p className="text-xs font-semibold text-primary uppercase tracking-wider">
+            Student workspace
+          </p>
+          <h1 className="text-2xl font-semibold text-ink tracking-tight mt-1">
+            Hello, {user?.name || user?.email || "student"}
+          </h1>
+          <p className="text-sm text-ink-muted mt-1">
+            Join an exam by room code, or continue where you left off below.
+          </p>
+        </div>
 
-          <form className="form-stack" onSubmit={handleJoinExam}>
-            <label>
-              <span>Your Name</span>
-              <input
-                type="text"
-                value={studentNameInput}
-                onChange={(event) => setStudentNameInput(event.target.value)}
-                placeholder="Enter your name"
-                required
-              />
-            </label>
-
-            <label>
-              <span>Room Code</span>
-              <input
-                type="text"
-                value={roomCodeInput}
-                onChange={(event) => setRoomCodeInput(event.target.value.toUpperCase())}
-                placeholder="Enter 6-character room code"
-                maxLength={6}
-                required
-              />
-            </label>
-
-            {joinError ? <div className="error-box">{joinError}</div> : null}
-
-            <button type="submit" disabled={joiningExam}>
-              {joiningExam ? "Joining..." : "Join Exam"}
-            </button>
-          </form>
-        </section>
-
-        <section className="card student-panel">
-          <div className="card-head">
+        <Card>
+          <CardHeader>
             <div>
-              <h2 className="student-title">My Active Exams</h2>
-              <p className="student-subline">Track waiting and live exams in one place.</p>
+              <CardTitle>Join an exam</CardTitle>
+              <CardDescription>
+                Enter your display name and the 6-character room code your teacher shared.
+              </CardDescription>
             </div>
-            <button className="secondary" onClick={loadActiveExams} disabled={loadingActiveExams}>
-              Refresh
-            </button>
-          </div>
+            <div className="hidden sm:flex h-10 w-10 items-center justify-center rounded-md bg-primary-subtle text-primary">
+              <KeyRound className="h-5 w-5" />
+            </div>
+          </CardHeader>
+          <CardBody>
+            <form onSubmit={handleJoinExam} className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField label="Your name" htmlFor="student-name" required>
+                  <Input
+                    id="student-name"
+                    type="text"
+                    value={studentNameInput}
+                    onChange={(event) => setStudentNameInput(event.target.value)}
+                    placeholder="Your full name"
+                    required
+                    leftIcon={<User className="h-4 w-4" />}
+                  />
+                </FormField>
+                <FormField label="Room code" htmlFor="room-code" required>
+                  <Input
+                    id="room-code"
+                    type="text"
+                    value={roomCodeInput}
+                    onChange={(event) => setRoomCodeInput(event.target.value.toUpperCase())}
+                    placeholder="AB3X7Y"
+                    maxLength={6}
+                    required
+                    leftIcon={<KeyRound className="h-4 w-4" />}
+                    className="uppercase tracking-[0.3em] font-semibold"
+                  />
+                </FormField>
+              </div>
 
-          <div className="student-stats-row">
-            <span className="student-chip student-chip-neutral">Total {activeExams.length}</span>
-            <span className="student-chip student-chip-wait">Waiting {waitingCount}</span>
-            <span className="student-chip student-chip-live">Live {liveCount}</span>
-          </div>
-
-          {loadingActiveExams ? <p>Loading active exams...</p> : null}
-
-          {!loadingActiveExams && activeExams.length === 0 ? (
-            <p className="muted">No active exams found.</p>
-          ) : null}
-
-          <ul className="list student-list">
-            {activeExams.map((exam) => (
-              <li key={exam.id} className="student-list-item">
-                <div className="student-list-head">
-                  <strong>{exam.title}</strong>
-                  <span className={`student-chip ${getExamStatusToneClass(exam.status)}`}>{exam.status}</span>
+              {joinError ? (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-md border border-danger-subtle bg-danger-subtle/40 px-3 py-2.5 text-sm text-danger"
+                >
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>{joinError}</span>
                 </div>
-                <div className="student-meta-row">
-                  <span className="student-meta-chip">{exam.duration} mins</span>
-                  <span className="student-meta-chip">Questions {exam.question_count || 0}</span>
-                </div>
-                {exam.status === "waiting" ? (
-                  <button className="secondary btn-inline" onClick={() => handleRejoinExam(exam.id)}>
-                    Enter Waiting Room
-                  </button>
-                ) : null}
-                {exam.status === "in_progress" ? (
-                  <button className="btn-inline" onClick={() => startExamSession(exam.id)} disabled={examLoading}>
-                    {examLoading ? "Opening..." : "Start Exam"}
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </section>
+              ) : null}
 
-        <section className="card student-panel">
-          <div className="card-head">
+              <div className="flex justify-end">
+                <Button type="submit" disabled={joiningExam} size="lg">
+                  {joiningExam ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Joining…
+                    </>
+                  ) : (
+                    <>
+                      <LogIn className="h-4 w-4" /> Join exam
+                    </>
+                  )}
+                </Button>
+              </div>
+            </form>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <div>
-              <h2 className="student-title">My Results</h2>
-              <p className="student-subline">Previously submitted exam outcomes.</p>
+              <CardTitle>My active exams</CardTitle>
+              <CardDescription>Track waiting and live exams in one place.</CardDescription>
             </div>
-            <button className="secondary" onClick={loadMyResults} disabled={loadingResults}>
-              Refresh
-            </button>
-          </div>
+            <IconButton
+              aria-label="Refresh active exams"
+              tooltip="Refresh"
+              variant="secondary"
+              onClick={loadActiveExams}
+              disabled={loadingActiveExams}
+            >
+              <RefreshCw className={cn("h-4 w-4", loadingActiveExams && "animate-spin")} />
+            </IconButton>
+          </CardHeader>
+          <CardBody className="space-y-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge variant="outline">Total {activeExams.length}</Badge>
+              <Badge variant="warning">
+                <Hourglass className="h-3 w-3" /> Waiting {waitingCount}
+              </Badge>
+              <Badge variant="success">
+                <CircleDot className="h-3 w-3" /> Live {liveCount}
+              </Badge>
+            </div>
 
-          {loadingResults ? <p>Loading results...</p> : null}
-          {!loadingResults && results.length === 0 ? (
-            <p className="muted">No submitted exams yet.</p>
-          ) : null}
+            {loadingActiveExams ? (
+              <div className="flex items-center gap-2 text-ink-muted text-sm py-4">
+                <Spinner /> Loading active exams…
+              </div>
+            ) : activeExams.length === 0 ? (
+              <EmptyState
+                icon={BookOpenCheck}
+                title="No active exams"
+                description="Join an exam above using a room code from your teacher."
+              />
+            ) : (
+              <ul className="space-y-2">
+                {activeExams.map((exam) => (
+                  <li
+                    key={exam.id}
+                    className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface p-4 hover:border-border-strong transition-colors flex-wrap"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-semibold text-ink">{exam.title}</p>
+                        <Badge variant={getExamStatusBadgeVariant(exam.status)}>
+                          {exam.status === "in_progress" ? (
+                            <>
+                              <CircleDot className="h-3 w-3" /> Live
+                            </>
+                          ) : exam.status === "waiting" ? (
+                            <>
+                              <Hourglass className="h-3 w-3" /> Waiting
+                            </>
+                          ) : (
+                            exam.status
+                          )}
+                        </Badge>
+                      </div>
+                      <div className="mt-1.5 flex items-center gap-2 flex-wrap text-xs">
+                        <Badge variant="outline">
+                          <Timer className="h-3 w-3" /> {exam.duration} min
+                        </Badge>
+                        <Badge variant="outline">
+                          <FileText className="h-3 w-3" /> {exam.question_count || 0} q
+                        </Badge>
+                      </div>
+                    </div>
+                    {exam.status === "waiting" ? (
+                      <Button variant="secondary" size="sm" onClick={() => handleRejoinExam(exam.id)}>
+                        <Hourglass className="h-4 w-4" /> Waiting room
+                      </Button>
+                    ) : null}
+                    {exam.status === "in_progress" ? (
+                      <Button size="sm" onClick={() => startExamSession(exam.id)} disabled={examLoading}>
+                        {examLoading ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" /> Opening…
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-4 w-4" /> Start exam
+                          </>
+                        )}
+                      </Button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
 
-          <ul className="list student-list">
-            {results.map((result) => {
-              const isCompleted = String(result.evaluation_status || "").toLowerCase() === "completed";
-              return (
-                <li key={result.submission_id} className="student-list-item">
-                  <div className="student-list-head">
-                    <strong>{result.exam_title}</strong>
-                    <span className={`student-chip ${isCompleted ? "student-chip-done" : "student-chip-wait"}`}>
-                      {getEvaluationStatusLabel(result.evaluation_status)}
-                    </span>
-                  </div>
-                  <div className="student-meta-row">
-                    <span className="student-meta-chip">Type {result.exam_type || "lab_quiz"}</span>
-                    <span className="student-meta-chip">Submitted {formatDateTime(result.submitted_at)}</span>
-                  </div>
-                  <div className="student-meta-row">
-                    <span className="student-meta-chip">Auto {result.auto_score ?? 0}</span>
-                    <span className="student-meta-chip">Manual {result.manual_score ?? 0}</span>
-                    <span className="student-meta-chip">Total {result.score ?? 0}</span>
-                  </div>
-                  <div className="actions-row">
-                    <button
-                      className="secondary btn-inline"
-                      onClick={() => loadResultDetails(result.submission_id)}
-                      disabled={loadingResultDetails}
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>My results</CardTitle>
+              <CardDescription>Previously submitted exam outcomes.</CardDescription>
+            </div>
+            <IconButton
+              aria-label="Refresh results"
+              tooltip="Refresh"
+              variant="secondary"
+              onClick={loadMyResults}
+              disabled={loadingResults}
+            >
+              <RefreshCw className={cn("h-4 w-4", loadingResults && "animate-spin")} />
+            </IconButton>
+          </CardHeader>
+          <CardBody>
+            {loadingResults ? (
+              <div className="flex items-center gap-2 text-ink-muted text-sm py-4">
+                <Spinner /> Loading results…
+              </div>
+            ) : results.length === 0 ? (
+              <EmptyState
+                icon={Trophy}
+                title="No submitted exams yet"
+                description="Results appear here after you submit an exam."
+              />
+            ) : (
+              <ul className="space-y-2">
+                {results.map((result) => {
+                  const isCompleted = String(result.evaluation_status || "").toLowerCase() === "completed";
+                  return (
+                    <li
+                      key={result.submission_id}
+                      className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface p-4 hover:border-border-strong transition-colors flex-wrap"
                     >
-                      {loadingResultDetails ? "Opening..." : "View Details"}
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      </>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-ink">{result.exam_title}</p>
+                          <Badge variant={isCompleted ? "success" : "warning"}>
+                            {isCompleted ? (
+                              <>
+                                <CheckCircle2 className="h-3 w-3" /> Completed
+                              </>
+                            ) : (
+                              <>
+                                <Clock className="h-3 w-3" /> Pending
+                              </>
+                            )}
+                          </Badge>
+                        </div>
+                        <div className="mt-1.5 flex items-center gap-2 flex-wrap text-xs">
+                          <Badge variant="outline">{result.exam_type || "lab_quiz"}</Badge>
+                          <Badge variant="outline">Submitted {formatDateTime(result.submitted_at)}</Badge>
+                        </div>
+                        <div className="mt-1.5 flex items-center gap-2 flex-wrap text-xs">
+                          <Badge variant="info">Auto {result.auto_score ?? 0}</Badge>
+                          <Badge variant="primary">Manual {result.manual_score ?? 0}</Badge>
+                          <Badge variant="success">Total {result.score ?? 0}</Badge>
+                        </div>
+                      </div>
+                      <IconButton
+                        aria-label="View details"
+                        tooltip="View details"
+                        variant="secondary"
+                        onClick={() => loadResultDetails(result.submission_id)}
+                        disabled={loadingResultDetails}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </IconButton>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardBody>
+        </Card>
+      </div>
     );
   }
 
+  // ─── RENDER: Waiting Room ─────────────────────────────────────────
   function renderWaitingView() {
     return (
-      <section className="card student-panel student-panel-waiting">
-        <p className="student-kicker">Standby</p>
-        <h2 className="student-title">Waiting Room</h2>
-        <p className="muted student-subtitle">Please wait for your teacher to start the exam.</p>
+      <div className="min-h-[60vh] flex items-center justify-center px-4 py-8">
+        <Card className="w-full max-w-xl">
+          <CardBody className="p-8 text-center space-y-6">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary-subtle text-primary">
+              <Hourglass className="h-8 w-8 animate-pulse" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-primary uppercase tracking-wider">
+                Standby
+              </p>
+              <h2 className="text-2xl font-semibold text-ink mt-2">Waiting room</h2>
+              <p className="text-sm text-ink-muted mt-2">
+                Please wait for your teacher to start the exam.
+              </p>
+            </div>
 
-        {waitingExam ? (
-          <div className="waiting-grid student-waiting-grid">
-            <div>
-              <p className="muted small">Exam Title</p>
-              <strong>{waitingExam.title}</strong>
-            </div>
-            <div>
-              <p className="muted small">Duration</p>
-              <strong>{waitingExam.duration} mins</strong>
-            </div>
-            <div>
-              <p className="muted small">Questions</p>
-              <strong>{waitingExam.question_count || 0}</strong>
-            </div>
-            <div>
-              <p className="muted small">Participants</p>
-              <strong>{waitingParticipantCount}</strong>
-            </div>
-          </div>
-        ) : null}
+            {waitingExam ? (
+              <div className="grid gap-3 sm:grid-cols-2 text-left">
+                <div className="rounded-md border border-border bg-bg p-3">
+                  <p className="text-xs uppercase tracking-wide text-ink-subtle font-medium">
+                    Exam title
+                  </p>
+                  <p className="text-sm font-semibold text-ink mt-1 truncate">
+                    {waitingExam.title}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border bg-bg p-3">
+                  <p className="text-xs uppercase tracking-wide text-ink-subtle font-medium">
+                    Duration
+                  </p>
+                  <p className="text-sm font-semibold text-ink mt-1 tabular-nums">
+                    {waitingExam.duration} min
+                  </p>
+                </div>
+                <div className="rounded-md border border-border bg-bg p-3">
+                  <p className="text-xs uppercase tracking-wide text-ink-subtle font-medium">
+                    Questions
+                  </p>
+                  <p className="text-sm font-semibold text-ink mt-1 tabular-nums">
+                    {waitingExam.question_count || 0}
+                  </p>
+                </div>
+                <div className="rounded-md border border-border bg-bg p-3">
+                  <p className="text-xs uppercase tracking-wide text-ink-subtle font-medium">
+                    Participants
+                  </p>
+                  <p className="text-sm font-semibold text-ink mt-1 tabular-nums flex items-center gap-1.5 justify-start">
+                    <Users className="h-4 w-4 text-ink-muted" />
+                    {waitingParticipantCount}
+                  </p>
+                </div>
+              </div>
+            ) : null}
 
-        <p className="muted small student-waiting-status">{waitingStatusMessage}</p>
-        <p className="muted small">
-          Last updated: {waitingLastUpdatedAt ? formatDateTime(waitingLastUpdatedAt) : "Checking..."}
-        </p>
+            <div className="space-y-1 text-xs text-ink-muted">
+              <p className="flex items-center justify-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {waitingStatusMessage}
+              </p>
+              <p>
+                Last updated: {waitingLastUpdatedAt ? formatDateTime(waitingLastUpdatedAt) : "Checking…"}
+              </p>
+            </div>
 
-        <div className="actions-row">
-          <button className="secondary" onClick={handleLeaveWaitingRoom}>
-            Leave Waiting Room
-          </button>
-        </div>
-      </section>
+            <div className="flex justify-center">
+              <Button variant="secondary" onClick={handleLeaveWaitingRoom}>
+                <ChevronLeft className="h-4 w-4" /> Leave waiting room
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      </div>
     );
   }
 
+  // ─── RENDER: Result Details ─────────────────────────────────────────
   function renderResultDetailsView() {
     if (!selectedResultDetails) {
       return (
-        <section className="card student-panel">
-          <p className="muted">Result details not available.</p>
-          <button className="secondary" onClick={() => setView("dashboard")}>
-            Back to Dashboard
-          </button>
-        </section>
+        <div className="mx-auto max-w-2xl px-4 py-8">
+          <Card>
+            <CardBody className="text-center space-y-4">
+              <p className="text-sm text-ink-muted">Result details not available.</p>
+              <div className="flex justify-center">
+                <Button variant="secondary" onClick={() => setView("dashboard")}>
+                  <ArrowLeft className="h-4 w-4" /> Back to dashboard
+                </Button>
+              </div>
+            </CardBody>
+          </Card>
+        </div>
       );
     }
 
     return (
-      <section className="card student-panel">
-        <div className="card-head">
-          <div>
-            <h2 className="student-title">{selectedResultDetails.exam_title}</h2>
-            <p className="student-subline">
-              Submitted: {formatDateTime(selectedResultDetails.submitted_at)} | Status:{" "}
-              {getEvaluationStatusLabel(selectedResultDetails.evaluation_status)}
-            </p>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <IconButton
+              aria-label="Back to dashboard"
+              tooltip="Back to dashboard"
+              variant="secondary"
+              onClick={() => setView("dashboard")}
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </IconButton>
+            <div>
+              <p className="text-xs font-semibold text-primary uppercase tracking-wider">
+                Result details
+              </p>
+              <h1 className="text-xl font-semibold text-ink">{selectedResultDetails.exam_title}</h1>
+              <p className="text-xs text-ink-muted mt-0.5">
+                Submitted {formatDateTime(selectedResultDetails.submitted_at)} ·{" "}
+                {getEvaluationStatusLabel(selectedResultDetails.evaluation_status)}
+              </p>
+            </div>
           </div>
-          <button className="secondary" onClick={() => setView("dashboard")}>
-            Back
-          </button>
         </div>
 
-        <div className="student-meta-row">
-          <span className="student-meta-chip">Auto {selectedResultDetails.auto_score ?? 0}</span>
-          <span className="student-meta-chip">Manual {selectedResultDetails.manual_score ?? 0}</span>
-          <span className="student-meta-chip">Total {selectedResultDetails.score ?? 0}</span>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Stat icon={Award} label="Auto score" value={selectedResultDetails.auto_score ?? 0} tone="info" />
+          <Stat icon={FileText} label="Manual score" value={selectedResultDetails.manual_score ?? 0} tone="primary" />
+          <Stat icon={Trophy} label="Total" value={selectedResultDetails.score ?? 0} tone="success" />
         </div>
 
-        <div className="question-stack student-question-stack top-spaced">
+        <div className="space-y-4">
           {(selectedResultDetails.answers || []).map((item, index) => {
             const qType = normalizeQuestionType(item.question_type);
+            const earned = item.awarded_marks ?? 0;
+            const max = item.max_marks ?? 0;
             return (
-              <article key={item.question_id} className="question-card student-question-card">
-                <p className="question-title">
-                  {index + 1}. {item.question_text}
-                </p>
-                <p className="muted small student-question-meta">
-                  Type: {qType === "written" ? "Written" : qType === "coding" ? "Coding" : "MCQ"} | Marks:{" "}
-                  {item.awarded_marks ?? 0}/{item.max_marks ?? 0}
-                </p>
+              <Card key={item.question_id}>
+                <CardBody className="space-y-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="primary">#{index + 1}</Badge>
+                      <Badge variant={qType === "mcq" ? "info" : qType === "coding" ? "warning" : "outline"}>
+                        {qType === "mcq" ? "MCQ" : qType === "coding" ? "Coding" : "Written"}
+                      </Badge>
+                    </div>
+                    <Badge variant={earned === max ? "success" : earned === 0 ? "danger" : "warning"}>
+                      {earned} / {max} marks
+                    </Badge>
+                  </div>
+                  <p className="text-sm font-medium text-ink whitespace-pre-wrap">
+                    {item.question_text}
+                  </p>
 
-                {qType === "mcq" ? (
-                  <div className="written-preview">
-                    <p className="muted small">
-                      Selected:{" "}
-                      {item.selected_answer === null || item.selected_answer === undefined
-                        ? "No answer"
-                        : `${String.fromCharCode(65 + Number(item.selected_answer))}`}
-                    </p>
-                    <p className="muted small">
-                      Correct:{" "}
-                      {item.correct_answer === null || item.correct_answer === undefined || item.correct_answer === ""
-                        ? "N/A"
-                        : `${String.fromCharCode(65 + Number(item.correct_answer))}`}
-                    </p>
-                    <p className="muted small">Result: {item.is_correct ? "Correct" : "Incorrect"}</p>
-                  </div>
-                ) : qType === "coding" ? (
-                  <div className="written-preview">
-                    <p className="muted small">Submitted code ({item.language || "unknown"}):</p>
-                    <pre>{item.written_answer || "// No code submitted."}</pre>
-                    <p className="muted small top-spaced">
-                      Teacher comment: {item.evaluation_comment || "No comment"}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="written-preview">
-                    <p className="muted small">Submitted answer:</p>
-                    <pre>{item.written_answer || "No answer submitted."}</pre>
-                    <p className="muted small top-spaced">
-                      Teacher comment: {item.evaluation_comment || "No comment"}
-                    </p>
-                  </div>
-                )}
-              </article>
+                  {qType === "mcq" ? (
+                    <div className="rounded-md border border-border bg-bg p-3 space-y-1.5 text-sm">
+                      <p className="text-ink-muted text-xs">
+                        Selected:{" "}
+                        <span className="text-ink font-medium">
+                          {item.selected_answer === null || item.selected_answer === undefined
+                            ? "No answer"
+                            : String.fromCharCode(65 + Number(item.selected_answer))}
+                        </span>
+                      </p>
+                      <p className="text-ink-muted text-xs">
+                        Correct:{" "}
+                        <span className="text-ink font-medium">
+                          {item.correct_answer === null || item.correct_answer === undefined || item.correct_answer === ""
+                            ? "N/A"
+                            : String.fromCharCode(65 + Number(item.correct_answer))}
+                        </span>
+                      </p>
+                      <p className="text-xs flex items-center gap-1.5">
+                        {item.is_correct ? (
+                          <>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                            <span className="text-success font-medium">Correct</span>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="h-3.5 w-3.5 text-danger" />
+                            <span className="text-danger font-medium">Incorrect</span>
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  ) : qType === "coding" ? (
+                    <>
+                      <div>
+                        <p className="text-xs text-ink-muted mb-1.5">
+                          Your code ({item.language || "unknown"}):
+                        </p>
+                        <pre className="rounded-md bg-bg border border-border p-3 text-xs font-mono text-ink overflow-x-auto">
+                          {item.written_answer || "// No code submitted."}
+                        </pre>
+                      </div>
+                      {item.evaluation_comment ? (
+                        <div className="rounded-md border border-info-subtle bg-info-subtle/30 p-3 text-sm text-ink">
+                          <p className="text-xs font-medium text-info uppercase tracking-wide mb-1">Teacher comment</p>
+                          <p className="whitespace-pre-wrap">{item.evaluation_comment}</p>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <p className="text-xs text-ink-muted mb-1.5">Your answer:</p>
+                        <pre className="rounded-md bg-bg border border-border p-3 text-sm text-ink whitespace-pre-wrap font-sans">
+                          {item.written_answer || "No answer submitted."}
+                        </pre>
+                      </div>
+                      {item.evaluation_comment ? (
+                        <div className="rounded-md border border-info-subtle bg-info-subtle/30 p-3 text-sm text-ink">
+                          <p className="text-xs font-medium text-info uppercase tracking-wide mb-1">Teacher comment</p>
+                          <p className="whitespace-pre-wrap">{item.evaluation_comment}</p>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </CardBody>
+              </Card>
             );
           })}
         </div>
-      </section>
+      </div>
     );
   }
 
+  // ─── RENDER: Exam Taker ─────────────────────────────────────────────
   function renderExamView() {
     if (!examData) {
       return (
-        <section className="card student-panel">
-          <p>Exam data not found.</p>
-          <button
-            className="secondary"
-            onClick={() => {
-              setView("dashboard");
-              loadActiveExams();
-            }}
-          >
-            Back to Dashboard
-          </button>
-        </section>
+        <div className="mx-auto max-w-2xl px-4 py-8">
+          <Card>
+            <CardBody className="text-center space-y-4">
+              <p className="text-sm text-ink-muted">Exam data not found.</p>
+              <div className="flex justify-center">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setView("dashboard");
+                    loadActiveExams();
+                  }}
+                >
+                  <ArrowLeft className="h-4 w-4" /> Back to dashboard
+                </Button>
+              </div>
+            </CardBody>
+          </Card>
+        </div>
       );
     }
 
@@ -1421,7 +1685,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           stdin: activeQuestion.sample_input || "",
           stdout: "",
           stderr: "",
-          running: false
+          running: false,
         })
       : null;
     const activeQuestionAnswered = activeQuestion
@@ -1433,39 +1697,126 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       && activeQuestionAnswered;
 
     return (
-      <>
-        <section className="card student-panel student-panel-exam-header">
-          <div className="card-head">
-            <h2 className="student-title">{examData.title}</h2>
-            <div className="badge-row">
-              <span className="badge">Time Left: {timerText}</span>
-              <span className="badge">Violations: {violationCount}</span>
+      <div className="min-h-screen bg-bg">
+        {/* Sticky exam chrome */}
+        <div className="sticky top-0 z-20 border-b border-border bg-surface/95 backdrop-blur">
+          <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary-subtle text-primary shrink-0">
+                <ShieldCheck className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-primary uppercase tracking-wider">
+                  Exam in progress
+                </p>
+                <h1 className="text-sm font-semibold text-ink truncate">{examData.title}</h1>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5",
+                  Number(timerText.replace(":", "")) > 500
+                    ? "border-border bg-bg"
+                    : "border-warning bg-warning-subtle"
+                )}
+                aria-live="polite"
+              >
+                <Clock className="h-4 w-4 text-ink-muted" />
+                <span className="text-sm font-mono font-semibold text-ink tabular-nums tracking-tight">
+                  {timerText}
+                </span>
+              </div>
+              <div
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5",
+                  violationCount > 0
+                    ? "border-danger bg-danger-subtle text-danger"
+                    : "border-border bg-bg text-ink-muted"
+                )}
+                aria-live="polite"
+              >
+                <ShieldAlert className="h-4 w-4" />
+                <span className="text-sm font-medium tabular-nums">
+                  {violationCount} violation{violationCount === 1 ? "" : "s"}
+                </span>
+              </div>
             </div>
           </div>
-          <p className="muted">{examData.description || "No description"}</p>
-          <ProctoringCamera
-            token={token}
-            examId={examData.id}
-            enabled={Boolean(examData.webcam_required)}
-          />
-        </section>
+        </div>
 
-        {warningMessage ? (
-          <section className={`card warning-card ${warningSeverity === "high" ? "warning-high" : "warning-medium"}`}>
-            <strong>{warningMessage}</strong>
-          </section>
-        ) : null}
+        <div className="mx-auto max-w-[1400px] px-4 sm:px-6 py-6 space-y-5">
+          {/* Exam description + proctoring camera */}
+          <Card>
+            <CardBody className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0 flex-1">
+                {examData.description ? (
+                  <p className="text-sm text-ink-muted">{examData.description}</p>
+                ) : (
+                  <p className="text-sm text-ink-subtle italic">No description provided.</p>
+                )}
+                <div className="mt-2 flex items-center gap-2 flex-wrap text-xs">
+                  <Badge variant="outline">
+                    <Timer className="h-3 w-3" /> {examData.duration} min
+                  </Badge>
+                  <Badge variant="outline">
+                    <FileText className="h-3 w-3" /> {totalQuestions} questions
+                  </Badge>
+                  <Badge variant="outline">
+                    {isOneByOneFlow ? "One at a time" : "All at once"}
+                  </Badge>
+                  {Boolean(examData.randomize_question_order) ? (
+                    <Badge variant="outline">Randomized</Badge>
+                  ) : null}
+                  {Boolean(examData.webcam_required) ? (
+                    <Badge variant="success">
+                      <ShieldCheck className="h-3 w-3" /> Proctored
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+              <ProctoringCamera
+                token={token}
+                examId={examData.id}
+                enabled={Boolean(examData.webcam_required)}
+              />
+            </CardBody>
+          </Card>
 
-        <section className="card student-panel">
-          <h3 className="student-title">Questions</h3>
-          <p className="muted small">
-            Mode: {isOneByOneFlow ? "One question at a time" : "All questions at once"}
-            {Boolean(examData.randomize_question_order) ? " | Order is randomized per student." : "."}
-          </p>
+          {warningMessage ? (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className={cn(
+                "flex items-start gap-3 rounded-lg border-2 px-4 py-3 animate-slide-up",
+                warningSeverity === "high"
+                  ? "border-danger bg-danger-subtle text-danger"
+                  : "border-warning bg-warning-subtle text-warning"
+              )}
+            >
+              <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-sm font-bold uppercase tracking-wide">{warningMessage}</p>
+                <p className="text-xs mt-1 opacity-80">
+                  Repeated violations may result in your exam being force-submitted by your teacher.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Questions */}
           {totalQuestions === 0 ? (
-            <p className="muted">No questions available.</p>
+            <Card>
+              <CardBody>
+                <EmptyState
+                  icon={FileText}
+                  title="No questions available"
+                  description="Contact your teacher if you believe this is an error."
+                />
+              </CardBody>
+            </Card>
           ) : (
-            <div className="question-stack student-question-stack">
+            <div className="space-y-4">
               {visibleQuestions.map((question, visibleIndex) => {
                 const index = isOneByOneFlow ? safeQuestionIndex : visibleIndex;
                 const qType = normalizeQuestionType(question.question_type);
@@ -1476,235 +1827,366 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
                   stdin: question.sample_input || "",
                   stdout: "",
                   stderr: "",
-                  running: false
+                  running: false,
                 };
+                const answered = isQuestionAnswered(question, answerState, codeState);
                 return (
-                  <article key={question.id} className="question-card student-question-card">
-                    <p className="question-title">
-                      {index + 1}. {question.question_text}
-                    </p>
-                    <p className="muted small student-question-meta">
-                      Type: {qType === "written" ? "Written" : qType === "coding" ? "Coding" : "MCQ"} | Marks: {question.marks}
-                    </p>
+                  <Card key={question.id}>
+                    <CardBody className="space-y-4">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="primary">Question {index + 1}</Badge>
+                          <Badge variant={qType === "mcq" ? "info" : qType === "coding" ? "warning" : "outline"}>
+                            {qType === "mcq" ? "MCQ" : qType === "coding" ? <>
+                              <Code2 className="h-3 w-3" /> Coding
+                            </> : "Written"}
+                          </Badge>
+                          <Badge variant="neutral">{question.marks} marks</Badge>
+                          {answered ? (
+                            <Badge variant="success">
+                              <CheckCircle2 className="h-3 w-3" /> Answered
+                            </Badge>
+                          ) : null}
+                        </div>
+                      </div>
+                      <p className="text-base font-medium text-ink whitespace-pre-wrap leading-relaxed">
+                        {question.question_text}
+                      </p>
 
-                    {qType === "written" ? (
-                      <label className="form-stack">
-                        <span>Your Answer</span>
-                        <textarea
-                          className="answer-textarea"
-                          value={answerState.written_answer || ""}
-                          onChange={(event) => handleWrittenAnswerChange(question.id, event.target.value)}
-                          placeholder="Write your answer here..."
-                          disabled={isExamBlocked}
-                        />
-                      </label>
-                    ) : qType === "coding" ? (
-                      <div className="student-coding-layout">
-                        <div className="student-coding-head">
-                          <label>
-                            <span>Language</span>
-                            <select
-                              value={codeState.language}
+                      {qType === "written" ? (
+                        <FormField label="Your answer" htmlFor={`written-${question.id}`}>
+                          <Textarea
+                            id={`written-${question.id}`}
+                            rows={6}
+                            value={answerState.written_answer || ""}
+                            onChange={(event) => handleWrittenAnswerChange(question.id, event.target.value)}
+                            placeholder="Type your answer here…"
+                            disabled={isExamBlocked}
+                          />
+                        </FormField>
+                      ) : qType === "coding" ? (
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <FormField label="Language" htmlFor={`lang-${question.id}`} className="w-40">
+                              <select
+                                id={`lang-${question.id}`}
+                                value={codeState.language}
+                                onChange={(event) =>
+                                  handleCodingStateChange(question, { language: event.target.value })
+                                }
+                                disabled={isExamBlocked}
+                                className="h-10 w-full rounded-md bg-surface border border-border px-3 text-sm text-ink focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary-ring disabled:opacity-60"
+                              >
+                                <option value="javascript">JavaScript</option>
+                                <option value="python">Python</option>
+                                <option value="cpp">C++</option>
+                              </select>
+                            </FormField>
+                          </div>
+
+                          {(question.sample_input || question.sample_output) ? (
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="rounded-md border border-border bg-bg p-3">
+                                <p className="text-xs font-semibold text-ink-subtle uppercase tracking-wide mb-1.5">
+                                  Sample input
+                                </p>
+                                <pre className="text-xs font-mono text-ink whitespace-pre-wrap">
+                                  {question.sample_input || "(none)"}
+                                </pre>
+                              </div>
+                              <div className="rounded-md border border-border bg-bg p-3">
+                                <p className="text-xs font-semibold text-ink-subtle uppercase tracking-wide mb-1.5">
+                                  Sample output
+                                </p>
+                                <pre className="text-xs font-mono text-ink whitespace-pre-wrap">
+                                  {question.sample_output || "(none)"}
+                                </pre>
+                              </div>
+                            </div>
+                          ) : null}
+
+                          <div>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <p className="text-xs font-semibold text-ink-subtle uppercase tracking-wide">
+                                Code editor
+                              </p>
+                            </div>
+                            <div className="rounded-lg border border-border overflow-hidden bg-surface">
+                              <Editor
+                                height={codeEditorHeight}
+                                path={`question-${question.id}.${codeState.language === "cpp" ? "cpp" : codeState.language === "python" ? "py" : "js"}`}
+                                language={codeState.language === "cpp" ? "cpp" : codeState.language}
+                                value={codeState.code}
+                                theme="vs"
+                                options={monacoEditorOptions}
+                                loading={
+                                  <div className="flex items-center gap-2 text-ink-muted text-sm p-4">
+                                    <Spinner /> Loading editor…
+                                  </div>
+                                }
+                                onMount={handleCodeEditorMount}
+                                onChange={(value) =>
+                                  handleCodingStateChange(question, { code: value || "" })
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <FormField label="Custom input (stdin)" htmlFor={`stdin-${question.id}`}>
+                            <Textarea
+                              id={`stdin-${question.id}`}
+                              rows={3}
+                              value={codeState.stdin}
                               onChange={(event) =>
-                                handleCodingStateChange(question, { language: event.target.value })
+                                handleCodingStateChange(question, { stdin: event.target.value })
                               }
+                              placeholder="Provide input for your program…"
+                              disabled={isExamBlocked}
+                              className="font-mono text-xs"
+                            />
+                          </FormField>
+
+                          <div className="flex items-center gap-2">
+                            <Button
+                              onClick={() => handleRunCode(question)}
+                              disabled={codeState.running || isExamBlocked}
+                            >
+                              {codeState.running ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 animate-spin" /> Running…
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="h-4 w-4" /> Run code
+                                </>
+                              )}
+                            </Button>
+                            <IconButton
+                              aria-label="Reset to starter code"
+                              tooltip="Reset to starter code"
+                              variant="secondary"
+                              onClick={() => handleResetCode(question)}
                               disabled={isExamBlocked}
                             >
-                              <option value="javascript">JavaScript</option>
-                              <option value="python">Python</option>
-                              <option value="cpp">C++</option>
-                            </select>
-                          </label>
-                        </div>
+                              <RotateCcw className="h-4 w-4" />
+                            </IconButton>
+                          </div>
 
-                        {(question.sample_input || question.sample_output) ? (
-                          <div className="student-io-grid">
-                            <div className="student-io-card">
-                              <p className="muted small">Sample Input</p>
-                              <pre>{question.sample_input || "(none)"}</pre>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <div className="rounded-md border border-border bg-bg p-3">
+                              <p className="text-xs font-semibold text-success uppercase tracking-wide mb-1.5">
+                                stdout
+                              </p>
+                              <pre className="text-xs font-mono text-ink whitespace-pre-wrap min-h-[3rem]">
+                                {codeState.stdout || "(empty)"}
+                              </pre>
                             </div>
-                            <div className="student-io-card">
-                              <p className="muted small">Sample Output</p>
-                              <pre>{question.sample_output || "(none)"}</pre>
+                            <div className="rounded-md border border-border bg-bg p-3">
+                              <p className="text-xs font-semibold text-danger uppercase tracking-wide mb-1.5">
+                                stderr
+                              </p>
+                              <pre className="text-xs font-mono text-ink whitespace-pre-wrap min-h-[3rem]">
+                                {codeState.stderr || "(empty)"}
+                              </pre>
                             </div>
                           </div>
-                        ) : null}
-
-                        <div className="student-code-editor-shell">
-                          <p className="student-code-editor-label">Code Editor</p>
-                          <Editor
-                            height={codeEditorHeight}
-                            path={`question-${question.id}.${codeState.language === "cpp" ? "cpp" : codeState.language === "python" ? "py" : "js"}`}
-                            language={codeState.language === "cpp" ? "cpp" : codeState.language}
-                            value={codeState.code}
-                            options={monacoEditorOptions}
-                            loading={<div className="muted small">Loading editor...</div>}
-                            onMount={handleCodeEditorMount}
-                            onChange={(value) =>
-                              handleCodingStateChange(question, { code: value || "" })
-                            }
-                          />
                         </div>
-
-                        <label>
-                          <span>Custom Input (stdin)</span>
-                          <textarea
-                            className="answer-textarea"
-                            value={codeState.stdin}
-                            onChange={(event) =>
-                              handleCodingStateChange(question, { stdin: event.target.value })
-                            }
-                            placeholder="Provide input for your program..."
-                            disabled={isExamBlocked}
-                          />
-                        </label>
-
-                        <div className="actions-row">
-                          <button
-                            type="button"
-                            onClick={() => handleRunCode(question)}
-                            disabled={codeState.running || isExamBlocked}
-                          >
-                            {codeState.running ? "Running..." : "Run"}
-                          </button>
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => handleResetCode(question)}
-                            disabled={isExamBlocked}
-                          >
-                            Reset to Starter Code
-                          </button>
+                      ) : (
+                        <div className="space-y-2">
+                          {(question.options || []).map((option, optIndex) => {
+                            const selected = answerState.selected_answer === optIndex;
+                            return (
+                              <label
+                                key={`${question.id}-${optIndex}`}
+                                className={cn(
+                                  "flex items-start gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-all",
+                                  "focus-within:ring-2 focus-within:ring-primary-ring focus-within:ring-offset-2 focus-within:ring-offset-bg",
+                                  selected
+                                    ? "border-primary bg-primary-subtle/50 shadow-xs"
+                                    : "border-border bg-surface hover:border-border-strong hover:bg-bg",
+                                  isExamBlocked && "opacity-60 cursor-not-allowed"
+                                )}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`question-${question.id}`}
+                                  checked={selected}
+                                  onChange={() => handleMcqAnswerChange(question.id, optIndex)}
+                                  disabled={isExamBlocked}
+                                  className="sr-only"
+                                />
+                                <span
+                                  className={cn(
+                                    "mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold transition-colors",
+                                    selected
+                                      ? "border-primary bg-primary text-primary-foreground"
+                                      : "border-border-strong bg-surface text-ink-muted"
+                                  )}
+                                >
+                                  {String.fromCharCode(65 + optIndex)}
+                                </span>
+                                <span className={cn("flex-1 text-sm", selected ? "text-ink font-medium" : "text-ink")}>
+                                  {option}
+                                </span>
+                                {selected ? (
+                                  <CheckCircle2 className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                                ) : null}
+                              </label>
+                            );
+                          })}
                         </div>
-
-                        <div className="student-run-output-grid">
-                          <div className="student-run-output-card">
-                            <p className="muted small">stdout</p>
-                            <pre>{codeState.stdout || "(empty)"}</pre>
-                          </div>
-                          <div className="student-run-output-card">
-                            <p className="muted small">stderr</p>
-                            <pre>{codeState.stderr || "(empty)"}</pre>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="option-stack">
-                        {(question.options || []).map((option, optIndex) => (
-                          <label key={`${question.id}-${optIndex}`} className="option-row">
-                            <input
-                              type="radio"
-                              name={`question-${question.id}`}
-                              checked={answerState.selected_answer === optIndex}
-                              onChange={() => handleMcqAnswerChange(question.id, optIndex)}
-                              disabled={isExamBlocked}
-                            />
-                            <span>
-                              {String.fromCharCode(65 + optIndex)}. {option}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </article>
+                      )}
+                    </CardBody>
+                  </Card>
                 );
               })}
 
               {isOneByOneFlow ? (
-                <div className="student-question-nav-shell">
-                  <div className="student-meta-row">
-                    <span className="student-meta-chip">
-                      Question {safeQuestionIndex + 1} of {totalQuestions}
-                    </span>
-                    <span className="student-meta-chip">
-                      {Boolean(examData.randomize_question_order) ? "Randomized Order" : "Fixed Order"}
-                    </span>
-                  </div>
-                  <p className="muted small">
-                    {safeQuestionIndex === totalQuestions - 1
-                      ? "This is the last question. Review your answers and submit when ready."
-                      : activeQuestionAnswered
-                        ? "Answer saved. Continue when ready."
-                        : "Answer this question to unlock Next."}
-                  </p>
-                  <div className="actions-row student-question-nav-actions">
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => setCurrentQuestionIndex((prev) => Math.max(prev - 1, 0))}
-                      disabled={!canGoPrevious || isExamBlocked}
-                    >
-                      Previous
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCurrentQuestionIndex((prev) => Math.min(prev + 1, totalQuestions - 1))}
-                      disabled={!canGoNext || isExamBlocked}
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
+                <Card>
+                  <CardBody className="space-y-3">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant="primary">
+                          Question {safeQuestionIndex + 1} of {totalQuestions}
+                        </Badge>
+                        <Badge variant="outline">
+                          {Boolean(examData.randomize_question_order) ? "Randomized" : "Fixed"} order
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-ink-muted">
+                        {safeQuestionIndex === totalQuestions - 1
+                          ? "Last question — submit when ready."
+                          : activeQuestionAnswered
+                            ? "Answer saved. Continue when ready."
+                            : "Answer this question to unlock Next."}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <IconButton
+                        aria-label="Previous question"
+                        tooltip="Previous"
+                        variant="secondary"
+                        onClick={() => setCurrentQuestionIndex((prev) => Math.max(prev - 1, 0))}
+                        disabled={!canGoPrevious || isExamBlocked}
+                      >
+                        <ChevronLeft className="h-5 w-5" />
+                      </IconButton>
+                      <div className="flex-1 mx-2 h-1.5 rounded-full bg-border overflow-hidden">
+                        <div
+                          className="h-full bg-primary transition-all"
+                          style={{
+                            width: `${((safeQuestionIndex + 1) / totalQuestions) * 100}%`,
+                          }}
+                        />
+                      </div>
+                      <IconButton
+                        aria-label="Next question"
+                        tooltip="Next"
+                        variant="primary"
+                        onClick={() => setCurrentQuestionIndex((prev) => Math.min(prev + 1, totalQuestions - 1))}
+                        disabled={!canGoNext || isExamBlocked}
+                      >
+                        <ChevronRight className="h-5 w-5" />
+                      </IconButton>
+                    </div>
+                  </CardBody>
+                </Card>
               ) : null}
             </div>
           )}
-        </section>
 
-        <section className="card student-panel actions-row student-submit-row">
-          <button onClick={() => submitExam()} disabled={submittingExam || isExamBlocked}>
-            {submittingExam ? "Submitting..." : "Submit Exam"}
-          </button>
-          <button
-            className="secondary"
-            onClick={() =>
-              showAlert({
-                title: "Exam Protection",
-                message: "Leaving exam is disabled during exam mode."
-              })
-            }
+          {/* Submit row */}
+          <Card>
+            <CardBody className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 text-sm text-ink-muted">
+                <Info className="h-4 w-4" />
+                Once submitted, answers cannot be changed.
+              </div>
+              <div className="flex items-center gap-2">
+                <IconButton
+                  aria-label="Exit disabled during exam"
+                  tooltip="Exit is disabled during exam mode"
+                  variant="ghost"
+                  disabled
+                >
+                  <Lock className="h-4 w-4" />
+                </IconButton>
+                <Button
+                  size="lg"
+                  onClick={() => submitExam()}
+                  disabled={submittingExam || isExamBlocked}
+                >
+                  {submittingExam ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Submitting…
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" /> Submit exam
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardBody>
+          </Card>
+
+          {examSubmitMessage ? (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-md border border-danger-subtle bg-danger-subtle/40 px-3 py-2.5 text-sm text-danger"
+            >
+              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>{examSubmitMessage}</span>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Screen-lock overlay */}
+        {isExamBlocked ? (
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-ink/90 backdrop-blur animate-fade-in px-4"
           >
-            Exit Disabled
-          </button>
-        </section>
-
-        {examSubmitMessage ? <section className="card error-box">{examSubmitMessage}</section> : null}
-
-        {isExamBlocked && (
-          <div className="student-block-overlay">
-            <div className="student-block-box">
-              <div className="student-block-lock-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="72" height="72">
-                  <path fillRule="evenodd" d="M12 1.5a5.25 5.25 0 00-5.25 5.25v3a3 3 0 00-3 3v6.75a3 3 0 003 3h10.5a3 3 0 003-3v-6.75a3 3 0 00-3-3v-3c0-2.9-2.35-5.25-5.25-5.25zm3.75 8.25v-3a3.75 3.75 0 10-7.5 0v3h7.5z" clipRule="evenodd" />
-                </svg>
+            <div className="max-w-md text-center space-y-4 text-white">
+              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-danger/20 text-white border-2 border-danger">
+                <Lock className="h-10 w-10" />
               </div>
-              <h2 className="student-block-title">Screen Locked</h2>
-              <p className="student-block-who">Your teacher has blocked your exam screen.</p>
-              <p className="student-block-desc">You cannot make any changes while blocked. Wait for your teacher to unblock you.</p>
+              <h2 className="text-3xl font-bold tracking-tight">Screen locked</h2>
+              <p className="text-base opacity-90">Your teacher has blocked your exam screen.</p>
+              <p className="text-sm opacity-70">
+                You cannot make any changes while blocked. Wait for your teacher to unblock you.
+              </p>
             </div>
           </div>
-        )}
+        ) : null}
 
-        {isTeacherForceSubmitting && (
-          <div className="student-force-submit-overlay">
-            <div className="student-force-submit-box">
-              <div className="student-force-submit-icon">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="72" height="72">
-                  <path fillRule="evenodd" d="M9 1.5H5.625c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0016.5 9h-1.875a1.875 1.875 0 01-1.875-1.875V5.25A3.75 3.75 0 009 1.5zm6.61 10.936a.75.75 0 10-1.22-.872l-3.236 4.53-1.174-1.174a.75.75 0 00-1.06 1.06l1.75 1.75a.75.75 0 001.143-.094l3.797-5.2z" clipRule="evenodd" />
-                  <path d="M12.971 1.816A5.23 5.23 0 0114.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 013.434 1.279 9.768 9.768 0 00-6.963-6.963z" />
-                </svg>
+        {/* Force-submit overlay */}
+        {isTeacherForceSubmitting ? (
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-ink/90 backdrop-blur animate-fade-in px-4"
+          >
+            <div className="max-w-md text-center space-y-4 text-white">
+              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary-subtle/20 text-white border-2 border-primary-ring">
+                <Send className="h-10 w-10" />
               </div>
-              <h2 className="student-force-submit-title">Exam Force Submitted</h2>
-              <p className="student-force-submit-msg">Your teacher has force-submitted your exam.</p>
-              <p className="student-force-submit-wait">Submitting your answers, please wait...</p>
+              <h2 className="text-3xl font-bold tracking-tight">Exam submitted</h2>
+              <p className="text-base opacity-90">Your teacher has force-submitted your exam.</p>
+              <p className="text-sm opacity-70 flex items-center justify-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Submitting your answers, please wait…
+              </p>
             </div>
           </div>
-        )}
-      </>
+        ) : null}
+      </div>
     );
   }
 
   return (
-    <div className={`content-stack student-ui student-view-${view}`}>
+    <div className={cn(view === "exam" ? "" : "mx-auto max-w-[1200px] w-full px-4 sm:px-6 py-6 sm:py-8")}>
       {view === "dashboard" ? renderDashboardView() : null}
       {view === "waiting" ? renderWaitingView() : null}
       {view === "exam" ? renderExamView() : null}

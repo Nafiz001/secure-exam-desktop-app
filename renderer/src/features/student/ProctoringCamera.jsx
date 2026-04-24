@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as tf from "@tensorflow/tfjs";
 import "@tensorflow/tfjs-backend-webgl"; // GPU backend — no WASM needed
 import * as blazeface from "@tensorflow-models/blazeface";
+import { Camera, CameraOff, Loader2, ShieldAlert, ShieldCheck } from "lucide-react";
+import { cn } from "../../lib/cn";
 
 // ─── Thresholds ──────────────────────────────────────────────────────────────
 // Yaw (left-right): (noseTip.x - eyeMid.x) / eyeWidth
@@ -285,41 +287,75 @@ export default function ProctoringCamera({ token, examId, enabled }) {
   if (!enabled) return null;
 
   const statusMessages = {
-    loading:      "Loading detection model...",
-    denied:       "Camera access denied. Enable camera permission to continue.",
-    model_error:  "Failed to load face detection model. Check your internet connection and restart.",
-    camera_error: "Could not access camera. Check that no other app is using it."
+    loading: "Loading detection model…",
+    denied: "Camera access denied. Enable camera permission to continue.",
+    model_error: "Failed to load face detection model. Check your internet connection and restart.",
+    camera_error: "Could not access camera. Check that no other app is using it.",
   };
 
-  return (
-    <div className="proctor-cam-wrap">
-      {/* Off-screen canvas for snapshot capture only */}
-      <canvas ref={snapshotCanvasRef} style={{ display: "none" }} />
+  const statusIcons = {
+    loading: Loader2,
+    denied: CameraOff,
+    model_error: ShieldAlert,
+    camera_error: CameraOff,
+  };
 
-      {cameraStatus !== "ok" ? (
-        <div className={`proctor-cam-status ${cameraStatus !== "loading" ? "proctor-cam-denied" : ""}`}>
-          {statusMessages[cameraStatus] ?? "Initializing..."}
-        </div>
-      ) : null}
+  const StatusIcon = statusIcons[cameraStatus] || Camera;
+
+  return (
+    <div
+      className="relative shrink-0 overflow-hidden rounded-lg border border-border bg-ink shadow-sm"
+      style={{ width: DISPLAY_W, height: DISPLAY_H }}
+    >
+      {/* Off-screen canvas for snapshot capture only */}
+      <canvas ref={snapshotCanvasRef} className="hidden" />
 
       {/* Live video feed */}
       <video
         ref={videoRef}
         muted
         playsInline
-        className={`proctor-cam-video ${cameraStatus === "ok" ? "proctor-cam-visible" : ""}`}
+        className={cn(
+          "absolute inset-0 h-full w-full object-cover transition-opacity",
+          cameraStatus === "ok" ? "opacity-100" : "opacity-0"
+        )}
         aria-label="Webcam proctoring feed"
       />
 
       {/* Live face-box overlay — sits on top of video */}
       <canvas
         ref={overlayRef}
-        className="proctor-cam-overlay"
+        className="absolute inset-0 h-full w-full pointer-events-none"
         aria-hidden="true"
       />
 
+      {cameraStatus !== "ok" ? (
+        <div
+          className={cn(
+            "absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center text-xs font-medium",
+            cameraStatus === "loading"
+              ? "bg-ink text-white/90"
+              : "bg-danger text-white"
+          )}
+        >
+          <StatusIcon
+            className={cn("h-6 w-6", cameraStatus === "loading" && "animate-spin")}
+          />
+          <span className="leading-tight">
+            {statusMessages[cameraStatus] ?? "Initializing…"}
+          </span>
+        </div>
+      ) : (
+        <div className="absolute top-1.5 left-1.5 flex items-center gap-1 rounded-full bg-success px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow">
+          <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+          Live
+        </div>
+      )}
+
       {cameraStatus === "ok" ? (
-        <div className="proctor-cam-badge">Live</div>
+        <div className="absolute bottom-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-ink/70 text-white">
+          <ShieldCheck className="h-3.5 w-3.5" />
+        </div>
       ) : null}
     </div>
   );
