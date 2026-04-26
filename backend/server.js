@@ -5,6 +5,9 @@ require('dotenv').config();
 const { initializeSchema } = require('./models/schema');
 const authRoutes = require('./routes/auth');
 const examRoutes = require('./routes/exams');
+const aiRoutes = require('./routes/ai');
+const proctoringRoutes = require('./routes/proctoring');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -26,6 +29,9 @@ app.use((req, res, next) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/exams', examRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/proctoring', proctoringRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

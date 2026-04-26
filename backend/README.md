@@ -1,157 +1,189 @@
 # Invigilo Backend API
 
-Backend server for Invigilo Secure Exam Desktop System.
+Express + PostgreSQL backend for the Invigilo secure exam desktop application.
 
-## Tech Stack
-- Node.js + Express.js
-- PostgreSQL
-- JWT Authentication
-- bcrypt Password Hashing
+## Stack
 
-## Setup Instructions
+- Node.js (CommonJS)
+- Express
+- PostgreSQL (`pg`)
+- JWT authentication
+- bcrypt password hashing
+- Optional AI provider: Groq (`groq-sdk`)
 
-### 1. Install Dependencies
+## Setup
+
+1. Install dependencies:
+
 ```bash
 cd backend
 npm install
 ```
 
-### 2. Configure Environment Variables
-Create a `.env` file based on `.env.example`:
+2. Create environment file:
+
 ```bash
-cp .env.example .env
+copy .env.example .env
 ```
 
-Edit `.env` and set your database credentials and JWT secret.
+3. Edit `.env`:
 
-### 3. Setup PostgreSQL Database
-Create a database named `invigilo_db`:
-```sql
-CREATE DATABASE invigilo_db;
-```
+| Variable | Required | Description |
+|---|---|---|
+| `PORT` | Yes | Backend HTTP port (default `5000`) |
+| `NODE_ENV` | Yes | `development` or `production` |
+| `DB_HOST` | Yes | PostgreSQL host |
+| `DB_PORT` | Yes | PostgreSQL port |
+| `DB_NAME` | Yes | Database name |
+| `DB_USER` | Yes | Database user |
+| `DB_PASSWORD` | Yes | Database password |
+| `JWT_SECRET` | Yes | Token signing secret |
+| `JWT_EXPIRES_IN` | Yes | Token TTL (example: `24h`) |
+| `GROQ_API_KEY` | Optional | Required only for `/api/ai/*` endpoints |
 
-The schema will be automatically initialized on first run.
+4. Start server:
 
-### 4. Run the Server
-
-Development mode (with auto-reload):
-```bash
-npm run dev
-```
-
-Production mode:
 ```bash
 npm start
 ```
 
-Server will run on `http://localhost:5000`
+Development mode:
 
-## API Endpoints
-
-### Authentication
-
-#### Register User
-```
-POST /api/auth/register
-Content-Type: application/json
-
-{
-  "name": "John Doe",
-  "email": "john@example.com",
-  "password": "securepassword",
-  "role": "student"
-}
+```bash
+npm run dev
 ```
 
-#### Login
-```
-POST /api/auth/login
-Content-Type: application/json
+## Database Initialization
 
-{
-  "email": "john@example.com",
-  "password": "securepassword"
-}
-```
+On startup, `models/schema.js`:
 
-#### Get Current User
-```
-GET /api/auth/me
-Authorization: Bearer <token>
-```
+- Creates core tables if missing.
+- Applies safe additive migrations (`ALTER TABLE ... IF NOT EXISTS`).
+- Creates indexes.
+- Seeds a default admin if missing:
+  - `admin@kuet.ac.bd` / `admin1234`
 
-### Health Check
-```
-GET /api/health
+## Utility Scripts
+
+- Reset default admin account:
+
+```bash
+node reset-admin.js
 ```
 
-## Database Schema
+- Legacy sample account script (optional):
 
-### Users
-- id (SERIAL PRIMARY KEY)
-- name (VARCHAR)
-- email (VARCHAR UNIQUE)
-- password_hash (VARCHAR)
-- role (VARCHAR: student | teacher | admin)
-- created_at (TIMESTAMP)
-- updated_at (TIMESTAMP)
+```bash
+node create-users.js
+```
+
+## API Route Map
+
+### Health
+
+| Method | Route | Access |
+|---|---|---|
+| GET | `/api/health` | Public |
+
+### Auth
+
+| Method | Route | Access |
+|---|---|---|
+| POST | `/api/auth/login` | Public |
+| GET | `/api/auth/me` | Authenticated |
+
+`/api/auth/login` supports:
+- Email + password (all roles)
+- Roll number + password (student role)
+
+### Admin
+
+| Method | Route | Access |
+|---|---|---|
+| GET | `/api/admin/stats` | Admin |
+| GET | `/api/admin/users?role=student|teacher` | Admin |
+| POST | `/api/admin/create-teacher` | Admin |
+| POST | `/api/admin/create-student` | Admin |
+| POST | `/api/admin/upload-students` | Admin |
+| PUT | `/api/admin/users/:id/status` | Admin |
 
 ### Exams
-- id (SERIAL PRIMARY KEY)
-- title (VARCHAR)
-- description (TEXT)
-- duration (INTEGER)
-- created_by (INTEGER FK → users.id)
-- created_at (TIMESTAMP)
-- updated_at (TIMESTAMP)
 
-### Questions
-- id (SERIAL PRIMARY KEY)
-- exam_id (INTEGER FK → exams.id)
-- question_text (TEXT)
-- options (JSONB)
-- correct_answer (VARCHAR)
-- marks (INTEGER)
-- created_at (TIMESTAMP)
+| Method | Route | Access |
+|---|---|---|
+| POST | `/api/exams` | Teacher |
+| GET | `/api/exams` | Authenticated |
+| GET | `/api/exams/my-active` | Student |
+| GET | `/api/exams/my-results` | Student |
+| GET | `/api/exams/my-results/:submissionId` | Student |
+| GET | `/api/exams/:id` | Authenticated |
+| PUT | `/api/exams/:id` | Teacher (owner) |
+| DELETE | `/api/exams/:id` | Teacher (owner) |
+| POST | `/api/exams/join-by-room` | Public (student direct entry) |
+| POST | `/api/exams/join` | Student |
+| GET | `/api/exams/:id/participants` | Teacher (owner) |
+| POST | `/api/exams/:id/participants/:participantId/force-submit` | Teacher (owner) |
+| POST | `/api/exams/:id/participants/:participantId/toggle-freeze` | Teacher (owner) |
+| POST | `/api/exams/:id/start` | Teacher (owner) |
+| GET | `/api/exams/:id/status` | Teacher/Student with access |
+| POST | `/api/exams/:examId/questions` | Teacher (owner) |
+| PUT | `/api/exams/questions/:id` | Teacher (owner) |
+| DELETE | `/api/exams/questions/:id` | Teacher (owner) |
+| POST | `/api/exams/:id/submit` | Student |
+| POST | `/api/exams/:id/run-code` | Student |
+| POST | `/api/exams/:id/violations` | Student |
+| GET | `/api/exams/:examId/submissions` | Teacher (owner) |
+| GET | `/api/exams/:examId/evaluation/participants` | Teacher (owner) |
+| GET | `/api/exams/:examId/evaluation/submissions/:submissionId` | Teacher (owner) |
+| PUT | `/api/exams/:examId/evaluation/submissions/:submissionId/score` | Teacher (owner) |
 
-### Submissions
-- id (SERIAL PRIMARY KEY)
-- exam_id (INTEGER FK → exams.id)
-- student_id (INTEGER FK → users.id)
-- answers (JSONB)
-- violations (JSONB)
-- submitted_at (TIMESTAMP)
-- score (INTEGER)
+### Proctoring
 
-## Security Features
-- Password hashing with bcrypt
-- JWT-based authentication
-- Role-based authorization middleware
-- Input validation
-- SQL injection prevention (parameterized queries)
+| Method | Route | Access |
+|---|---|---|
+| POST | `/api/proctoring/:examId/event` | Student |
+| POST | `/api/proctoring/:examId/snapshot` | Student |
+| GET | `/api/proctoring/:examId/students` | Teacher |
+| GET | `/api/proctoring/:examId/events/:studentId` | Teacher |
 
-## Project Structure
-```
-backend/
-├── config/
-│   └── database.js          # PostgreSQL connection pool
-├── controllers/
-│   └── authController.js    # Authentication logic
-├── middleware/
-│   └── auth.js              # JWT verification & role authorization
-├── models/
-│   └── schema.js            # Database schema initialization
-├── routes/
-│   └── auth.js              # Authentication routes
-├── .env.example             # Environment variables template
-├── .gitignore
-├── package.json
-├── README.md
-└── server.js                # Entry point
-```
+### AI (Teacher Assistant)
 
-## Author
-Dewan - Backend & System Engineer
+| Method | Route | Access |
+|---|---|---|
+| POST | `/api/ai/chat` | Teacher |
+| POST | `/api/ai/generate-questions` | Teacher |
 
+## Core Data Model (Current)
 
+- `users`: account profile, role, status, optional roll number.
+- `exams`: metadata, room code, status, webcam setting, flow mode, randomization flag.
+- `questions`: mcq/written/coding question bank.
+- `submissions`: answers, violations, auto/manual/total score, evaluation status.
+- `exam_participants`: waiting/taking/completed state, live violation summary, freeze/force-submit flags.
+- `proctoring_events`: event log from student camera pipeline.
+- `proctoring_snapshots`: latest student snapshot/status per exam.
 
+## Scoring and Evaluation Logic
+
+- MCQ: auto-scored on submission.
+- Written/Coding: marked as manual-evaluation items.
+- Teacher updates manual marks/comments through evaluation endpoints.
+- Final score = `auto_score + manual_score`.
+
+## Code Execution Notes
+
+`POST /api/exams/:id/run-code` supports:
+
+- JavaScript (`node`)
+- Python (`python`, `python3`, or `py -3`)
+- C++ (`g++` or `clang++`)
+
+Execution is timeout-bounded and performed in temporary directories.
+
+## Security Notes
+
+- JWT middleware enforces authenticated access.
+- Role checks run at route level.
+- Ownership checks enforce teacher resource boundaries.
+- Query parameters use parameterized SQL.
+- Student accounts can be activated/deactivated by admin.

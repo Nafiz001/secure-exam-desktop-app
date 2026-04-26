@@ -41,6 +41,9 @@ const initializeSchema = async () => {
         created_by INTEGER REFERENCES users(id) ON DELETE CASCADE,
         room_code VARCHAR(6) UNIQUE,
         status VARCHAR(20) DEFAULT 'created',
+        webcam_required BOOLEAN DEFAULT FALSE,
+        question_flow_mode VARCHAR(20) NOT NULL DEFAULT 'all_at_once',
+        randomize_question_order BOOLEAN DEFAULT FALSE,
         started_at TIMESTAMP NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -93,8 +96,45 @@ const initializeSchema = async () => {
         student_name VARCHAR(255),
         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         status VARCHAR(20) DEFAULT 'waiting',
+        violation_count INTEGER DEFAULT 0,
+        last_violation_type VARCHAR(100),
+        last_violation_severity VARCHAR(20),
+        last_violation_at TIMESTAMP NULL,
+        force_submit_requested BOOLEAN DEFAULT FALSE,
+        is_frozen BOOLEAN DEFAULT FALSE,
         UNIQUE(exam_id, student_id)
       );
+    `);
+
+    // Proctoring events log
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS proctoring_events (
+        id SERIAL PRIMARY KEY,
+        exam_id INTEGER REFERENCES exams(id) ON DELETE CASCADE,
+        student_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        event_type VARCHAR(50) NOT NULL,
+        details TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    // Latest webcam snapshot per student (upserted)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS proctoring_snapshots (
+        exam_id INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+        student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        snapshot_base64 TEXT,
+        face_count INTEGER DEFAULT 0,
+        status VARCHAR(20) DEFAULT 'ok',
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        PRIMARY KEY (exam_id, student_id)
+      );
+    `);
+
+    // User status column (active/inactive — admin-controlled)
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
     `);
 
     // Safe additive migrations for existing databases
@@ -141,6 +181,53 @@ const initializeSchema = async () => {
       ADD COLUMN IF NOT EXISTS evaluated_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
     `);
 
+    await client.query(`
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS violation_count INTEGER DEFAULT 0;
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS last_violation_type VARCHAR(100);
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS last_violation_severity VARCHAR(20);
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS last_violation_at TIMESTAMP NULL;
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS force_submit_requested BOOLEAN DEFAULT FALSE;
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS is_frozen BOOLEAN DEFAULT FALSE;
+    `);
+
+    await client.query(`
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS webcam_required BOOLEAN DEFAULT FALSE;
+
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS question_flow_mode VARCHAR(20) DEFAULT 'all_at_once';
+
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS randomize_question_order BOOLEAN DEFAULT FALSE;
+
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS auto_submit_violation_threshold INTEGER DEFAULT 3;
+
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS hide_results_from_students BOOLEAN DEFAULT FALSE;
+
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS allow_multiple_attempts BOOLEAN DEFAULT FALSE;
+    `);
+
+    await client.query(`
+      UPDATE exams
+      SET question_flow_mode = 'all_at_once'
+      WHERE question_flow_mode IS NULL
+         OR question_flow_mode NOT IN ('all_at_once', 'one_by_one');
+    `);
+
     // Backfill score fields for old rows
     await client.query(`
       UPDATE submissions
@@ -172,7 +259,25 @@ const initializeSchema = async () => {
       CREATE INDEX IF NOT EXISTS idx_submissions_eval_status ON submissions(exam_id, evaluation_status);
       CREATE INDEX IF NOT EXISTS idx_exam_participants_exam_id ON exam_participants(exam_id);
       CREATE INDEX IF NOT EXISTS idx_exam_participants_student_id ON exam_participants(student_id);
+      CREATE INDEX IF NOT EXISTS idx_exam_participants_violation_count ON exam_participants(exam_id, violation_count);
+      CREATE INDEX IF NOT EXISTS idx_proctoring_events_exam ON proctoring_events(exam_id);
+      CREATE INDEX IF NOT EXISTS idx_proctoring_events_student ON proctoring_events(exam_id, student_id);
     `);
+
+    // Seed default admin account if admin@kuet.ac.bd doesn't exist yet
+    const adminCheck = await client.query(
+      `SELECT id FROM users WHERE email = 'admin@kuet.ac.bd' LIMIT 1`
+    );
+    if (adminCheck.rows.length === 0) {
+      const bcrypt = require('bcrypt');
+      const defaultHash = await bcrypt.hash('admin1234', 10);
+      await client.query(`
+        INSERT INTO users (name, email, password_hash, role, status)
+        VALUES ('Admin', 'admin@kuet.ac.bd', $1, 'admin', 'active')
+        ON CONFLICT (email) DO NOTHING
+      `, [defaultHash]);
+      console.log('[SCHEMA] Default admin seeded — email: admin@kuet.ac.bd / password: admin1234');
+    }
 
     await client.query('COMMIT');
     console.log('[SCHEMA] Database schema initialized successfully');

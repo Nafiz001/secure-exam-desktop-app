@@ -1,206 +1,137 @@
-# Integration Testing Guide
+# Integration Testing Guide (Current Version)
 
-## ✅ All Tasks Completed
+This checklist validates the end-to-end behavior of the current Invigilo system.
+Use it before demos, submissions, or releases.
 
-### What Was Implemented
+## 1. Test Environment
 
-1. **Backend API Integration**
-   - Login form now calls `/api/auth/login`
-   - Environment configuration (localhost vs production)
-   - Proper error handling and loading states
+- Backend running on `http://localhost:5000`
+- PostgreSQL connected
+- Electron app launched from project root via `npm start`
+- At least one account per role:
+  - Admin
+  - Teacher
+  - Student
 
-2. **Token Management**
-   - JWT token stored in `localStorage` on successful login
-   - User data stored in `localStorage`
-   - Token automatically included in future API calls
-   - Session persistence across app restarts
+## 2. Smoke Checks
 
-3. **Role-Based Routing**
-   - Students → Exam screen
-   - Teachers → Teacher dashboard (placeholder)
-   - Admins → Admin panel (placeholder)
+1. `GET /api/health` returns success.
+2. Login works for Admin, Teacher, and Student.
+3. Direct student entry via room code + roll works from Login page `Enter Exam`.
 
-4. **Loading & Error States**
-   - Loading spinner during login
-   - Error messages for invalid credentials
-   - Network error handling
-   - Disabled inputs during API call
+## 3. Core End-to-End Scenario
 
-5. **UI Enhancements**
-   - Professional error message display
-   - Animated loading spinner
-   - Disabled state during login
-   - Auto-hide error messages after 5 seconds
+### A. Admin Setup
 
-6. **IPC Communication**
-   - Added `setUserData` method to pass user info to main process
-   - User data logged in session logs
-   - Proper coordination between renderer and main process
+1. Login as Admin.
+2. Create a teacher account.
+3. Create one or more student accounts (single or CSV).
+4. Confirm account activation status controls work.
 
----
+### B. Teacher Exam Setup
 
-## 🧪 Testing Instructions
+1. Login as Teacher.
+2. Create exam with:
+   - Title and duration
+   - `question_flow_mode` (`all_at_once` or `one_by_one`)
+   - `randomize_question_order` enabled
+   - optional webcam requirement
+3. Open Manage Exam and verify settings are saved.
+4. Add questions:
+   - MCQ
+   - Written
+   - Coding
+5. Copy room code from live room panel.
 
-### 1. Ensure Backend is Running
+### C. Student Join and Attempt
 
-```bash
-cd backend
-npm start
+1. Login as Student or use `Enter Exam`.
+2. Join by room code and name.
+3. Confirm waiting room auto-check updates status and participant count.
+4. Teacher starts exam.
+5. Confirm student enters exam screen and timer starts.
+6. Answer questions:
+   - MCQ selection
+   - Written text
+   - Coding with run action
+7. Submit exam.
+
+### D. Teacher Monitoring and Evaluation
+
+1. Verify participant appears in live list.
+2. Trigger test violations (blur/fullscreen leave shortcut attempt) and confirm count updates.
+3. Test `Freeze` and `Unfreeze` on student.
+4. Test `Force Submit` on active student (separate run recommended).
+5. Open Evaluation Desk:
+   - Open answer sheet
+   - Confirm coding answer keeps multiline formatting
+   - Add manual marks/comments
+   - Save evaluation
+
+### E. Student Result Verification
+
+1. Open `My Results`.
+2. Confirm submission appears with evaluation status.
+3. Open `View Details`.
+4. Verify question-level marks and comments.
+
+## 4. Detailed Test Cases
+
+| ID | Scenario | Expected Result |
+|---|---|---|
+| IT-01 | Teacher creates exam | Exam saved and visible in list |
+| IT-02 | Waiting room auto polling | Status updates without manual check button |
+| IT-03 | Start exam | Exam moves to `in_progress`; students begin |
+| IT-04 | Randomized order enabled | Student sees randomized order indicator |
+| IT-05 | One-by-one flow | Next remains locked until current answer is provided |
+| IT-06 | Record violation | Teacher participant violation count increases |
+| IT-07 | Freeze participant | Student overlay shown; inputs read-only |
+| IT-08 | Unfreeze participant | Student interaction restored |
+| IT-09 | Force submit | Student gets force-submit overlay and submission completes |
+| IT-10 | Manual evaluation save | Submission manual score and status update |
+| IT-11 | Student result details | Per-question marks/comments visible |
+| IT-12 | Delete exam ownership rule | Non-owner delete rejected |
+
+## 5. Optional API-Level Checks
+
+Use a REST client or curl with JWT tokens.
+
+- Auth:
+  - `POST /api/auth/login`
+  - `GET /api/auth/me`
+- Exams:
+  - `POST /api/exams`
+  - `POST /api/exams/join`
+  - `POST /api/exams/:id/start`
+  - `POST /api/exams/:id/submit`
+  - `GET /api/exams/my-results`
+- Participant controls:
+  - `POST /api/exams/:id/participants/:participantId/toggle-freeze`
+  - `POST /api/exams/:id/participants/:participantId/force-submit`
+- Evaluation:
+  - `GET /api/exams/:examId/evaluation/participants`
+  - `GET /api/exams/:examId/evaluation/submissions/:submissionId`
+  - `PUT /api/exams/:examId/evaluation/submissions/:submissionId/score`
+
+## 6. DB Verification Queries (Optional)
+
+```sql
+-- Recent submissions
+SELECT id, exam_id, student_id, auto_score, manual_score, score, evaluation_status, submitted_at
+FROM submissions
+ORDER BY submitted_at DESC
+LIMIT 20;
+
+-- Participant live state
+SELECT exam_id, student_id, status, violation_count, is_frozen, force_submit_requested, last_violation_type, last_violation_at
+FROM exam_participants
+ORDER BY joined_at DESC
+LIMIT 20;
 ```
 
-You should see:
-```
-✅ Connected to PostgreSQL database
-╔════════════════════════════════════════╗
-║   Invigilo Backend API Server          ║
-║   Status: Running                      ║
-║   Port: 5000                           ║
-╚════════════════════════════════════════╝
-```
+## 7. Release Exit Criteria
 
-### 2. Create Test User (if not exists)
-
-Open a new terminal and run:
-
-```bash
-curl -X POST http://localhost:5000/api/auth/register ^
--H "Content-Type: application/json" ^
--d "{\"name\":\"Nafiz Test\",\"email\":\"nafiz@test.com\",\"password\":\"test123\",\"role\":\"student\"}"
-```
-
-### 3. Start Electron App
-
-```bash
-npm start
-```
-
-### 4. Test Login Flow
-
-1. Enter email: `nafiz@test.com`
-2. Enter password: `test123`
-3. Click "Log In"
-
-**Expected Behavior:**
-- Loading spinner appears
-- Button text changes to "Logging in..."
-- Inputs are disabled
-- After 1-2 seconds, you're redirected to exam screen
-- Console shows: "User logged in: {user data}"
-
-### 5. Test Error States
-
-**Test 1: Invalid Credentials**
-- Email: `wrong@test.com`
-- Password: `wrong`
-- Result: Red error message appears
-
-**Test 2: Backend Offline**
-- Stop the backend server
-- Try to login
-- Result: "Connection error. Please ensure the backend server is running on port 5000."
-
-**Test 3: Empty Fields**
-- Leave fields empty
-- Try to login
-- Result: Browser validation (required fields)
-
----
-
-## 🔍 What Changed
-
-### `renderer/src/pages/LoginPage.jsx` and `renderer/src/App.jsx`
-- ✅ Added email and password input IDs
-- ✅ Converted button to form submit
-- ✅ Added loading spinner and error message UI
-- ✅ Complete login handler with API call
-- ✅ Token and user storage in localStorage
-- ✅ Role-based routing function
-- ✅ Logout function
-- ✅ Session persistence check on page load
-
-### `preload.js`
-- ✅ Added `setUserData` IPC method
-
-### `main.js`
-- ✅ Added `currentUser` variable
-- ✅ Added IPC handler for `set-user-data`
-- ✅ User info logged in session logs
-
-### `backend/server.js`
-- ✅ Updated CORS to allow Electron (`file://` protocol)
-
----
-
-## 📊 Success Criteria Checklist
-
-- [x] Login form calls `/api/auth/login`
-- [x] Token stored in `localStorage`
-- [x] User redirected to exam screen on success
-- [x] Error messages displayed on failure
-- [x] Loading state shown during API call
-- [x] Works with backend running on `localhost:5000`
-- [x] No console errors (verify in DevTools)
-- [x] Role-based routing implemented
-
----
-
-## 🔧 Troubleshooting
-
-### Issue: CORS Error
-**Solution:** Already fixed in `backend/server.js` - CORS now allows `file://`
-
-### Issue: "fetch is not defined"
-**Solution:** Using fetch in renderer process (HTML), not main process - already correct
-
-### Issue: Cannot read token
-**Solution:** Check browser DevTools → Application → Local Storage → Check if token exists
-
-### Issue: Backend not responding
-**Solution:** Make sure PostgreSQL is running and backend server is started
-
----
-
-## 🎯 Next Steps (Future Work)
-
-1. **Exam List API** - Fetch available exams for logged-in student
-2. **Exam Data API** - Load actual questions from backend
-3. **Submit Exam API** - Send answers + violations to backend
-4. **Teacher Dashboard** - Create/view exams interface
-5. **Admin Panel** - User management interface
-
----
-
-## 📝 Code Highlights
-
-### Environment Configuration
-```javascript
-const API_BASE_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5000/api'
-  : 'https://your-production-url.com/api';
-```
-
-### Token Usage Example (for future APIs)
-```javascript
-const response = await fetch(`${API_BASE_URL}/exams`, {
-  headers: {
-    'Authorization': `Bearer ${localStorage.getItem('token')}`
-  }
-});
-```
-
-### Role-Based Routing
-```javascript
-function routeBasedOnRole(user) {
-  switch(user.role) {
-    case 'student': startExam(user); break;
-    case 'teacher': showTeacherDashboard(user); break;
-    case 'admin': showAdminPanel(user); break;
-  }
-}
-```
-
----
-
-**All Nafiz tasks completed! 🎉**
-
-The UI is now fully integrated with Dewan's backend. The login system is working with JWT authentication, role-based routing, and proper error handling.
+- All smoke checks pass.
+- All critical scenarios (IT-01 to IT-12) pass.
+- No blocking console errors in Electron/Backend logs.
+- Renderer build succeeds (`npm run build:renderer`).

@@ -1,5 +1,13 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
-import ModalDialog from "./ModalDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogBody,
+  DialogFooter,
+} from "../ui/dialog";
+import { Button } from "../ui/button";
 
 const ModalContext = createContext(null);
 
@@ -7,7 +15,7 @@ function normalizeModalInput(input, fallbackMessage = "") {
   if (typeof input === "string") {
     return {
       title: "Notice",
-      message: input || fallbackMessage
+      message: input || fallbackMessage,
     };
   }
 
@@ -15,7 +23,7 @@ function normalizeModalInput(input, fallbackMessage = "") {
     title: input?.title || "Notice",
     message: input?.message || fallbackMessage,
     confirmText: input?.confirmText,
-    cancelText: input?.cancelText
+    cancelText: input?.cancelText,
   };
 }
 
@@ -27,7 +35,7 @@ export function ModalProvider({ children }) {
     title: "Notice",
     message: "",
     confirmText: "OK",
-    cancelText: "Cancel"
+    cancelText: "Cancel",
   });
 
   const resolveModal = useCallback((value) => {
@@ -55,7 +63,7 @@ export function ModalProvider({ children }) {
       resolverRef.current = resolve;
       setModalState({
         ...nextState,
-        open: true
+        open: true,
       });
     });
   }, []);
@@ -68,7 +76,7 @@ export function ModalProvider({ children }) {
         title: normalized.title,
         message: normalized.message,
         confirmText: normalized.confirmText || "OK",
-        cancelText: "Cancel"
+        cancelText: "Cancel",
       });
     },
     [openModal]
@@ -82,7 +90,7 @@ export function ModalProvider({ children }) {
         title: normalized.title || "Confirm",
         message: normalized.message || fallbackMessage,
         confirmText: normalized.confirmText || "OK",
-        cancelText: normalized.cancelText || "Cancel"
+        cancelText: normalized.cancelText || "Cancel",
       });
     },
     [openModal]
@@ -91,25 +99,43 @@ export function ModalProvider({ children }) {
   const value = useMemo(
     () => ({
       showAlert,
-      showConfirm
+      showConfirm,
     }),
     [showAlert, showConfirm]
   );
 
+  const showCancel = modalState.type === "confirm";
+
   return (
     <ModalContext.Provider value={value}>
       {children}
-      <ModalDialog
+      <Dialog
         open={modalState.open}
-        title={modalState.title}
-        message={modalState.message}
-        confirmText={modalState.confirmText}
-        cancelText={modalState.cancelText}
-        showCancel={modalState.type === "confirm"}
-        onConfirm={() => closeModal(true)}
-        onCancel={() => closeModal(false)}
-        onClose={() => closeModal(false)}
-      />
+        onOpenChange={(next) => {
+          if (!next) closeModal(false);
+        }}
+      >
+        <DialogContent size="md">
+          <DialogHeader>
+            <DialogTitle>{modalState.title}</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <p className="text-sm text-ink-muted whitespace-pre-wrap">
+              {modalState.message}
+            </p>
+          </DialogBody>
+          <DialogFooter>
+            {showCancel ? (
+              <Button variant="secondary" onClick={() => closeModal(false)}>
+                {modalState.cancelText}
+              </Button>
+            ) : null}
+            <Button onClick={() => closeModal(true)}>
+              {modalState.confirmText}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ModalContext.Provider>
   );
 }

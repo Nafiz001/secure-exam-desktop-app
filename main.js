@@ -5,7 +5,7 @@
 
 console.log("[MAIN] ====== main.js loading ======");
 
-const { app, BrowserWindow, ipcMain, globalShortcut } = require("electron");
+const { app, BrowserWindow, ipcMain, globalShortcut, session, screen } = require("electron");
 const psList = require("ps-list");
 const fs = require("fs");
 const path = require("path");
@@ -19,13 +19,28 @@ console.log("[MAIN] psList.default type:", typeof psList.default);
 let mainWindow = null;
 let violationCount = 0;
 let examRunning = false;
+let examStartedAt = 0;
 let processScanInterval = null;
+let focusEnforceInterval = null;
+let blurStartAt = null;
+let applyingLockState = false;
+let lastHardFullscreenAt = 0;
+let examDisplayId = null;
 let currentUser = null; // Store logged-in user data
 let backendProcess = null;
 const REACT_RENDERER_PATH = path.join(__dirname, "renderer", "dist", "index.html");
 
 const sessionLog = [];
-const MAX_VIOLATIONS = 3;
+const REFOCUS_INTERVAL_MS = 500;
+const LONG_FOCUS_LOSS_MS = 3000;
+const HARD_FULLSCREEN_COOLDOWN_MS = 1500;
+// Suppress violations during the first moments of exam mode — the kiosk/
+// fullscreen/bounds transition fires async blur/move/resize events that the
+// per-handler `applyingLockState` boolean can't cover (it resets before the
+// OS dispatches them). Without this grace window every exam start logs ~3
+// phantom violations.
+const EXAM_STARTUP_GRACE_MS = 1500;
+const violationLastLoggedAt = new Map();
 
 // Browsers handled via blur (focus loss)
 const FORBIDDEN_PROCESSES = [
@@ -38,12 +53,217 @@ const FORBIDDEN_PROCESSES = [
 /* =========================
    LOGGING
 ========================= */
-function logEvent(type, severity = "info") {
-  sessionLog.push({
+function logEvent(type, severity = "info", meta = {}) {
+  const entry = {
     type,
     severity,
     timestamp: new Date().toISOString()
+  };
+  if (meta && typeof meta === "object" && Object.keys(meta).length > 0) {
+    entry.meta = meta;
+  }
+  sessionLog.push(entry);
+}
+
+function getViolationDedupeKey(type, meta = {}) {
+  if (type === "FORBIDDEN_PROCESS") {
+    return `${type}:${String(meta.processName || "unknown").toLowerCase()}`;
+  }
+  if (type === "SHORTCUT_BLOCKED") {
+    return `${type}:${String(meta.shortcut || "unknown")}`;
+  }
+  return type;
+}
+
+function getViolationCooldownMs(type) {
+  if (type === "FORBIDDEN_PROCESS") return 5000;
+  if (type === "WINDOW_MOVE_ATTEMPT" || type === "WINDOW_RESIZE_ATTEMPT") return 1500;
+  if (type === "WINDOW_BLUR") return 1000;
+  return 800;
+}
+
+function logViolation(type, meta = {}, severity = "medium") {
+  if (!examRunning) return;
+
+  const now = Date.now();
+
+  if (examStartedAt && now - examStartedAt < EXAM_STARTUP_GRACE_MS) {
+    return;
+  }
+
+  const dedupeKey = getViolationDedupeKey(type, meta);
+  const lastAt = violationLastLoggedAt.get(dedupeKey) || 0;
+  const cooldownMs = getViolationCooldownMs(type);
+  if (now - lastAt < cooldownMs) {
+    return;
+  }
+  violationLastLoggedAt.set(dedupeKey, now);
+
+  violationCount += 1;
+  logEvent(type, severity, meta);
+
+  if (mainWindow && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+    mainWindow.webContents.send("violation", {
+      type,
+      severity,
+      count: violationCount,
+      timestamp: new Date(now).toISOString(),
+      ...meta
+    });
+  }
+}
+
+function getShortcutFromInput(input) {
+  if (!input) return null;
+  const key = String(input.key || "").toUpperCase();
+  const ctrlOrCmd = input.control || input.meta;
+  const alt = input.alt;
+  const shift = input.shift;
+
+  if (key === "F12") return "F12";
+  if (key === "F11") return "F11";
+  if (key === "F4" && alt) return "Alt+F4";
+  if (ctrlOrCmd && shift && key === "I") return "Ctrl/Cmd+Shift+I";
+  if (ctrlOrCmd && shift && key === "J") return "Ctrl/Cmd+Shift+J";
+  if (ctrlOrCmd && shift && key === "C") return "Ctrl/Cmd+Shift+C";
+  if (ctrlOrCmd && key === "ESCAPE") return "Ctrl/Cmd+Esc";
+  return null;
+}
+
+function withLockStateGuard(callback) {
+  applyingLockState = true;
+  try {
+    callback();
+  } finally {
+    applyingLockState = false;
+  }
+}
+
+function getCurrentDisplay() {
+  if (!mainWindow || mainWindow.isDestroyed()) return screen.getPrimaryDisplay();
+
+  if (examRunning && examDisplayId !== null) {
+    const lockedDisplay = screen.getAllDisplays().find((display) => display.id === examDisplayId);
+    if (lockedDisplay) return lockedDisplay;
+  }
+
+  const bounds = mainWindow.getBounds();
+  return screen.getDisplayMatching(bounds) || screen.getPrimaryDisplay();
+}
+
+function pickExamDisplayForStart() {
+  if (!mainWindow || mainWindow.isDestroyed()) return screen.getPrimaryDisplay();
+
+  const cursorPoint = screen.getCursorScreenPoint();
+  const cursorDisplay = screen.getDisplayNearestPoint(cursorPoint);
+  const windowBounds = mainWindow.getBounds();
+  const windowDisplay = screen.getDisplayMatching(windowBounds);
+
+  // Prefer the display where the cursor is when the teacher/student starts exam mode.
+  if (cursorDisplay) return cursorDisplay;
+  if (windowDisplay) return windowDisplay;
+  return screen.getPrimaryDisplay();
+}
+
+function boundsWithinTolerance(currentBounds, targetBounds, tolerance = 2) {
+  return Math.abs((currentBounds?.x || 0) - (targetBounds?.x || 0)) <= tolerance
+    && Math.abs((currentBounds?.y || 0) - (targetBounds?.y || 0)) <= tolerance
+    && Math.abs((currentBounds?.width || 0) - (targetBounds?.width || 0)) <= tolerance
+    && Math.abs((currentBounds?.height || 0) - (targetBounds?.height || 0)) <= tolerance;
+}
+
+function needsHardFullscreenReset(targetBounds) {
+  if (!mainWindow || mainWindow.isDestroyed()) return false;
+  if (!mainWindow.isKiosk() || !mainWindow.isFullScreen()) return true;
+  const currentBounds = mainWindow.getBounds();
+  return !boundsWithinTolerance(currentBounds, targetBounds);
+}
+
+function applyHardExamFullscreen(targetBounds) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  withLockStateGuard(() => {
+    // Hard reset avoids Windows cases where fullscreen is "true" but taskbar still visible.
+    mainWindow.setKiosk(false);
+    mainWindow.setFullScreen(false);
+    mainWindow.setVisibleOnAllWorkspaces(false);
+
+    mainWindow.setBounds(targetBounds, false);
+
+    mainWindow.setKiosk(true);
+    mainWindow.setFullScreen(true);
+    mainWindow.setAlwaysOnTop(true, "screen-saver", 1);
+    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    mainWindow.setSkipTaskbar(true);
+    mainWindow.setAutoHideMenuBar(true);
+    mainWindow.setMenuBarVisibility(false);
+
+    mainWindow.moveTop();
+    mainWindow.show();
+    mainWindow.focus();
   });
+}
+
+function enforceExamWindowLock({ forceBounds = false } = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  withLockStateGuard(() => {
+    const display = getCurrentDisplay();
+    const targetBounds = display.bounds;
+    const now = Date.now();
+
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+
+    if (needsHardFullscreenReset(targetBounds) && now - lastHardFullscreenAt >= HARD_FULLSCREEN_COOLDOWN_MS) {
+      lastHardFullscreenAt = now;
+      applyHardExamFullscreen(targetBounds);
+      return;
+    }
+
+    mainWindow.setKiosk(true);
+    mainWindow.setAlwaysOnTop(true, "screen-saver", 1);
+    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    mainWindow.setSkipTaskbar(true);
+    mainWindow.setAutoHideMenuBar(true);
+    mainWindow.setMenuBarVisibility(false);
+
+    if (forceBounds) {
+      mainWindow.setBounds(targetBounds, false);
+    }
+
+    if (!mainWindow.isFullScreen()) {
+      mainWindow.setBounds(targetBounds, false);
+      mainWindow.setFullScreen(true);
+    }
+
+    mainWindow.moveTop();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
+
+function startFocusEnforcer() {
+  if (focusEnforceInterval) {
+    clearInterval(focusEnforceInterval);
+    focusEnforceInterval = null;
+  }
+
+  focusEnforceInterval = setInterval(() => {
+    if (!examRunning || !mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+
+    enforceExamWindowLock();
+  }, REFOCUS_INTERVAL_MS);
+}
+
+function stopFocusEnforcer() {
+  if (focusEnforceInterval) {
+    clearInterval(focusEnforceInterval);
+    focusEnforceInterval = null;
+  }
 }
 
 function getBackendPort() {
@@ -190,15 +410,77 @@ function createWindow() {
   // Detect focus loss (browser / overlay usage) - ONLY during exam
   mainWindow.on("blur", () => {
     if (!examRunning) return;
-    registerViolation("WINDOW_BLUR", "medium");
+    if (!blurStartAt) {
+      blurStartAt = Date.now();
+    }
+    logViolation("WINDOW_BLUR", {}, "medium");
     refocusIfExam();
+  });
+
+  // Detect focus restore and measure focus-loss duration
+  mainWindow.on("focus", () => {
+    if (!examRunning) {
+      blurStartAt = null;
+      return;
+    }
+
+    if (blurStartAt) {
+      const durationMs = Date.now() - blurStartAt;
+      if (durationMs > LONG_FOCUS_LOSS_MS) {
+        logViolation("LONG_FOCUS_LOSS", { durationMs }, "high");
+      }
+      blurStartAt = null;
+    }
   });
 
   // Detect fullscreen exit - ONLY during exam
   mainWindow.on("leave-full-screen", () => {
     if (!examRunning) return;
-    mainWindow.setFullScreen(true);
-    registerViolation("FULLSCREEN_EXIT", "high");
+    logViolation("FULLSCREEN_EXIT", {}, "high");
+    enforceExamWindowLock({ forceBounds: true });
+    refocusIfExam();
+  });
+
+  mainWindow.on("minimize", (event) => {
+    if (!examRunning) return;
+    event.preventDefault();
+    logViolation("WINDOW_MINIMIZE_ATTEMPT", {}, "high");
+    enforceExamWindowLock({ forceBounds: true });
+  });
+
+  mainWindow.on("move", () => {
+    if (!examRunning || applyingLockState) return;
+    logViolation("WINDOW_MOVE_ATTEMPT", {}, "medium");
+    enforceExamWindowLock({ forceBounds: true });
+  });
+
+  mainWindow.on("resize", () => {
+    if (!examRunning || applyingLockState) return;
+    logViolation("WINDOW_RESIZE_ATTEMPT", {}, "medium");
+    enforceExamWindowLock({ forceBounds: true });
+  });
+
+  // Block common devtools shortcuts during exam mode
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (!examRunning) return;
+
+    const shortcut = getShortcutFromInput(input);
+    if (!shortcut) return;
+
+    event.preventDefault();
+    logViolation("SHORTCUT_BLOCKED", { shortcut }, shortcut === "Alt+F4" ? "high" : "medium");
+    if (mainWindow.webContents.isDevToolsOpened()) {
+      mainWindow.webContents.closeDevTools();
+    }
+    refocusIfExam();
+  });
+
+  // Force-close devtools if opened while exam is running
+  mainWindow.webContents.on("devtools-opened", () => {
+    if (!examRunning) return;
+    mainWindow.webContents.closeDevTools();
+    logViolation("SHORTCUT_BLOCKED", { shortcut: "DevTools" }, "high");
+    refocusIfExam();
   });
 }
 
@@ -209,33 +491,25 @@ function enableExamMode() {
   console.log("[EXAM MODE] ========================================");
   console.log("[EXAM MODE] ENABLING EXAM MODE");
   console.log("[EXAM MODE] ========================================");
-  
-  examRunning = true;
 
-  // First, make sure window is visible and focused
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore();
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
   }
-  mainWindow.show();
-  mainWindow.focus();
-  
-  console.log("[EXAM MODE] Window shown and focused");
 
-  // IMPORTANT: Set fullscreen BEFORE locking controls
-  // This is a Windows Electron quirk - resizable:false prevents true fullscreen
+  examRunning = true;
+  examStartedAt = Date.now();
+  blurStartAt = null;
+  violationLastLoggedAt.clear();
+  lastHardFullscreenAt = 0;
+  const examDisplay = pickExamDisplayForStart();
+  examDisplayId = examDisplay.id;
+
+  // First, force lock primitives (kiosk/fullscreen/top) before UI locks
   console.log("[EXAM MODE] Current fullscreen state:", mainWindow.isFullScreen());
-  console.log("[EXAM MODE] Setting fullscreen TRUE...");
-  mainWindow.setFullScreen(true);
-  console.log("[EXAM MODE] setFullScreen(true) called");
-  
-  // Set always on top
-  mainWindow.setAlwaysOnTop(true, "screen-saver");
-  console.log("[EXAM MODE] Set always on top");
-  
-  mainWindow.setVisibleOnAllWorkspaces(true, {
-    visibleOnFullScreen: true
-  });
-  console.log("[EXAM MODE] Set visible on all workspaces");
+  const startupBounds = examDisplay.bounds;
+  console.log("[EXAM MODE] Target display:", examDisplay.id, startupBounds);
+  applyHardExamFullscreen(startupBounds);
+  console.log("[EXAM MODE] Kiosk/fullscreen/always-on-top enforced");
 
   // NOW lock window controls AFTER fullscreen is set
   mainWindow.setResizable(false);
@@ -245,19 +519,32 @@ function enableExamMode() {
   console.log("[EXAM MODE] Window controls locked AFTER fullscreen");
 
   // Force focus again
-  mainWindow.focus();
-  
+  enforceExamWindowLock();
+  if (mainWindow.webContents.isDevToolsOpened()) {
+    mainWindow.webContents.closeDevTools();
+  }
+
+  startFocusEnforcer();
+
+  if (processScanInterval) {
+    clearInterval(processScanInterval);
+  }
+  processScanInterval = setInterval(detectForbiddenProcesses, 1000);
+
   // Check after a delay
   setTimeout(() => {
+    if (!examRunning || !mainWindow || mainWindow.isDestroyed()) {
+      return;
+    }
+
     const isFullScreenAfterDelay = mainWindow.isFullScreen();
     console.log("[EXAM MODE] ========================================");
     console.log("[EXAM MODE] FULLSCREEN STATUS AFTER 500ms:", isFullScreenAfterDelay);
     console.log("[EXAM MODE] ========================================");
-    
+
     if (!isFullScreenAfterDelay) {
       console.log("[EXAM MODE] WARNING: Fullscreen was not set! Trying again...");
-      mainWindow.setFullScreen(true);
-      mainWindow.focus();
+      enforceExamWindowLock({ forceBounds: true });
     }
   }, 500);
   
@@ -266,48 +553,45 @@ function enableExamMode() {
 
 function disableExamMode() {
   examRunning = false;
-
-  // Restore window controls after exam
-  mainWindow.setResizable(true);
-  mainWindow.setMinimizable(true);
-  mainWindow.setMaximizable(true);
-  mainWindow.setClosable(true);
-  
-  mainWindow.setFullScreen(false);
-  mainWindow.setAlwaysOnTop(false);
-  mainWindow.setVisibleOnAllWorkspaces(false);
+  examStartedAt = 0;
+  blurStartAt = null;
+  examDisplayId = null;
+  stopFocusEnforcer();
 
   if (processScanInterval) {
     clearInterval(processScanInterval);
     processScanInterval = null;
   }
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  // Restore window controls and window mode after exam
+  withLockStateGuard(() => {
+    mainWindow.setResizable(true);
+    mainWindow.setMinimizable(true);
+    mainWindow.setMaximizable(true);
+    mainWindow.setClosable(true);
+    mainWindow.setKiosk(false);
+    mainWindow.setFullScreen(false);
+    mainWindow.setAlwaysOnTop(false);
+    mainWindow.setVisibleOnAllWorkspaces(false);
+    mainWindow.setSkipTaskbar(false);
+    mainWindow.setAutoHideMenuBar(false);
+    mainWindow.setMenuBarVisibility(true);
+  });
 }
 
 function refocusIfExam() {
-  if (!mainWindow || !examRunning) return;
-
-  mainWindow.show();
-  mainWindow.focus();
-  mainWindow.setAlwaysOnTop(true, "screen-saver");
+  if (!mainWindow || !examRunning || mainWindow.isDestroyed()) return;
+  enforceExamWindowLock();
 }
 
 /* =========================
    VIOLATIONS
 ========================= */
-function registerViolation(type, severity) {
-  if (!examRunning) return;
-
-  violationCount++;
-  logEvent(type, severity);
-
-  mainWindow.webContents.send("violation", {
-    type,
-    severity,
-    count: violationCount
-  });
-
-  // ❌ NO AUTO-SUBMIT HERE (INTENTIONAL)
-}
+// NO AUTO-SUBMIT HERE (INTENTIONAL)
 
 /* =========================
    PROCESS DETECTION
@@ -323,12 +607,31 @@ async function detectForbiddenProcesses() {
     for (const proc of processes) {
       const name = proc.name.toLowerCase();
       if (FORBIDDEN_PROCESSES.some(p => name.includes(p))) {
-        registerViolation(`FORBIDDEN_PROCESS:${proc.name}`, "high");
+        logViolation("FORBIDDEN_PROCESS", { processName: proc.name }, "high");
         return;
       }
     }
   } catch (error) {
     console.error("[PROCESS DETECTION] Error:", error.message);
+  }
+}
+
+function registerExamShortcut(accelerator, shortcutLabel, severity = "medium") {
+  try {
+    const registered = globalShortcut.register(accelerator, () => {
+      if (!examRunning) return;
+      logViolation("SHORTCUT_BLOCKED", { shortcut: shortcutLabel }, severity);
+      if (mainWindow && mainWindow.webContents && mainWindow.webContents.isDevToolsOpened()) {
+        mainWindow.webContents.closeDevTools();
+      }
+      refocusIfExam();
+    });
+
+    if (!registered) {
+      console.warn(`[SHORTCUT] Could not register accelerator: ${accelerator}`);
+    }
+  } catch (error) {
+    console.warn(`[SHORTCUT] Failed to register accelerator '${accelerator}':`, error.message);
   }
 }
 
@@ -352,9 +655,6 @@ ipcMain.on("start-exam", (event, examData) => {
   }
 
   enableExamMode();
-
-  if (processScanInterval) clearInterval(processScanInterval);
-  processScanInterval = setInterval(detectForbiddenProcesses, 1000);
 });
 
 ipcMain.on("set-user-data", (event, userData) => {
@@ -394,30 +694,40 @@ ipcMain.handle("submit-exam", async (event, submissionData) => {
    APP LIFECYCLE
 ========================= */
 app.whenReady().then(() => {
+  // Allow camera access for webcam proctoring
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === "media") {
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
+
   startBackendServer().finally(() => {
     createWindow();
   });
 
-  globalShortcut.register("Alt+F4", () => {
-    if (!examRunning) return;
-    registerViolation("ALT_F4_BLOCKED", "high");
-  });
-
-  globalShortcut.register("F11", () => {
-    if (!examRunning) return;
-    registerViolation("F11_BLOCKED", "medium");
-  });
+  registerExamShortcut("Alt+F4", "Alt+F4", "high");
+  registerExamShortcut("F11", "F11", "medium");
+  registerExamShortcut("F12", "F12", "medium");
+  registerExamShortcut("CommandOrControl+Shift+I", "Ctrl/Cmd+Shift+I", "medium");
+  registerExamShortcut("CommandOrControl+Shift+J", "Ctrl/Cmd+Shift+J", "medium");
+  registerExamShortcut("CommandOrControl+Esc", "Ctrl/Cmd+Esc", "high");
+  registerExamShortcut("Super", "Windows/Super", "high");
+  registerExamShortcut("Alt+Tab", "Alt+Tab", "high");
 
   // Windows key - Use CommandOrControl instead of Super for cross-platform
   // Note: Windows key blocking is limited on some systems
 });
 
 app.on("will-quit", () => {
+  disableExamMode();
   stopBackendServer();
   globalShortcut.unregisterAll();
 });
 
 app.on("window-all-closed", () => {
+  disableExamMode();
   stopBackendServer();
   app.quit();
 });

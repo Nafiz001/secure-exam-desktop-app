@@ -34,6 +34,52 @@ function normalizeExamType(rawType) {
   return String(rawType || 'lab_quiz').toLowerCase() === 'lab_test' ? 'lab_test' : 'lab_quiz';
 }
 
+function normalizeQuestionFlowMode(rawMode) {
+  return String(rawMode || 'all_at_once').toLowerCase() === 'one_by_one' ? 'one_by_one' : 'all_at_once';
+}
+
+function normalizeBoolean(value, fallback = false) {
+  if (value === undefined || value === null) return fallback;
+  if (value === true || value === 'true' || value === 1 || value === '1') return true;
+  if (value === false || value === 'false' || value === 0 || value === '0') return false;
+  return fallback;
+}
+
+function hashSeed(input) {
+  const text = String(input || '');
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function seededRandomFactory(seedValue) {
+  let seed = seedValue >>> 0;
+  return () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+}
+
+function deterministicShuffle(items, seedKey) {
+  const shuffled = Array.isArray(items) ? [...items] : [];
+  const nextRandom = seededRandomFactory(hashSeed(seedKey));
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(nextRandom() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+function normalizeViolationSeverity(rawSeverity) {
+  const normalized = String(rawSeverity || '').toLowerCase();
+  if (normalized === 'low') return 'low';
+  if (normalized === 'high') return 'high';
+  return 'medium';
+}
+
 async function syncExpiredExamStatuses() {
   const expiredExamResult = await pool.query(
     `UPDATE exams
@@ -59,14 +105,44 @@ async function syncExpiredExamStatuses() {
   );
 }
 
+async function ensureTeacherOwnsExam(examId, teacherId) {
+  const examCheck = await pool.query(
+    'SELECT id, status FROM exams WHERE id = $1 AND created_by = $2',
+    [examId, teacherId]
+  );
+  return examCheck.rows[0] || null;
+}
+
 /**
  * Create a new exam (Teacher only)
  * POST /api/exams
  */
 const createExam = async (req, res) => {
-  const { title, description, duration, exam_type } = req.body;
+  const {
+    title,
+    description,
+    duration,
+    exam_type,
+    webcam_required,
+    question_flow_mode,
+    randomize_question_order,
+    auto_submit_violation_threshold,
+    hide_results_from_students,
+    allow_multiple_attempts
+  } = req.body;
   const teacherId = req.user.userId;
   const normalizedExamType = normalizeExamType(exam_type);
+  const webcamRequired = normalizeBoolean(webcam_required, false);
+  const questionFlowMode = normalizeQuestionFlowMode(question_flow_mode);
+  const randomizeQuestionOrder = normalizeBoolean(randomize_question_order, false);
+  const violationThreshold = (() => {
+    const n = Number(auto_submit_violation_threshold);
+    if (!Number.isFinite(n) || n < 1) return 3;
+    if (n > 50) return 50;
+    return Math.floor(n);
+  })();
+  const hideResults = normalizeBoolean(hide_results_from_students, false);
+  const multipleAttempts = normalizeBoolean(allow_multiple_attempts, false);
 
   if (!title || !duration) {
     return res.status(400).json({
@@ -86,10 +162,37 @@ const createExam = async (req, res) => {
     const roomCode = await generateUniqueRoomCode();
 
     const result = await pool.query(
-      `INSERT INTO exams (title, description, exam_type, duration, created_by, room_code, status) 
-       VALUES ($1, $2, $3, $4, $5, $6, 'created') 
-       RETURNING id, title, description, exam_type, duration, created_by, room_code, status, created_at`,
-      [title, description || '', normalizedExamType, duration, teacherId, roomCode]
+      `INSERT INTO exams (
+         title,
+         description,
+         exam_type,
+         duration,
+         created_by,
+         room_code,
+         status,
+         webcam_required,
+         question_flow_mode,
+         randomize_question_order,
+         auto_submit_violation_threshold,
+         hide_results_from_students,
+         allow_multiple_attempts
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8, $9, $10, $11, $12)
+       RETURNING *`,
+      [
+        title,
+        description || '',
+        normalizedExamType,
+        duration,
+        teacherId,
+        roomCode,
+        webcamRequired,
+        questionFlowMode,
+        randomizeQuestionOrder,
+        violationThreshold,
+        hideResults,
+        multipleAttempts
+      ]
     );
 
     res.status(201).json({
@@ -197,7 +300,11 @@ const getExamById = async (req, res) => {
         'SELECT id FROM submissions WHERE exam_id = $1 AND student_id = $2',
         [examId, userId]
       );
-      hasSubmitted = submissionCheck.rows.length > 0;
+      // When the teacher has enabled allow_multiple_attempts (e.g. running the
+      // same exam for a different section), surface the student as not-yet-
+      // submitted so the join/start flow lets them in again.
+      hasSubmitted = submissionCheck.rows.length > 0
+        && !Boolean(exam.allow_multiple_attempts);
     }
 
     let questionsQuery;
@@ -240,13 +347,17 @@ const getExamById = async (req, res) => {
     }
 
     const questionsResult = await pool.query(questionsQuery, [examId]);
+    const shouldRandomize = role === 'student' && normalizeBoolean(exam.randomize_question_order, false);
+    const questions = shouldRandomize
+      ? deterministicShuffle(questionsResult.rows, `exam:${examId}:student:${userId}`)
+      : questionsResult.rows;
 
     res.status(200).json({
       success: true,
       data: {
         exam: {
           ...exam,
-          questions: questionsResult.rows,
+          questions,
           has_submitted: hasSubmitted
         }
       }
@@ -266,9 +377,35 @@ const getExamById = async (req, res) => {
  */
 const updateExam = async (req, res) => {
   const examId = req.params.id;
-  const { title, description, duration, exam_type } = req.body;
+  const {
+    title,
+    description,
+    duration,
+    exam_type,
+    webcam_required,
+    question_flow_mode,
+    randomize_question_order,
+    auto_submit_violation_threshold,
+    hide_results_from_students,
+    allow_multiple_attempts
+  } = req.body;
   const teacherId = req.user.userId;
   const normalizedExamType = exam_type === undefined ? null : normalizeExamType(exam_type);
+  const webcamRequired = webcam_required === undefined ? null : normalizeBoolean(webcam_required, false);
+  const questionFlowMode = question_flow_mode === undefined ? null : normalizeQuestionFlowMode(question_flow_mode);
+  const randomizeQuestionOrder = randomize_question_order === undefined
+    ? null
+    : normalizeBoolean(randomize_question_order, false);
+  const violationThreshold = auto_submit_violation_threshold === undefined
+    ? null
+    : (() => {
+        const n = Number(auto_submit_violation_threshold);
+        if (!Number.isFinite(n) || n < 1) return 3;
+        if (n > 50) return 50;
+        return Math.floor(n);
+      })();
+  const hideResults = hide_results_from_students === undefined ? null : normalizeBoolean(hide_results_from_students, false);
+  const multipleAttempts = allow_multiple_attempts === undefined ? null : normalizeBoolean(allow_multiple_attempts, false);
 
   try {
     const checkResult = await pool.query(
@@ -283,23 +420,55 @@ const updateExam = async (req, res) => {
       });
     }
 
+    // Editing a completed exam re-opens it so teacher can run it again for a
+    // different section. Existing submissions are kept; if allow_multiple_
+    // attempts is on, the same student can take it again, otherwise only
+    // students who haven't submitted (e.g. a new section) will be allowed in.
+    const wasCompleted = String(checkResult.rows[0].status || '').toLowerCase() === 'completed';
+    const reopenExam = wasCompleted;
+
     const result = await pool.query(
-      `UPDATE exams 
+      `UPDATE exams
        SET title = COALESCE($1, title),
            description = COALESCE($2, description),
            duration = COALESCE($3, duration),
            exam_type = COALESCE($4, exam_type),
+           webcam_required = COALESCE($5, webcam_required),
+           question_flow_mode = COALESCE($6, question_flow_mode),
+           randomize_question_order = COALESCE($7, randomize_question_order),
+           auto_submit_violation_threshold = COALESCE($8, auto_submit_violation_threshold),
+           hide_results_from_students = COALESCE($9, hide_results_from_students),
+           allow_multiple_attempts = COALESCE($10, allow_multiple_attempts),
+           status = CASE WHEN $11::boolean THEN 'created' ELSE status END,
+           started_at = CASE WHEN $11::boolean THEN NULL ELSE started_at END,
            updated_at = CURRENT_TIMESTAMP
-         WHERE id = $5 AND created_by = $6
+       WHERE id = $12 AND created_by = $13
        RETURNING *`,
-        [title, description, duration, normalizedExamType, examId, teacherId]
+      [
+        title,
+        description,
+        duration,
+        normalizedExamType,
+        webcamRequired,
+        questionFlowMode,
+        randomizeQuestionOrder,
+        violationThreshold,
+        hideResults,
+        multipleAttempts,
+        reopenExam,
+        examId,
+        teacherId
+      ]
     );
 
     res.status(200).json({
       success: true,
-      message: 'Exam updated successfully',
+      message: reopenExam
+        ? 'Exam updated and reopened for a new run'
+        : 'Exam updated successfully',
       data: {
-        exam: result.rows[0]
+        exam: result.rows[0],
+        reopened: reopenExam
       }
     });
   } catch (error) {
@@ -362,16 +531,31 @@ const submitExam = async (req, res) => {
   }
 
   try {
+    const examMetaResult = await pool.query(
+      'SELECT allow_multiple_attempts FROM exams WHERE id = $1',
+      [examId]
+    );
+    const allowMultiple = examMetaResult.rows.length > 0
+      && Boolean(examMetaResult.rows[0].allow_multiple_attempts);
+
     const alreadySubmitted = await pool.query(
       'SELECT id FROM submissions WHERE exam_id = $1 AND student_id = $2',
       [examId, studentId]
     );
 
     if (alreadySubmitted.rows.length > 0) {
-      return res.status(409).json({
-        success: false,
-        message: 'You have already submitted this exam'
-      });
+      if (!allowMultiple) {
+        return res.status(409).json({
+          success: false,
+          message: 'You have already submitted this exam'
+        });
+      }
+      // allow_multiple_attempts on — drop the previous attempt so the unique
+      // (exam_id, student_id) row gets overwritten by the new submission.
+      await pool.query(
+        'DELETE FROM submissions WHERE exam_id = $1 AND student_id = $2',
+        [examId, studentId]
+      );
     }
 
     const questionsResult = await pool.query(
@@ -452,12 +636,51 @@ const submitExam = async (req, res) => {
 
     const evaluationStatus = hasManualEvaluationQuestions ? 'pending' : 'completed';
 
+    // Unified violations: combine browser/keyboard violations from the
+    // client with the persisted face-detection events for this student.
+    const browserViolations = Array.isArray(violations) ? violations : [];
+    let proctoringViolations = [];
+    try {
+      const proctoringResult = await pool.query(
+        `SELECT event_type, details, created_at
+         FROM proctoring_events
+         WHERE exam_id = $1 AND student_id = $2
+         ORDER BY created_at ASC`,
+        [examId, studentId]
+      );
+      const labels = {
+        multiple_faces: 'Multiple faces detected',
+        no_face: 'No face detected',
+        looking_away: 'Looking away from screen',
+        looking_down: 'Looking down',
+      };
+      const severities = {
+        multiple_faces: 'high',
+        no_face: 'medium',
+        looking_away: 'low',
+        looking_down: 'low',
+      };
+      proctoringViolations = proctoringResult.rows.map((row) => ({
+        type: labels[row.event_type] || row.event_type,
+        severity: severities[row.event_type] || 'medium',
+        timestamp: row.created_at,
+        source: 'proctoring',
+        details: row.details || null,
+      }));
+    } catch (proctoringErr) {
+      console.warn('Could not merge proctoring violations:', proctoringErr.message);
+    }
+    const mergedViolations = [
+      ...browserViolations.map((v) => ({ source: 'browser', ...v })),
+      ...proctoringViolations,
+    ];
+
     const result = await pool.query(
       `INSERT INTO submissions (
          exam_id, student_id, answers, violations,
          auto_score, manual_score, score, evaluation_status
-       ) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING
          id, exam_id, student_id, auto_score, manual_score, score,
          evaluation_status, submitted_at`,
@@ -465,12 +688,22 @@ const submitExam = async (req, res) => {
         examId,
         studentId,
         JSON.stringify(normalizedAnswers),
-        JSON.stringify(violations || []),
+        JSON.stringify(mergedViolations),
         autoScore,
         0,
         autoScore,
         evaluationStatus
       ]
+    );
+
+    await pool.query(
+      `UPDATE exam_participants
+       SET
+         status = 'completed',
+         force_submit_requested = FALSE,
+         is_frozen = FALSE
+       WHERE exam_id = $1 AND student_id = $2`,
+      [examId, studentId]
     );
 
     res.status(201).json({
@@ -548,7 +781,12 @@ const joinExam = async (req, res) => {
 
     if (participantCheck.rows.length > 0) {
       await pool.query(
-        'UPDATE exam_participants SET student_name = $1 WHERE exam_id = $2 AND student_id = $3',
+        `UPDATE exam_participants
+         SET
+           student_name = $1,
+           force_submit_requested = FALSE,
+           is_frozen = FALSE
+         WHERE exam_id = $2 AND student_id = $3`,
         [studentName.trim(), exam.id, studentId]
       );
 
@@ -689,6 +927,15 @@ const startExam = async (req, res) => {
       ['taking', examId]
     );
 
+    await pool.query(
+      `UPDATE exam_participants
+       SET
+         force_submit_requested = FALSE,
+         is_frozen = FALSE
+       WHERE exam_id = $1`,
+      [examId]
+    );
+
     res.status(200).json({
       success: true,
       message: 'Exam started successfully',
@@ -732,9 +979,12 @@ const getExamStatus = async (req, res) => {
 
     const exam = examResult.rows[0];
 
+    let participantData = null;
     if (userRole === 'student') {
       const participantCheck = await pool.query(
-        'SELECT id FROM exam_participants WHERE exam_id = $1 AND student_id = $2',
+        `SELECT id, status, COALESCE(is_frozen, FALSE) as is_frozen, COALESCE(force_submit_requested, FALSE) as force_submit_requested
+         FROM exam_participants
+         WHERE exam_id = $1 AND student_id = $2`,
         [examId, userId]
       );
 
@@ -744,6 +994,7 @@ const getExamStatus = async (req, res) => {
           message: 'You have not joined this exam'
         });
       }
+      participantData = participantCheck.rows[0];
     } else if (userRole === 'teacher' && exam.created_by !== userId) {
       return res.status(403).json({
         success: false,
@@ -764,7 +1015,10 @@ const getExamStatus = async (req, res) => {
         status: exam.status,
         started_at: exam.started_at,
         duration: exam.duration,
-        participants_count: parseInt(participantCount.rows[0].count, 10)
+        participants_count: parseInt(participantCount.rows[0].count, 10),
+        participant_status: participantData?.status || null,
+        is_frozen: Boolean(participantData?.is_frozen),
+        force_submit_requested: Boolean(participantData?.force_submit_requested)
       }
     });
   } catch (error) {
@@ -821,6 +1075,631 @@ const getMyActiveExams = async (req, res) => {
   }
 };
 
+/**
+ * Get student's submitted exam results summary
+ * GET /api/exams/my-results
+ */
+const getMyResults = async (req, res) => {
+  const studentId = req.user.userId;
+
+  try {
+    const result = await pool.query(
+      `SELECT
+         s.id as submission_id,
+         s.exam_id,
+         s.submitted_at,
+         s.auto_score,
+         s.manual_score,
+         s.score,
+         s.evaluation_status,
+         s.evaluated_at,
+         e.title as exam_title,
+         e.exam_type,
+         e.duration,
+         e.hide_results_from_students,
+         u.name as teacher_name
+       FROM submissions s
+       JOIN exams e ON s.exam_id = e.id
+       JOIN users u ON e.created_by = u.id
+       WHERE s.student_id = $1
+       ORDER BY s.submitted_at DESC`,
+      [studentId]
+    );
+
+    // Mask scores when the teacher chose to hide results from students.
+    const filtered = result.rows.map((row) => {
+      if (row.hide_results_from_students) {
+        return {
+          ...row,
+          auto_score: null,
+          manual_score: null,
+          score: null,
+          evaluation_status: 'hidden',
+          results_hidden: true,
+        };
+      }
+      return { ...row, results_hidden: false };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        results: filtered
+      }
+    });
+  } catch (error) {
+    console.error('Get my results error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching results'
+    });
+  }
+};
+
+/**
+ * Get one submitted exam result with question-level details (Student only)
+ * GET /api/exams/my-results/:submissionId
+ */
+const getMyResultDetails = async (req, res) => {
+  const studentId = req.user.userId;
+  const submissionId = req.params.submissionId;
+
+  try {
+    const submissionResult = await pool.query(
+      `SELECT
+         s.id,
+         s.exam_id,
+         s.submitted_at,
+         s.auto_score,
+         s.manual_score,
+         s.score,
+         s.evaluation_status,
+         s.evaluated_at,
+         s.answers,
+         e.title as exam_title,
+         e.exam_type,
+         e.duration,
+         e.hide_results_from_students,
+         u.name as teacher_name
+       FROM submissions s
+       JOIN exams e ON s.exam_id = e.id
+       JOIN users u ON e.created_by = u.id
+       WHERE s.id = $1 AND s.student_id = $2`,
+      [submissionId, studentId]
+    );
+
+    if (submissionResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Result not found'
+      });
+    }
+
+    const submission = submissionResult.rows[0];
+
+    // Teacher chose to hide results — return a stub instead of marks/answers.
+    if (submission.hide_results_from_students) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          result: {
+            submission_id: submission.id,
+            exam_id: submission.exam_id,
+            exam_title: submission.exam_title,
+            exam_type: submission.exam_type,
+            duration: submission.duration,
+            teacher_name: submission.teacher_name,
+            submitted_at: submission.submitted_at,
+            evaluation_status: 'hidden',
+            results_hidden: true,
+            details: []
+          }
+        }
+      });
+    }
+    const rawAnswers = Array.isArray(submission.answers)
+      ? submission.answers
+      : (() => {
+          try {
+            const parsed = JSON.parse(submission.answers || '[]');
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (error) {
+            return [];
+          }
+        })();
+
+    const answerMap = new Map();
+    rawAnswers.forEach((answer) => {
+      if (answer && answer.question_id !== undefined && answer.question_id !== null) {
+        answerMap.set(Number(answer.question_id), answer);
+      }
+    });
+
+    const questionsResult = await pool.query(
+      `SELECT
+         id,
+         question_text,
+         COALESCE(question_type, 'mcq') as question_type,
+         options,
+         correct_answer,
+         reference_answer,
+         sample_input,
+         sample_output,
+         marks
+       FROM questions
+       WHERE exam_id = $1
+       ORDER BY id ASC`,
+      [submission.exam_id]
+    );
+
+    const details = questionsResult.rows.map((question) => {
+      const answer = answerMap.get(Number(question.id)) || {};
+      const parsedOptions = Array.isArray(question.options)
+        ? question.options
+        : (() => {
+            try {
+              const parsed = JSON.parse(question.options || '[]');
+              return Array.isArray(parsed) ? parsed : [];
+            } catch (error) {
+              return [];
+            }
+          })();
+
+      return {
+        question_id: Number(question.id),
+        question_text: question.question_text,
+        question_type: normalizeQuestionType(question.question_type),
+        options: parsedOptions,
+        correct_answer: question.correct_answer,
+        reference_answer: question.reference_answer || '',
+        sample_input: question.sample_input || '',
+        sample_output: question.sample_output || '',
+        max_marks: Number(question.marks) || 0,
+        selected_answer: answer.selected_answer ?? null,
+        written_answer: answer.written_answer || '',
+        language: answer.language || '',
+        is_correct: answer.is_correct ?? null,
+        awarded_marks: Number(answer.awarded_marks ?? 0),
+        evaluated: Boolean(answer.evaluated),
+        evaluation_comment: answer.evaluation_comment || ''
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        result: {
+          submission_id: submission.id,
+          exam_id: submission.exam_id,
+          exam_title: submission.exam_title,
+          exam_type: submission.exam_type,
+          duration: submission.duration,
+          teacher_name: submission.teacher_name,
+          submitted_at: submission.submitted_at,
+          auto_score: Number(submission.auto_score) || 0,
+          manual_score: Number(submission.manual_score) || 0,
+          score: Number(submission.score) || 0,
+          evaluation_status: submission.evaluation_status,
+          evaluated_at: submission.evaluated_at,
+          results_hidden: false,
+          answers: details
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get my result details error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching result details'
+    });
+  }
+};
+
+/**
+ * Record a live violation for an active exam participant
+ * POST /api/exams/:id/violations
+ */
+const recordViolation = async (req, res) => {
+  const examId = req.params.id;
+  const studentId = req.user.userId;
+  const { type, severity } = req.body || {};
+  const normalizedType = String(type || '').trim();
+  const normalizedSeverity = normalizeViolationSeverity(severity);
+
+  if (!normalizedType) {
+    return res.status(400).json({
+      success: false,
+      message: 'Violation type is required'
+    });
+  }
+
+  try {
+    await syncExpiredExamStatuses();
+
+    const examCheck = await pool.query(
+      'SELECT id, status FROM exams WHERE id = $1',
+      [examId]
+    );
+
+    if (examCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam not found'
+      });
+    }
+
+    const exam = examCheck.rows[0];
+    if (exam.status !== 'in_progress') {
+      return res.status(400).json({
+        success: false,
+        message: 'Violations can be recorded only while exam is in progress'
+      });
+    }
+
+    // Pull the per-exam threshold (set by teacher; default 3).
+    const thresholdResult = await pool.query(
+      'SELECT auto_submit_violation_threshold FROM exams WHERE id = $1',
+      [examId]
+    );
+    const threshold = (() => {
+      const n = Number(thresholdResult.rows[0]?.auto_submit_violation_threshold);
+      return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 3;
+    })();
+
+    const participantResult = await pool.query(
+      `UPDATE exam_participants
+       SET
+         violation_count = COALESCE(violation_count, 0) + 1,
+         last_violation_type = $1,
+         last_violation_severity = $2,
+         last_violation_at = CURRENT_TIMESTAMP
+       WHERE exam_id = $3 AND student_id = $4
+       RETURNING id, violation_count, last_violation_type, last_violation_severity, last_violation_at, status`,
+      [normalizedType.slice(0, 100), normalizedSeverity, examId, studentId]
+    );
+
+    if (participantResult.rows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        message: 'You have not joined this exam'
+      });
+    }
+
+    const participant = participantResult.rows[0];
+    const reachedThreshold = Number(participant.violation_count) >= threshold
+      && String(participant.status || '').toLowerCase() !== 'completed';
+
+    if (reachedThreshold) {
+      // Flag for the student-side poll to pick up and auto-submit, mirroring
+      // teacher-initiated force submit. The participant row is left non-
+      // completed so the actual submission flow can finalise it.
+      await pool.query(
+        `UPDATE exam_participants
+         SET force_submit_requested = TRUE, is_frozen = FALSE
+         WHERE exam_id = $1 AND student_id = $2`,
+        [examId, studentId]
+      );
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ...participant,
+        threshold,
+        auto_submit_triggered: reachedThreshold
+      }
+    });
+  } catch (error) {
+    console.error('Record violation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while recording violation'
+    });
+  }
+};
+
+/**
+ * Teacher requests force submit for a participant
+ * POST /api/exams/:id/participants/:participantId/force-submit
+ */
+const forceSubmitParticipant = async (req, res) => {
+  const examId = req.params.id;
+  const participantId = req.params.participantId;
+  const teacherId = req.user.userId;
+
+  try {
+    const exam = await ensureTeacherOwnsExam(examId, teacherId);
+    if (!exam) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam not found or you do not have permission'
+      });
+    }
+
+    const participantResult = await pool.query(
+      `UPDATE exam_participants
+       SET force_submit_requested = TRUE, is_frozen = FALSE
+       WHERE id = $1 AND exam_id = $2
+       RETURNING id, exam_id, student_id, student_name, status, force_submit_requested`,
+      [participantId, examId]
+    );
+
+    if (participantResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Participant not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Force submit requested for participant',
+      data: {
+        participant: participantResult.rows[0]
+      }
+    });
+  } catch (error) {
+    console.error('Force submit participant error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while forcing participant submission'
+    });
+  }
+};
+
+/**
+ * Teacher toggles freeze/unfreeze for a participant
+ * POST /api/exams/:id/participants/:participantId/toggle-freeze
+ */
+const toggleParticipantFreeze = async (req, res) => {
+  const examId = req.params.id;
+  const participantId = req.params.participantId;
+  const teacherId = req.user.userId;
+
+  try {
+    const exam = await ensureTeacherOwnsExam(examId, teacherId);
+    if (!exam) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam not found or you do not have permission'
+      });
+    }
+
+    const toggleResult = await pool.query(
+      `UPDATE exam_participants
+       SET is_frozen = NOT COALESCE(is_frozen, FALSE)
+       WHERE id = $1 AND exam_id = $2
+       RETURNING id, exam_id, student_id, student_name, status, is_frozen`,
+      [participantId, examId]
+    );
+
+    if (toggleResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Participant not found'
+      });
+    }
+
+    const participant = toggleResult.rows[0];
+    res.status(200).json({
+      success: true,
+      message: participant.is_frozen ? 'Participant exam frozen' : 'Participant exam unfrozen',
+      data: {
+        participant
+      }
+    });
+  } catch (error) {
+    console.error('Toggle participant freeze error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while toggling participant freeze'
+    });
+  }
+};
+
+/**
+ * POST /api/exams/join-by-room
+ * No login required — student provides roomCode + roll to enter an exam directly.
+ * Body: { roomCode, roll }
+ */
+const joinByRoom = async (req, res) => {
+  const { roomCode, roll } = req.body;
+
+  if (!roomCode || !roll) {
+    return res.status(400).json({ success: false, message: 'roomCode and roll are required' });
+  }
+
+  const normalizedRoll = String(roll).trim();
+  const normalizedCode = String(roomCode).trim().toUpperCase();
+
+  try {
+    // Find active student by roll
+    const studentResult = await pool.query(
+      `SELECT id, name, email, role, roll_number, status FROM users
+       WHERE role = 'student' AND roll_number = $1 LIMIT 1`,
+      [normalizedRoll]
+    );
+
+    if (studentResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'No student found with this roll number. Contact admin.' });
+    }
+
+    const student = studentResult.rows[0];
+    if (student.status === 'inactive') {
+      return res.status(403).json({ success: false, message: 'Your account is inactive. Contact admin.' });
+    }
+
+    // Find exam by room code
+    const examResult = await pool.query(
+      `SELECT id, title, exam_type, duration, status, webcam_required, question_flow_mode, randomize_question_order, started_at
+       FROM exams WHERE room_code = $1 LIMIT 1`,
+      [normalizedCode]
+    );
+
+    if (examResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Invalid room code' });
+    }
+
+    const exam = examResult.rows[0];
+    if (exam.status === 'completed') {
+      return res.status(400).json({ success: false, message: 'This exam has already ended' });
+    }
+
+    // Check if already submitted
+    const submissionCheck = await pool.query(
+      'SELECT id FROM submissions WHERE exam_id = $1 AND student_id = $2',
+      [exam.id, student.id]
+    );
+    if (submissionCheck.rows.length > 0) {
+      return res.status(400).json({ success: false, message: 'You have already submitted this exam' });
+    }
+
+    // Upsert participant
+    await pool.query(
+      `INSERT INTO exam_participants (exam_id, student_id, student_name, status)
+       VALUES ($1, $2, $3, 'waiting')
+       ON CONFLICT (exam_id, student_id) DO NOTHING`,
+      [exam.id, student.id, student.name]
+    );
+
+    // Issue short-lived JWT so student can make authenticated API calls during exam
+    const jwt = require('jsonwebtoken');
+    const token = jwt.sign(
+      { userId: student.id, email: student.email, role: 'student' },
+      process.env.JWT_SECRET,
+      { expiresIn: '4h' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Joined exam successfully',
+      data: {
+        user: { id: student.id, name: student.name, email: student.email, role: 'student', roll_number: student.roll_number },
+        token,
+        exam
+      }
+    });
+
+  } catch (error) {
+    console.error('[joinByRoom] error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * Export aggregate results for an exam as CSV (Teacher only — own exams).
+ * GET /api/exams/:id/export-results.csv
+ *
+ * One row per participant (so even students who joined but never submitted
+ * appear with blank scores). Columns are auto-quoted and CRLF-terminated.
+ */
+const exportExamResultsCsv = async (req, res) => {
+  const examId = req.params.id;
+  const teacherId = req.user.userId;
+
+  try {
+    const examCheck = await pool.query(
+      'SELECT id, title FROM exams WHERE id = $1 AND created_by = $2',
+      [examId, teacherId]
+    );
+    if (examCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam not found or you do not have permission'
+      });
+    }
+    const exam = examCheck.rows[0];
+
+    // Total marks (sum of all question marks) for context.
+    const totalMarksResult = await pool.query(
+      'SELECT COALESCE(SUM(marks), 0) AS total_marks FROM questions WHERE exam_id = $1',
+      [examId]
+    );
+    const totalMarks = Number(totalMarksResult.rows[0]?.total_marks) || 0;
+
+    // Left-join participants ↔ submissions so non-submitted students appear.
+    const rowsResult = await pool.query(
+      `SELECT
+         u.roll_number,
+         COALESCE(ep.student_name, u.name) AS student_name,
+         u.email,
+         ep.status                        AS participant_status,
+         ep.violation_count,
+         s.submitted_at,
+         s.auto_score,
+         s.manual_score,
+         s.score,
+         s.evaluation_status
+       FROM exam_participants ep
+       JOIN users u ON u.id = ep.student_id
+       LEFT JOIN submissions s
+         ON s.exam_id = ep.exam_id AND s.student_id = ep.student_id
+       WHERE ep.exam_id = $1
+       ORDER BY u.roll_number NULLS LAST, u.name ASC`,
+      [examId]
+    );
+
+    const csvEscape = (val) => {
+      if (val === null || val === undefined) return '';
+      const s = String(val);
+      // Quote if it contains comma, quote, CR, LF, or leading/trailing space.
+      if (/[",\r\n]/.test(s) || /^\s|\s$/.test(s)) {
+        return `"${s.replace(/"/g, '""')}"`;
+      }
+      return s;
+    };
+
+    const header = [
+      'Roll Number',
+      'Student Name',
+      'Email',
+      'Status',
+      'Submitted At',
+      'Auto Score',
+      'Manual Score',
+      'Total Score',
+      `Out Of (${totalMarks})`,
+      'Evaluation Status',
+      'Violations',
+    ];
+
+    const lines = [header.map(csvEscape).join(',')];
+    rowsResult.rows.forEach((row) => {
+      lines.push([
+        row.roll_number || '',
+        row.student_name || '',
+        row.email || '',
+        row.participant_status || (row.submitted_at ? 'submitted' : 'joined'),
+        row.submitted_at ? new Date(row.submitted_at).toISOString() : '',
+        row.auto_score ?? '',
+        row.manual_score ?? '',
+        row.score ?? '',
+        totalMarks,
+        row.evaluation_status || (row.submitted_at ? 'pending' : 'not_submitted'),
+        row.violation_count ?? 0,
+      ].map(csvEscape).join(','));
+    });
+
+    const safeTitle = String(exam.title || `exam_${examId}`)
+      .replace(/[^a-z0-9_-]+/gi, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 60) || `exam_${examId}`;
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const filename = `${safeTitle}_results_${dateStamp}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    // BOM so Excel recognises UTF-8 names (non-ASCII roll labels etc.).
+    res.send('﻿' + lines.join('\r\n') + '\r\n');
+  } catch (error) {
+    console.error('Export results CSV error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while exporting results'
+    });
+  }
+};
+
 module.exports = {
   createExam,
   getExams,
@@ -829,8 +1708,15 @@ module.exports = {
   deleteExam,
   submitExam,
   joinExam,
+  joinByRoom,
   getExamParticipants,
   startExam,
   getExamStatus,
-  getMyActiveExams
+  getMyActiveExams,
+  getMyResults,
+  getMyResultDetails,
+  recordViolation,
+  forceSubmitParticipant,
+  toggleParticipantFreeze,
+  exportExamResultsCsv
 };
