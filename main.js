@@ -19,6 +19,7 @@ console.log("[MAIN] psList.default type:", typeof psList.default);
 let mainWindow = null;
 let violationCount = 0;
 let examRunning = false;
+let examStartedAt = 0;
 let processScanInterval = null;
 let focusEnforceInterval = null;
 let blurStartAt = null;
@@ -33,6 +34,12 @@ const sessionLog = [];
 const REFOCUS_INTERVAL_MS = 500;
 const LONG_FOCUS_LOSS_MS = 3000;
 const HARD_FULLSCREEN_COOLDOWN_MS = 1500;
+// Suppress violations during the first moments of exam mode — the kiosk/
+// fullscreen/bounds transition fires async blur/move/resize events that the
+// per-handler `applyingLockState` boolean can't cover (it resets before the
+// OS dispatches them). Without this grace window every exam start logs ~3
+// phantom violations.
+const EXAM_STARTUP_GRACE_MS = 1500;
 const violationLastLoggedAt = new Map();
 
 // Browsers handled via blur (focus loss)
@@ -79,6 +86,11 @@ function logViolation(type, meta = {}, severity = "medium") {
   if (!examRunning) return;
 
   const now = Date.now();
+
+  if (examStartedAt && now - examStartedAt < EXAM_STARTUP_GRACE_MS) {
+    return;
+  }
+
   const dedupeKey = getViolationDedupeKey(type, meta);
   const lastAt = violationLastLoggedAt.get(dedupeKey) || 0;
   const cooldownMs = getViolationCooldownMs(type);
@@ -485,6 +497,7 @@ function enableExamMode() {
   }
 
   examRunning = true;
+  examStartedAt = Date.now();
   blurStartAt = null;
   violationLastLoggedAt.clear();
   lastHardFullscreenAt = 0;
@@ -540,6 +553,7 @@ function enableExamMode() {
 
 function disableExamMode() {
   examRunning = false;
+  examStartedAt = 0;
   blurStartAt = null;
   examDisplayId = null;
   stopFocusEnforcer();

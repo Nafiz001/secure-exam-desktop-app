@@ -217,7 +217,26 @@ function EnterExamTab({ onLogin }) {
         body: JSON.stringify({ roomCode: roomCode.trim(), roll: roll.trim() }),
       });
 
-      onLogin(result.data.token, result.data.user);
+      const { token, user, exam } = result.data;
+      // Seed the student-session marker so StudentDashboard's restore effect
+      // drops the user straight into the waiting room (or live exam) on mount,
+      // instead of landing on the dashboard "join exam" page.
+      if (user?.id && exam?.id) {
+        try {
+          window.localStorage.setItem(
+            `student-session:${user.id}`,
+            JSON.stringify({
+              mode: exam.status === "in_progress" ? "exam" : "waiting",
+              examId: exam.id,
+              savedAt: new Date().toISOString(),
+            })
+          );
+        } catch (storageErr) {
+          // non-fatal — falls back to the dashboard view
+        }
+      }
+
+      onLogin(token, user);
     } catch (err) {
       setError(err.message || "Could not join exam.");
     } finally {
