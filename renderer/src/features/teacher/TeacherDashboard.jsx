@@ -540,11 +540,38 @@ export default function TeacherDashboard({ token }) {
 
   async function copyRoomCodeToClipboard() {
     if (!roomCode) return;
+    let copied = false;
     try {
-      await navigator.clipboard.writeText(roomCode);
-      await showAlert({ title: "Success", message: "Room code copied." });
+      if (navigator?.clipboard?.writeText && window.isSecureContext !== false) {
+        await navigator.clipboard.writeText(roomCode);
+        copied = true;
+      }
     } catch (error) {
-      await showAlert({ title: "Error", message: "Could not copy room code." });
+      copied = false;
+    }
+    if (!copied) {
+      try {
+        const textarea = document.createElement("textarea");
+        textarea.value = roomCode;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        textarea.style.pointerEvents = "none";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        copied = document.execCommand("copy");
+        document.body.removeChild(textarea);
+      } catch (error) {
+        copied = false;
+      }
+    }
+    if (copied) {
+      await showAlert({ title: "Copied", message: `Room code "${roomCode}" copied to clipboard.` });
+    } else {
+      await showAlert({
+        title: "Copy failed",
+        message: `Could not access the clipboard. Manually copy this code: ${roomCode}`,
+      });
     }
   }
 
@@ -1271,8 +1298,14 @@ export default function TeacherDashboard({ token }) {
             <Card>
               <CardHeader>
                 <div>
-                  <CardTitle>Live room &amp; participants</CardTitle>
-                  <CardDescription>Share code, monitor joins, launch when ready.</CardDescription>
+                  <CardTitle>
+                    {effectiveExamStatus === "completed" ? "Participants" : "Live room & participants"}
+                  </CardTitle>
+                  <CardDescription>
+                    {effectiveExamStatus === "completed"
+                      ? "Exam has ended. You can still freeze or unfreeze any student's screen."
+                      : "Share code, monitor joins, launch when ready."}
+                  </CardDescription>
                 </div>
                 <IconButton
                   aria-label="Refresh participants"
@@ -1777,6 +1810,10 @@ export default function TeacherDashboard({ token }) {
               <ul className="space-y-2">
                 {evaluationParticipants.map((participant) => {
                   const submitted = Boolean(participant.submission_id);
+                  const violationCount = Number(participant.violation_count || 0);
+                  const lastViolation = participant.last_violation_at
+                    ? `${participant.last_violation_severity || "medium"} · ${participant.last_violation_type || "Unknown"} · ${formatDateTime(participant.last_violation_at)}`
+                    : null;
                   return (
                     <li
                       key={participant.participant_id}
@@ -1796,12 +1833,20 @@ export default function TeacherDashboard({ token }) {
                               </>
                             )}
                           </Badge>
+                          {violationCount > 0 ? (
+                            <Badge variant="danger">
+                              <ShieldAlert className="h-3 w-3" /> {violationCount} violation{violationCount > 1 ? "s" : ""}
+                            </Badge>
+                          ) : null}
                         </div>
                         <p className="text-xs text-ink-muted mt-1">{participant.student_email}</p>
                         <p className="text-xs text-ink-muted mt-1">
                           Joined {formatDateTime(participant.joined_at)} ·{" "}
                           {submitted ? "Submitted" : "Not submitted"}
                         </p>
+                        {lastViolation ? (
+                          <p className="text-xs text-ink-subtle mt-1">Latest violation: {lastViolation}</p>
+                        ) : null}
                         <div className="flex items-center gap-2 mt-2 flex-wrap">
                           <Badge variant="outline">Status: {participant.evaluation_status || "pending"}</Badge>
                           <Badge variant="info">Auto {participant.auto_score ?? 0}</Badge>
@@ -1872,6 +1917,53 @@ export default function TeacherDashboard({ token }) {
           <Stat icon={Check} label="Total" value={selectedSubmissionSheet.score} tone="success" />
           <Stat icon={ShieldAlert} label="Violations" value={violations.length} tone={violations.length > 0 ? "danger" : "neutral"} />
         </div>
+
+        {violations.length > 0 ? (
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Violations during exam</CardTitle>
+                <CardDescription>
+                  All proctoring and browser/keyboard events recorded for this submission, in order.
+                </CardDescription>
+              </div>
+              <Badge variant="danger">
+                <ShieldAlert className="h-3 w-3" /> {violations.length} total
+              </Badge>
+            </CardHeader>
+            <CardBody>
+              <ul className="space-y-2">
+                {violations.map((v, vi) => {
+                  const sev = String(v.severity || "medium").toLowerCase();
+                  const sevTone = sev === "high" ? "danger" : sev === "low" ? "warning" : "neutral";
+                  const source = String(v.source || "browser").toLowerCase();
+                  const ts = v.timestamp ? formatDateTime(v.timestamp) : null;
+                  return (
+                    <li
+                      key={vi}
+                      className="flex items-start gap-3 rounded-md border border-border bg-bg px-3 py-2 text-sm"
+                    >
+                      <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0 text-danger" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-ink">{v.type || "Unknown"}</span>
+                          <Badge variant={sevTone}>{sev}</Badge>
+                          <Badge variant={source === "proctoring" ? "info" : "outline"}>
+                            {source === "proctoring" ? "Webcam" : "Browser"}
+                          </Badge>
+                        </div>
+                        {ts ? <p className="text-xs text-ink-muted mt-1">{ts}</p> : null}
+                        {v.details ? (
+                          <p className="text-xs text-ink-muted mt-1 break-words">{v.details}</p>
+                        ) : null}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </CardBody>
+          </Card>
+        ) : null}
 
         {loadingSubmissionSheet ? (
           <Card>

@@ -303,7 +303,7 @@ export default function AIAssistant({
             </div>
           </TabsContent>
 
-          <TabsContent value="generate" className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+          <TabsContent value="generate" className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-bg/30">
             <div className="space-y-3">
               <FormField label="Topic" htmlFor="ai-topic">
                 <Input
@@ -385,6 +385,24 @@ export default function AIAssistant({
               >
                 <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
                 <span>{genError}</span>
+              </div>
+            ) : null}
+
+            {!genError && generatedQuestions.length === 0 && !genLoading ? (
+              <div className="rounded-lg border border-dashed border-border bg-surface/60 p-4 text-xs text-ink-muted space-y-2">
+                <div className="flex items-center gap-2 text-ink">
+                  <Sparkles className="h-4 w-4 text-info" />
+                  <span className="font-medium">How it works</span>
+                </div>
+                <p>
+                  Pick a topic, type and difficulty, then click <strong>Generate</strong>. The AI
+                  drafts ready-to-use questions you can preview and one-click add to your exam.
+                </p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>MCQ questions include 4 options and a marked correct answer.</li>
+                  <li>Written questions include a reference answer for evaluation.</li>
+                  <li>Coding questions include sample I/O and a reference solution.</li>
+                </ul>
               </div>
             ) : null}
 

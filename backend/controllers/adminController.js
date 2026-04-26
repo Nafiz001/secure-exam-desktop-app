@@ -255,4 +255,126 @@ const getStats = async (req, res) => {
   }
 };
 
-module.exports = { createTeacher, createStudent, uploadStudents, listUsers, toggleUserStatus, getStats };
+/**
+ * PUT /api/admin/users/:id
+ * Admin updates a user's name, email, roll number, and/or password.
+ * Body: { name?, email?, roll_number?, password? }
+ */
+const updateUser = async (req, res) => {
+  const { id } = req.params;
+  const { name, email, roll_number, password } = req.body || {};
+
+  try {
+    const existing = await pool.query(
+      `SELECT id, role FROM users WHERE id = $1 AND role != 'admin'`,
+      [id]
+    );
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    const targetRole = existing.rows[0].role;
+
+    const updates = [];
+    const values = [];
+    let paramIndex = 1;
+
+    if (typeof name === 'string' && name.trim()) {
+      updates.push(`name = $${paramIndex++}`);
+      values.push(name.trim());
+    }
+
+    if (typeof email === 'string' && email.trim()) {
+      const trimmedEmail = email.trim().toLowerCase();
+      const emailDup = await pool.query(
+        'SELECT id FROM users WHERE email = $1 AND id != $2',
+        [trimmedEmail, id]
+      );
+      if (emailDup.rows.length > 0) {
+        return res.status(409).json({ success: false, message: 'Email already in use' });
+      }
+      updates.push(`email = $${paramIndex++}`);
+      values.push(trimmedEmail);
+    }
+
+    if (targetRole === 'student' && typeof roll_number === 'string' && roll_number.trim()) {
+      const trimmedRoll = roll_number.trim();
+      if (!isValidRoll(trimmedRoll)) {
+        return res.status(400).json({ success: false, message: 'Roll number must be exactly 7 digits' });
+      }
+      const rollDup = await pool.query(
+        `SELECT id FROM users WHERE role = 'student' AND roll_number = $1 AND id != $2`,
+        [trimmedRoll, id]
+      );
+      if (rollDup.rows.length > 0) {
+        return res.status(409).json({ success: false, message: 'Roll number already in use' });
+      }
+      updates.push(`roll_number = $${paramIndex++}`);
+      values.push(trimmedRoll);
+    }
+
+    if (typeof password === 'string' && password.length > 0) {
+      if (password.length < 6) {
+        return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+      }
+      const hash = await bcrypt.hash(password, SALT_ROUNDS);
+      updates.push(`password_hash = $${paramIndex++}`);
+      values.push(hash);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ success: false, message: 'No editable fields provided' });
+    }
+
+    updates.push(`updated_at = NOW()`);
+    values.push(id);
+
+    const result = await pool.query(
+      `UPDATE users SET ${updates.join(', ')}
+       WHERE id = $${paramIndex} AND role != 'admin'
+       RETURNING id, name, email, role, roll_number, status, created_at`,
+      values
+    );
+
+    res.json({ success: true, data: { user: result.rows[0] } });
+  } catch (error) {
+    console.error('[Admin] updateUser error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+/**
+ * DELETE /api/admin/users/:id
+ * Admin permanently removes a teacher or student.
+ * Cascades to exams/submissions via foreign keys.
+ */
+const deleteUser = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query(
+      `DELETE FROM users WHERE id = $1 AND role != 'admin'
+       RETURNING id, name, email, role`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    res.json({ success: true, data: { user: result.rows[0] } });
+  } catch (error) {
+    console.error('[Admin] deleteUser error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+};
+
+module.exports = {
+  createTeacher,
+  createStudent,
+  uploadStudents,
+  listUsers,
+  toggleUserStatus,
+  getStats,
+  updateUser,
+  deleteUser,
+};

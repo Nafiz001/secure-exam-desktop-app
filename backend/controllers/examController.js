@@ -580,12 +580,51 @@ const submitExam = async (req, res) => {
 
     const evaluationStatus = hasManualEvaluationQuestions ? 'pending' : 'completed';
 
+    // Unified violations: combine browser/keyboard violations from the
+    // client with the persisted face-detection events for this student.
+    const browserViolations = Array.isArray(violations) ? violations : [];
+    let proctoringViolations = [];
+    try {
+      const proctoringResult = await pool.query(
+        `SELECT event_type, details, created_at
+         FROM proctoring_events
+         WHERE exam_id = $1 AND student_id = $2
+         ORDER BY created_at ASC`,
+        [examId, studentId]
+      );
+      const labels = {
+        multiple_faces: 'Multiple faces detected',
+        no_face: 'No face detected',
+        looking_away: 'Looking away from screen',
+        looking_down: 'Looking down',
+      };
+      const severities = {
+        multiple_faces: 'high',
+        no_face: 'medium',
+        looking_away: 'low',
+        looking_down: 'low',
+      };
+      proctoringViolations = proctoringResult.rows.map((row) => ({
+        type: labels[row.event_type] || row.event_type,
+        severity: severities[row.event_type] || 'medium',
+        timestamp: row.created_at,
+        source: 'proctoring',
+        details: row.details || null,
+      }));
+    } catch (proctoringErr) {
+      console.warn('Could not merge proctoring violations:', proctoringErr.message);
+    }
+    const mergedViolations = [
+      ...browserViolations.map((v) => ({ source: 'browser', ...v })),
+      ...proctoringViolations,
+    ];
+
     const result = await pool.query(
       `INSERT INTO submissions (
          exam_id, student_id, answers, violations,
          auto_score, manual_score, score, evaluation_status
-       ) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING
          id, exam_id, student_id, auto_score, manual_score, score,
          evaluation_status, submitted_at`,
@@ -593,7 +632,7 @@ const submitExam = async (req, res) => {
         examId,
         studentId,
         JSON.stringify(normalizedAnswers),
-        JSON.stringify(violations || []),
+        JSON.stringify(mergedViolations),
         autoScore,
         0,
         autoScore,

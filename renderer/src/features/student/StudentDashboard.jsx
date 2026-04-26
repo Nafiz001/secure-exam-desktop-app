@@ -201,6 +201,46 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
   const codingStateRef = useRef(codingState);
   const examViolationsRef = useRef(examViolations);
   const submitExamRef = useRef(null);
+  const enterWaitingRoomRef = useRef(null);
+  const startExamSessionRef = useRef(null);
+  const sessionRestoreAttemptedRef = useRef(false);
+
+  const sessionStorageKey = useMemo(
+    () => (user?.id ? `student-session:${user.id}` : null),
+    [user?.id]
+  );
+
+  const persistStudentSession = useCallback(
+    (mode, exam) => {
+      if (!sessionStorageKey || typeof window === "undefined") return;
+      if (!exam?.id || !mode) {
+        try {
+          window.localStorage.removeItem(sessionStorageKey);
+        } catch (err) {
+          // ignore
+        }
+        return;
+      }
+      try {
+        window.localStorage.setItem(
+          sessionStorageKey,
+          JSON.stringify({ mode, examId: exam.id, savedAt: new Date().toISOString() })
+        );
+      } catch (err) {
+        // ignore
+      }
+    },
+    [sessionStorageKey]
+  );
+
+  const clearStudentSession = useCallback(() => {
+    if (!sessionStorageKey || typeof window === "undefined") return;
+    try {
+      window.localStorage.removeItem(sessionStorageKey);
+    } catch (err) {
+      // ignore
+    }
+  }, [sessionStorageKey]);
 
   const monacoEditorOptions = useMemo(
     () => ({
@@ -380,7 +420,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
   }, [clearExamControlPolling, clearExamTimer, clearWarningTimer]);
 
   const forceAutoSubmitExam = useCallback(
-    async (examId, autoSubmitReason) => {
+    async (examId, autoSubmitReason, options = {}) => {
+      const { silent = false } = options;
       if (!examId || submissionInProgressRef.current) {
         return false;
       }
@@ -399,7 +440,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       const formattedAnswers = buildFormattedAnswers(answerSource, isCurrentExam ? codingStateRef.current : {});
 
       try {
-        const result = await apiRequest(
+        await apiRequest(
           `/exams/${examId}/submit`,
           {
             method: "POST",
@@ -422,21 +463,14 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           }
         }
 
-        const submission = result.data?.submission || {};
-        const hasWrittenPending = submission.evaluation_status === "pending";
-        const scoreLine = hasWrittenPending
-          ? `Current auto score: ${submission.auto_score ?? 0}.`
-          : `Final score: ${submission.score ?? 0}.`;
+        if (!silent) {
+          await showAlert({
+            title: "Exam submitted",
+            message: autoSubmitReason,
+          });
+        }
 
-        const pendingLine = hasWrittenPending
-          ? "\nManual answers will be evaluated by your teacher."
-          : "";
-
-        await showAlert({
-          title: "Submission Complete",
-          message: `${autoSubmitReason}\n\nExam submitted successfully.\n${scoreLine}${pendingLine}`,
-        });
-
+        clearStudentSession();
         resetExamState();
         setWaitingExam(null);
         setWaitingParticipantCount(0);
@@ -448,14 +482,15 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         const messageText = String(err?.message || "");
         const alreadySubmitted = messageText.toLowerCase().includes("already submitted");
 
-        if (!alreadySubmitted) {
+        if (!alreadySubmitted && !silent) {
           setExamSubmitMessage(messageText || "Failed to auto-submit exam. Please contact your teacher.");
           await showAlert({
-            title: "Auto Submission Issue",
+            title: "Submission issue",
             message: `${autoSubmitReason}\n\n${messageText || "Failed to auto-submit exam."}`,
           });
         }
 
+        clearStudentSession();
         resetExamState();
         setWaitingExam(null);
         setWaitingParticipantCount(0);
@@ -468,7 +503,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         setSubmittingExam(false);
       }
     },
-    [clearExamControlPolling, clearExamTimer, clearWaitingPolling, loadActiveExams, loadMyResults, resetExamState, showAlert, token]
+    [clearExamControlPolling, clearExamTimer, clearStudentSession, clearWaitingPolling, loadActiveExams, loadMyResults, resetExamState, showAlert, token]
   );
 
   const submitExam = useCallback(
@@ -552,6 +587,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           message: `Exam submitted successfully.\n${scoreLine}${pendingLine}`,
         });
 
+        clearStudentSession();
         resetExamState();
         setView("dashboard");
         await loadActiveExams();
@@ -566,6 +602,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     [
       clearExamTimer,
       clearExamControlPolling,
+      clearStudentSession,
       clearWaitingPolling,
       forceAutoSubmitExam,
       isExamBlocked,
@@ -597,18 +634,17 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           forceSubmitTriggeredRef.current = true;
           clearExamControlPolling();
           setIsTeacherForceSubmitting(true);
-          if (submitExamRef.current) {
-            submitExamRef.current({
-              autoSubmit: true,
-              autoSubmitReason: "Your teacher force-submitted your exam.",
-            });
-          }
+          await forceAutoSubmitExam(
+            examId,
+            "Your teacher submitted your exam.",
+            { silent: true }
+          );
         }
       } catch (err) {
         console.error("Exam control poll error:", err);
       }
     },
-    [clearExamControlPolling, token]
+    [clearExamControlPolling, forceAutoSubmitExam, token]
   );
 
   const startExamSession = useCallback(
@@ -685,6 +721,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         setExamData(exam);
         setCurrentQuestionIndex(0);
         setView("exam");
+        persistStudentSession("exam", exam);
 
         if (window.electronAPI?.setUserData) {
           window.electronAPI.setUserData(user);
@@ -709,7 +746,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         setExamLoading(false);
       }
     },
-    [clearExamControlPolling, clearWaitingPolling, forceAutoSubmitExam, loadActiveExams, pollExamControl, resetExamState, showAlert, token, user]
+    [clearExamControlPolling, clearWaitingPolling, forceAutoSubmitExam, loadActiveExams, persistStudentSession, pollExamControl, resetExamState, showAlert, token, user]
   );
 
   const checkExamStatus = useCallback(
@@ -760,14 +797,75 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
       setWaitingStatusMessage("Auto-checking exam status...");
       setWaitingLastUpdatedAt(null);
       setView("waiting");
+      persistStudentSession("waiting", exam);
 
       checkExamStatus(exam.id);
       waitingPollIntervalRef.current = setInterval(() => {
         checkExamStatus(exam.id);
       }, 3000);
     },
-    [checkExamStatus, clearWaitingPolling]
+    [checkExamStatus, clearWaitingPolling, persistStudentSession]
   );
+
+  useEffect(() => {
+    enterWaitingRoomRef.current = enterWaitingRoom;
+  }, [enterWaitingRoom]);
+
+  useEffect(() => {
+    startExamSessionRef.current = startExamSession;
+  }, [startExamSession]);
+
+  // Restore the student into their previous waiting room or exam state
+  // if they were in one when the app was closed/logged out.
+  useEffect(() => {
+    if (sessionRestoreAttemptedRef.current) return;
+    if (!sessionStorageKey || !token) return;
+    sessionRestoreAttemptedRef.current = true;
+
+    let raw = null;
+    try {
+      raw = window.localStorage.getItem(sessionStorageKey);
+    } catch (err) {
+      raw = null;
+    }
+    if (!raw) return;
+
+    let saved = null;
+    try {
+      saved = JSON.parse(raw);
+    } catch (err) {
+      saved = null;
+    }
+    if (!saved?.examId || !saved?.mode) {
+      clearStudentSession();
+      return;
+    }
+
+    (async () => {
+      try {
+        const result = await apiRequest(`/exams/${saved.examId}`, {}, token);
+        const exam = result.data?.exam;
+        if (!exam) {
+          clearStudentSession();
+          return;
+        }
+        if (exam.has_submitted || exam.status === "completed") {
+          clearStudentSession();
+          return;
+        }
+        if (exam.status === "in_progress" && startExamSessionRef.current) {
+          await startExamSessionRef.current(exam.id);
+          return;
+        }
+        if (enterWaitingRoomRef.current) {
+          enterWaitingRoomRef.current(exam);
+        }
+      } catch (err) {
+        // Restore failed (e.g. exam deleted / no longer accessible).
+        clearStudentSession();
+      }
+    })();
+  }, [clearStudentSession, sessionStorageKey, token]);
 
   const handleJoinExam = useCallback(
     async (event) => {
@@ -806,8 +904,10 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         setRoomCodeInput("");
 
         if (joinedExam.status === "in_progress") {
+          persistStudentSession("exam", joinedExam);
           await startExamSession(joinedExam.id);
         } else {
+          persistStudentSession("waiting", joinedExam);
           enterWaitingRoom(joinedExam);
         }
 
@@ -818,7 +918,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         setJoiningExam(false);
       }
     },
-    [enterWaitingRoom, loadActiveExams, roomCodeInput, startExamSession, studentNameInput, token]
+    [enterWaitingRoom, loadActiveExams, persistStudentSession, roomCodeInput, startExamSession, studentNameInput, token]
   );
 
   const handleLeaveWaitingRoom = useCallback(async () => {
@@ -834,13 +934,14 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     }
 
     clearWaitingPolling();
+    clearStudentSession();
     setWaitingExam(null);
     setWaitingParticipantCount(0);
     setWaitingStatusMessage("Auto-checking exam status...");
     setWaitingLastUpdatedAt(null);
     setView("dashboard");
     await loadActiveExams();
-  }, [clearWaitingPolling, loadActiveExams, showConfirm]);
+  }, [clearStudentSession, clearWaitingPolling, loadActiveExams, showConfirm]);
 
   const handleRejoinExam = useCallback(
     async (examId) => {
@@ -2161,22 +2262,20 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           </div>
         ) : null}
 
-        {/* Force-submit overlay */}
+        {/* Force-submit overlay — brief notice while we auto-submit */}
         {isTeacherForceSubmitting ? (
           <div
             role="alertdialog"
             aria-modal="true"
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-ink/90 backdrop-blur animate-fade-in px-4"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-ink/85 backdrop-blur-sm animate-fade-in px-4"
           >
-            <div className="max-w-md text-center space-y-4 text-white">
-              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary-subtle/20 text-white border-2 border-primary-ring">
-                <Send className="h-10 w-10" />
+            <div className="max-w-md text-center space-y-4 rounded-xl bg-surface text-ink shadow-xl px-6 py-8 border border-border">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-success-subtle text-success">
+                <CheckCircle2 className="h-7 w-7" />
               </div>
-              <h2 className="text-3xl font-bold tracking-tight">Exam submitted</h2>
-              <p className="text-base opacity-90">Your teacher has force-submitted your exam.</p>
-              <p className="text-sm opacity-70 flex items-center justify-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Submitting your answers, please wait…
+              <h2 className="text-xl font-semibold">Exam submitted by teacher</h2>
+              <p className="text-sm text-ink-muted">
+                Your answers were submitted automatically. Returning to dashboard…
               </p>
             </div>
           </div>

@@ -184,6 +184,7 @@ function AppShell() {
               tooltip="Sign out"
               variant="ghost"
               onClick={handleLogout}
+              className="hover:bg-danger-subtle hover:text-danger"
             >
               <LogOut className="h-4 w-4" />
             </IconButton>

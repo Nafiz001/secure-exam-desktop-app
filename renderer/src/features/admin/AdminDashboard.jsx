@@ -16,8 +16,11 @@ import {
   Loader2,
   BookOpenCheck,
   Info,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { apiRequest } from "../../api";
+import { useModal } from "../../components/modals/ModalProvider";
 import {
   Button,
   IconButton,
@@ -163,12 +166,15 @@ function Td({ children, className }) {
 // ─── Teachers ────────────────────────────────────────────────────────────────
 
 function TeacherPanel({ token }) {
+  const { showConfirm } = useModal();
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ email: "", password: "", name: "" });
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ name: "", email: "", password: "" });
 
   const load = useCallback(() => {
     apiRequest("/admin/users?role=teacher", {}, token)
@@ -207,6 +213,55 @@ function TeacherPanel({ token }) {
       setSuccess(`User ${next === "active" ? "activated" : "deactivated"}.`);
       load();
     } catch (err) { setError(err.message); }
+  }
+
+  function startEdit(teacher) {
+    setEditingId(teacher.id);
+    setEditForm({ name: teacher.name || "", email: teacher.email || "", password: "" });
+    setError(""); setSuccess("");
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditForm({ name: "", email: "", password: "" });
+  }
+
+  async function saveEdit(id) {
+    setError(""); setSuccess("");
+    const payload = {};
+    if (editForm.name.trim()) payload.name = editForm.name.trim();
+    if (editForm.email.trim()) payload.email = editForm.email.trim();
+    if (editForm.password) payload.password = editForm.password;
+    if (Object.keys(payload).length === 0) { setError("Nothing to update."); return; }
+    setLoading(true);
+    try {
+      await apiRequest(`/admin/users/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }, token);
+      setSuccess("Teacher updated.");
+      cancelEdit();
+      load();
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
+  }
+
+  async function deleteTeacher(teacher) {
+    setError(""); setSuccess("");
+    const ok = await showConfirm({
+      title: "Delete Teacher",
+      message: `Permanently delete ${teacher.email}? Their exams and data will be removed. This cannot be undone.`,
+      confirmText: "Delete",
+      cancelText: "Cancel",
+    });
+    if (!ok) return;
+    setLoading(true);
+    try {
+      await apiRequest(`/admin/users/${teacher.id}`, { method: "DELETE" }, token);
+      setSuccess(`Teacher ${teacher.email} deleted.`);
+      load();
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
   }
 
   return (
@@ -313,40 +368,120 @@ function TeacherPanel({ token }) {
               </tr>
             </thead>
             <tbody>
-              {teachers.map((t) => (
-                <tr key={t.id} className="hover:bg-bg/60 transition-colors">
-                  <Td className="font-medium">{t.name || "—"}</Td>
-                  <Td className="text-ink-muted">{t.email}</Td>
-                  <Td><StatusPill status={t.status} /></Td>
-                  <Td className="text-ink-muted text-xs tabular-nums">
-                    {new Date(t.created_at).toLocaleDateString()}
-                  </Td>
-                  <Td className="text-right">
-                    {t.status === "active" ? (
-                      <IconButton
-                        aria-label="Deactivate teacher"
-                        tooltip="Deactivate"
-                        variant="danger"
-                        size="sm"
-                        onClick={() => toggleStatus(t.id, t.status)}
-                      >
-                        <UserX className="h-4 w-4" />
-                      </IconButton>
-                    ) : (
-                      <IconButton
-                        aria-label="Activate teacher"
-                        tooltip="Activate"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleStatus(t.id, t.status)}
-                        className="text-success hover:bg-success-subtle"
-                      >
-                        <UserCheck className="h-4 w-4" />
-                      </IconButton>
-                    )}
-                  </Td>
-                </tr>
-              ))}
+              {teachers.map((t) => {
+                const isEditing = editingId === t.id;
+                return (
+                  <tr key={t.id} className="hover:bg-bg/60 transition-colors align-top">
+                    <Td className="font-medium">
+                      {isEditing ? (
+                        <Input
+                          value={editForm.name}
+                          onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                          placeholder="Name"
+                        />
+                      ) : (
+                        t.name || "—"
+                      )}
+                    </Td>
+                    <Td className="text-ink-muted">
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <Input
+                            value={editForm.email}
+                            onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                            placeholder="Email"
+                            type="email"
+                          />
+                          <Input
+                            value={editForm.password}
+                            onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))}
+                            placeholder="New password (leave blank to keep)"
+                            type="password"
+                          />
+                        </div>
+                      ) : (
+                        t.email
+                      )}
+                    </Td>
+                    <Td><StatusPill status={t.status} /></Td>
+                    <Td className="text-ink-muted text-xs tabular-nums">
+                      {new Date(t.created_at).toLocaleDateString()}
+                    </Td>
+                    <Td className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {isEditing ? (
+                          <>
+                            <IconButton
+                              aria-label="Save changes"
+                              tooltip="Save"
+                              variant="primary"
+                              size="sm"
+                              onClick={() => saveEdit(t.id)}
+                              disabled={loading}
+                            >
+                              <Check className="h-4 w-4" />
+                            </IconButton>
+                            <IconButton
+                              aria-label="Cancel edit"
+                              tooltip="Cancel"
+                              variant="secondary"
+                              size="sm"
+                              onClick={cancelEdit}
+                              disabled={loading}
+                            >
+                              <X className="h-4 w-4" />
+                            </IconButton>
+                          </>
+                        ) : (
+                          <>
+                            <IconButton
+                              aria-label="Edit teacher"
+                              tooltip="Edit"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => startEdit(t)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </IconButton>
+                            {t.status === "active" ? (
+                              <IconButton
+                                aria-label="Deactivate teacher"
+                                tooltip="Deactivate"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => toggleStatus(t.id, t.status)}
+                                className="text-warning hover:bg-warning-subtle"
+                              >
+                                <UserX className="h-4 w-4" />
+                              </IconButton>
+                            ) : (
+                              <IconButton
+                                aria-label="Activate teacher"
+                                tooltip="Activate"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => toggleStatus(t.id, t.status)}
+                                className="text-success hover:bg-success-subtle"
+                              >
+                                <UserCheck className="h-4 w-4" />
+                              </IconButton>
+                            )}
+                            <IconButton
+                              aria-label="Delete teacher"
+                              tooltip="Delete"
+                              variant="danger"
+                              size="sm"
+                              onClick={() => deleteTeacher(t)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </IconButton>
+                          </>
+                        )}
+                      </div>
+                    </Td>
+                  </tr>
+                );
+              })}
             </tbody>
           </Table>
         )}
@@ -358,6 +493,7 @@ function TeacherPanel({ token }) {
 // ─── Students ────────────────────────────────────────────────────────────────
 
 function StudentPanel({ token }) {
+  const { showConfirm } = useModal();
   const [students, setStudents] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -368,6 +504,8 @@ function StudentPanel({ token }) {
   const [csvText, setCsvText] = useState("");
   const [csvResult, setCsvResult] = useState(null);
   const fileRef = useRef(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ name: "", email: "", roll_number: "", password: "" });
 
   const load = useCallback(() => {
     apiRequest("/admin/users?role=student", {}, token)
@@ -445,6 +583,61 @@ function StudentPanel({ token }) {
     } catch (err) { setError(err.message); }
   }
 
+  function startEdit(student) {
+    setEditingId(student.id);
+    setEditForm({
+      name: student.name || "",
+      email: student.email || "",
+      roll_number: student.roll_number || "",
+      password: "",
+    });
+    setError(""); setSuccess("");
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditForm({ name: "", email: "", roll_number: "", password: "" });
+  }
+
+  async function saveEdit(id) {
+    setError(""); setSuccess("");
+    const payload = {};
+    if (editForm.name.trim()) payload.name = editForm.name.trim();
+    if (editForm.email.trim()) payload.email = editForm.email.trim();
+    if (editForm.roll_number.trim()) payload.roll_number = editForm.roll_number.trim();
+    if (editForm.password) payload.password = editForm.password;
+    if (Object.keys(payload).length === 0) { setError("Nothing to update."); return; }
+    setLoading(true);
+    try {
+      await apiRequest(`/admin/users/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }, token);
+      setSuccess("Student updated.");
+      cancelEdit();
+      load();
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
+  }
+
+  async function deleteStudent(student) {
+    setError(""); setSuccess("");
+    const ok = await showConfirm({
+      title: "Delete Student",
+      message: `Permanently delete ${student.name} (${student.roll_number || student.email})? Their exam history will also be removed. This cannot be undone.`,
+      confirmText: "Delete",
+      cancelText: "Cancel",
+    });
+    if (!ok) return;
+    setLoading(true);
+    try {
+      await apiRequest(`/admin/users/${student.id}`, { method: "DELETE" }, token);
+      setSuccess(`Student ${student.name} deleted.`);
+      load();
+    } catch (err) { setError(err.message); }
+    finally { setLoading(false); }
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -513,45 +706,135 @@ function StudentPanel({ token }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((s) => (
-                    <tr key={s.id} className="hover:bg-bg/60 transition-colors">
-                      <Td>
-                        <code className="text-xs font-mono bg-bg px-2 py-0.5 rounded">
-                          {s.roll_number || "—"}
-                        </code>
-                      </Td>
-                      <Td className="font-medium">{s.name}</Td>
-                      <Td className="text-ink-muted text-xs">{s.email}</Td>
-                      <Td><StatusPill status={s.status} /></Td>
-                      <Td className="text-ink-muted text-xs tabular-nums">
-                        {new Date(s.created_at).toLocaleDateString()}
-                      </Td>
-                      <Td className="text-right">
-                        {s.status === "active" ? (
-                          <IconButton
-                            aria-label="Deactivate student"
-                            tooltip="Deactivate"
-                            variant="danger"
-                            size="sm"
-                            onClick={() => toggleStatus(s.id, s.status)}
-                          >
-                            <UserX className="h-4 w-4" />
-                          </IconButton>
-                        ) : (
-                          <IconButton
-                            aria-label="Activate student"
-                            tooltip="Activate"
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => toggleStatus(s.id, s.status)}
-                            className="text-success hover:bg-success-subtle"
-                          >
-                            <UserCheck className="h-4 w-4" />
-                          </IconButton>
-                        )}
-                      </Td>
-                    </tr>
-                  ))}
+                  {filtered.map((s) => {
+                    const isEditing = editingId === s.id;
+                    return (
+                      <tr key={s.id} className="hover:bg-bg/60 transition-colors align-top">
+                        <Td>
+                          {isEditing ? (
+                            <Input
+                              value={editForm.roll_number}
+                              onChange={(e) => setEditForm((f) => ({ ...f, roll_number: e.target.value }))}
+                              maxLength={7}
+                              placeholder="7-digit roll"
+                              className="font-mono"
+                            />
+                          ) : (
+                            <code className="text-xs font-mono bg-bg px-2 py-0.5 rounded">
+                              {s.roll_number || "—"}
+                            </code>
+                          )}
+                        </Td>
+                        <Td className="font-medium">
+                          {isEditing ? (
+                            <Input
+                              value={editForm.name}
+                              onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+                              placeholder="Name"
+                            />
+                          ) : (
+                            s.name
+                          )}
+                        </Td>
+                        <Td className="text-ink-muted text-xs">
+                          {isEditing ? (
+                            <div className="space-y-2">
+                              <Input
+                                value={editForm.email}
+                                onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                                placeholder="Email"
+                                type="email"
+                              />
+                              <Input
+                                value={editForm.password}
+                                onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))}
+                                placeholder="New password (leave blank to keep)"
+                                type="password"
+                              />
+                            </div>
+                          ) : (
+                            s.email
+                          )}
+                        </Td>
+                        <Td><StatusPill status={s.status} /></Td>
+                        <Td className="text-ink-muted text-xs tabular-nums">
+                          {new Date(s.created_at).toLocaleDateString()}
+                        </Td>
+                        <Td className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {isEditing ? (
+                              <>
+                                <IconButton
+                                  aria-label="Save changes"
+                                  tooltip="Save"
+                                  variant="primary"
+                                  size="sm"
+                                  onClick={() => saveEdit(s.id)}
+                                  disabled={loading}
+                                >
+                                  <Check className="h-4 w-4" />
+                                </IconButton>
+                                <IconButton
+                                  aria-label="Cancel edit"
+                                  tooltip="Cancel"
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={cancelEdit}
+                                  disabled={loading}
+                                >
+                                  <X className="h-4 w-4" />
+                                </IconButton>
+                              </>
+                            ) : (
+                              <>
+                                <IconButton
+                                  aria-label="Edit student"
+                                  tooltip="Edit"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => startEdit(s)}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </IconButton>
+                                {s.status === "active" ? (
+                                  <IconButton
+                                    aria-label="Deactivate student"
+                                    tooltip="Deactivate"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => toggleStatus(s.id, s.status)}
+                                    className="text-warning hover:bg-warning-subtle"
+                                  >
+                                    <UserX className="h-4 w-4" />
+                                  </IconButton>
+                                ) : (
+                                  <IconButton
+                                    aria-label="Activate student"
+                                    tooltip="Activate"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => toggleStatus(s.id, s.status)}
+                                    className="text-success hover:bg-success-subtle"
+                                  >
+                                    <UserCheck className="h-4 w-4" />
+                                  </IconButton>
+                                )}
+                                <IconButton
+                                  aria-label="Delete student"
+                                  tooltip="Delete"
+                                  variant="danger"
+                                  size="sm"
+                                  onClick={() => deleteStudent(s)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </IconButton>
+                              </>
+                            )}
+                          </div>
+                        </Td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </Table>
             )}

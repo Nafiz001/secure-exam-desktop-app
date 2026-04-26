@@ -7,7 +7,9 @@ const {
   uploadStudents,
   listUsers,
   toggleUserStatus,
-  getStats
+  getStats,
+  updateUser,
+  deleteUser,
 } = require('../controllers/adminController');
 
 const adminOnly = [protect, authorize('admin')];
@@ -18,5 +20,7 @@ router.post('/create-teacher',        ...adminOnly, createTeacher);
 router.post('/create-student',        ...adminOnly, createStudent);
 router.post('/upload-students',       ...adminOnly, uploadStudents);
 router.put('/users/:id/status',       ...adminOnly, toggleUserStatus);
+router.put('/users/:id',              ...adminOnly, updateUser);
+router.delete('/users/:id',           ...adminOnly, deleteUser);
 
 module.exports = router;

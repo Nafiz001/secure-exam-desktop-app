@@ -4,7 +4,26 @@ const pool = require('../config/database');
  * POST /api/proctoring/:examId/event
  * Student reports a face-detection violation event.
  * Body: { event_type: 'no_face' | 'multiple_faces' | 'looking_away', details?: string }
+ *
+ * The unified violation pipeline: every proctoring event also bumps the
+ * exam_participants violation_count and updates last_violation_* so the
+ * teacher sees face-detection issues in the same place as browser/keyboard
+ * violations.
  */
+const SEVERITY_BY_EVENT = {
+  multiple_faces: 'high',
+  no_face: 'medium',
+  looking_away: 'low',
+  looking_down: 'low',
+};
+
+const HUMAN_LABEL_BY_EVENT = {
+  multiple_faces: 'Multiple faces detected',
+  no_face: 'No face detected',
+  looking_away: 'Looking away from screen',
+  looking_down: 'Looking down',
+};
+
 const reportEvent = async (req, res) => {
   const examId = Number(req.params.examId);
   const studentId = req.user.userId;
@@ -15,12 +34,29 @@ const reportEvent = async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid event_type' });
   }
 
+  const severity = SEVERITY_BY_EVENT[event_type] || 'medium';
+  const humanType = HUMAN_LABEL_BY_EVENT[event_type] || event_type;
+
   try {
     await pool.query(
       `INSERT INTO proctoring_events (exam_id, student_id, event_type, details)
        VALUES ($1, $2, $3, $4)`,
       [examId, studentId, event_type, details || null]
     );
+
+    // Mirror into the unified per-participant violation summary so the
+    // teacher dashboard's single counter reflects ALL violations.
+    await pool.query(
+      `UPDATE exam_participants
+       SET
+         violation_count = COALESCE(violation_count, 0) + 1,
+         last_violation_type = $1,
+         last_violation_severity = $2,
+         last_violation_at = CURRENT_TIMESTAMP
+       WHERE exam_id = $3 AND student_id = $4`,
+      [humanType.slice(0, 100), severity, examId, studentId]
+    );
+
     res.json({ success: true });
   } catch (error) {
     console.error('Proctoring reportEvent error:', error.message);
