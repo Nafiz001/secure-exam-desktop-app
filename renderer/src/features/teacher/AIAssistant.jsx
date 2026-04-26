@@ -401,6 +401,13 @@ export default function AIAssistant({
               </div>
             ) : null}
 
+            {genLoading ? (
+              <div className="rounded-lg border border-border bg-surface/50 px-4 py-3 text-sm text-ink-muted flex items-center justify-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Generating question set...
+              </div>
+            ) : null}
+
             {!genError && generatedQuestions.length === 0 && !genLoading ? (
               <div className="rounded-lg border border-dashed border-border bg-surface/60 p-4 text-xs text-ink-muted space-y-2">
                 <div className="flex items-center gap-2 text-ink">

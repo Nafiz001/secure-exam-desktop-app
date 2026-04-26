@@ -12,7 +12,6 @@ import {
   Loader2,
   Eye,
   EyeOff,
-  CheckCircle2,
 } from "lucide-react";
 import { apiRequest } from "../api";
 import { Button, Input, FormField, Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui";
@@ -315,12 +314,6 @@ function EnterExamTab({ onLogin }) {
 
 // ─── Main LoginPage ───────────────────────────────────────────────────────────
 
-const HERO_FEATURES = [
-  "Face-detection proctoring with live violation alerts",
-  "Lockdown during exams — screen sharing and process monitoring",
-  "Institution-managed accounts, no public registration",
-];
-
 export default function LoginPage({ onLogin }) {
   const [activeTab, setActiveTab] = useState("login");
 
@@ -356,14 +349,6 @@ export default function LoginPage({ onLogin }) {
                 room.
               </p>
             </div>
-            <ul className="space-y-3">
-              {HERO_FEATURES.map((text) => (
-                <li key={text} className="flex items-start gap-3 text-sm text-ink-muted">
-                  <CheckCircle2 className="h-5 w-5 text-primary shrink-0 mt-0.5" />
-                  <span>{text}</span>
-                </li>
-              ))}
-            </ul>
           </div>
           <div className="relative text-xs text-ink-subtle">
             © {new Date().getFullYear()} Invigilo · Khulna University of Engineering &amp; Technology

@@ -193,6 +193,7 @@ export default function TeacherDashboard({ token }) {
   const [evaluationParticipants, setEvaluationParticipants] = useState([]);
   const [loadingEvaluationParticipants, setLoadingEvaluationParticipants] = useState(false);
   const [selectedSubmissionSheet, setSelectedSubmissionSheet] = useState(null);
+  const [showAnswerSheetViolations, setShowAnswerSheetViolations] = useState(false);
   const [loadingSubmissionSheet, setLoadingSubmissionSheet] = useState(false);
   const [savingEvaluation, setSavingEvaluation] = useState(false);
   const [writtenMarksDraft, setWrittenMarksDraft] = useState({});
@@ -334,6 +335,7 @@ export default function TeacherDashboard({ token }) {
   const loadSubmissionSheet = useCallback(
     async (submissionId) => {
       if (!currentExamId || !submissionId) return;
+      setShowAnswerSheetViolations(false);
       setLoadingSubmissionSheet(true);
       try {
         const result = await apiRequest(
@@ -675,6 +677,7 @@ export default function TeacherDashboard({ token }) {
     setCurrentExamId(examId);
     setCurrentExamTitle(examTitle);
     setSelectedSubmissionSheet(null);
+    setShowAnswerSheetViolations(false);
     setWrittenMarksDraft({});
     setWrittenCommentDraft({});
     setView("submissions");
@@ -2032,7 +2035,10 @@ export default function TeacherDashboard({ token }) {
               aria-label="Back to participants"
               tooltip="Back to participants"
               variant="secondary"
-              onClick={() => setSelectedSubmissionSheet(null)}
+              onClick={() => {
+                setSelectedSubmissionSheet(null);
+                setShowAnswerSheetViolations(false);
+              }}
             >
               <ArrowLeft className="h-4 w-4" />
             </IconButton>
@@ -2064,44 +2070,70 @@ export default function TeacherDashboard({ token }) {
               <div>
                 <CardTitle>Violations during exam</CardTitle>
                 <CardDescription>
-                  All proctoring and browser/keyboard events recorded for this submission, in order.
+                  Violation details are hidden by default. Expand when needed during review.
                 </CardDescription>
               </div>
-              <Badge variant="danger">
-                <ShieldAlert className="h-3 w-3" /> {violations.length} total
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="danger">
+                  <ShieldAlert className="h-3 w-3" /> {violations.length} total
+                </Badge>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowAnswerSheetViolations((prev) => !prev)}
+                >
+                  {showAnswerSheetViolations ? (
+                    <>
+                      <EyeOff className="h-4 w-4" /> Hide
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="h-4 w-4" /> Show
+                    </>
+                  )}
+                </Button>
+              </div>
             </CardHeader>
-            <CardBody>
-              <ul className="space-y-2">
-                {violations.map((v, vi) => {
-                  const sev = String(v.severity || "medium").toLowerCase();
-                  const sevTone = sev === "high" ? "danger" : sev === "low" ? "warning" : "neutral";
-                  const source = String(v.source || "browser").toLowerCase();
-                  const ts = v.timestamp ? formatDateTime(v.timestamp) : null;
-                  return (
-                    <li
-                      key={vi}
-                      className="flex items-start gap-3 rounded-md border border-border bg-bg px-3 py-2 text-sm"
-                    >
-                      <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0 text-danger" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-ink">{v.type || "Unknown"}</span>
-                          <Badge variant={sevTone}>{sev}</Badge>
-                          <Badge variant={source === "proctoring" ? "info" : "outline"}>
-                            {source === "proctoring" ? "Webcam" : "Browser"}
-                          </Badge>
+            {showAnswerSheetViolations ? (
+              <CardBody>
+                <ul className="space-y-2">
+                  {violations.map((v, vi) => {
+                    const sev = String(v.severity || "medium").toLowerCase();
+                    const sevTone = sev === "high" ? "danger" : sev === "low" ? "warning" : "neutral";
+                    const source = String(v.source || "browser").toLowerCase();
+                    const ts = v.timestamp ? formatDateTime(v.timestamp) : null;
+                    return (
+                      <li
+                        key={vi}
+                        className="flex items-start gap-3 rounded-md border border-border bg-bg px-3 py-2 text-sm"
+                      >
+                        <ShieldAlert className="h-4 w-4 mt-0.5 shrink-0 text-danger" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-ink">{v.type || "Unknown"}</span>
+                            <Badge variant={sevTone}>{sev}</Badge>
+                            <Badge variant={source === "proctoring" ? "info" : "outline"}>
+                              {source === "proctoring" ? "Webcam" : "Browser"}
+                            </Badge>
+                          </div>
+                          {ts ? <p className="text-xs text-ink-muted mt-1">{ts}</p> : null}
+                          {v.details ? (
+                            <p className="text-xs text-ink-muted mt-1 break-words">{v.details}</p>
+                          ) : null}
                         </div>
-                        {ts ? <p className="text-xs text-ink-muted mt-1">{ts}</p> : null}
-                        {v.details ? (
-                          <p className="text-xs text-ink-muted mt-1 break-words">{v.details}</p>
-                        ) : null}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </CardBody>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CardBody>
+            ) : (
+              <CardBody>
+                <p className="text-sm text-ink-muted">
+                  Violation list is hidden. Click <span className="font-medium text-ink">Show</span> to view events.
+                </p>
+              </CardBody>
+            )}
           </Card>
         ) : null}
 

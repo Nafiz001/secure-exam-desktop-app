@@ -54,23 +54,12 @@ function RoleBadge({ role }) {
 }
 
 function UserMenu({ user, onLogout }) {
-  const { showConfirm } = useModal();
   const initials = (user.name || user.email || "?")
     .split(" ")
     .map((s) => s[0])
     .slice(0, 2)
     .join("")
     .toUpperCase();
-
-  async function handleLogoutClick() {
-    const ok = await showConfirm({
-      title: "Sign out of Invigilo?",
-      message: "You will be returned to the login page.",
-      confirmText: "Sign out",
-      cancelText: "Stay signed in",
-    });
-    if (ok) onLogout();
-  }
 
   return (
     <DropdownMenu>
@@ -111,7 +100,7 @@ function UserMenu({ user, onLogout }) {
         <DropdownMenuItem
           onSelect={(e) => {
             e.preventDefault();
-            handleLogoutClick();
+            onLogout();
           }}
           className="text-danger focus:bg-danger-subtle focus:text-danger"
         >
@@ -124,6 +113,7 @@ function UserMenu({ user, onLogout }) {
 }
 
 function AppShell() {
+  const { showConfirm } = useModal();
   const [token, setToken] = useState(() => localStorage.getItem("token"));
   const [isStudentExamMode, setIsStudentExamMode] = useState(false);
   const [user, setUser] = useState(() => {
@@ -153,12 +143,22 @@ function AppShell() {
     setUser(nextUser);
   }
 
-  function handleLogout() {
+  function performLogout() {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     setToken(null);
     setUser(null);
     setIsStudentExamMode(false);
+  }
+
+  async function requestLogout() {
+    const ok = await showConfirm({
+      title: "Sign out of Invigilo?",
+      message: "You will be returned to the login page.",
+      confirmText: "Sign out",
+      cancelText: "Stay signed in",
+    });
+    if (ok) performLogout();
   }
 
   if (!token || !user) {
@@ -178,12 +178,12 @@ function AppShell() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <UserMenu user={user} onLogout={handleLogout} />
+            <UserMenu user={user} onLogout={requestLogout} />
             <IconButton
               aria-label="Sign out"
               tooltip="Sign out"
               variant="ghost"
-              onClick={handleLogout}
+              onClick={requestLogout}
               className="hover:bg-danger-subtle hover:text-danger"
             >
               <LogOut className="h-4 w-4" />
