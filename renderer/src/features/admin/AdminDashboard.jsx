@@ -18,6 +18,8 @@ import {
   Info,
   Pencil,
   Trash2,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { apiRequest } from "../../api";
 import { useModal } from "../../components/modals/ModalProvider";
@@ -44,6 +46,32 @@ import {
 import { cn } from "../../lib/cn";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
+
+function PasswordInput({ value, onChange, id, placeholder, required }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <Input
+      id={id}
+      type={shown ? "text" : "password"}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      required={required}
+      autoComplete="new-password"
+      rightIcon={
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => setShown((v) => !v)}
+          aria-label={shown ? "Hide password" : "Show password"}
+          className="pointer-events-auto hover:text-ink transition-colors"
+        >
+          {shown ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      }
+    />
+  );
+}
 
 function StatusPill({ status }) {
   return status === "active" ? (
@@ -321,9 +349,8 @@ function TeacherPanel({ token }) {
                 />
               </FormField>
               <FormField label="Password" htmlFor="teacher-password" required>
-                <Input
+                <PasswordInput
                   id="teacher-password"
-                  type="password"
                   value={form.password}
                   onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                   placeholder="Min 6 characters"
@@ -392,11 +419,10 @@ function TeacherPanel({ token }) {
                             placeholder="Email"
                             type="email"
                           />
-                          <Input
+                          <PasswordInput
                             value={editForm.password}
                             onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))}
                             placeholder="New password (leave blank to keep)"
-                            type="password"
                           />
                         </div>
                       ) : (
@@ -745,11 +771,10 @@ function StudentPanel({ token }) {
                                 placeholder="Email"
                                 type="email"
                               />
-                              <Input
+                              <PasswordInput
                                 value={editForm.password}
                                 onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))}
                                 placeholder="New password (leave blank to keep)"
-                                type="password"
                               />
                             </div>
                           ) : (
@@ -870,9 +895,8 @@ function StudentPanel({ token }) {
                 required
                 hint="Minimum 6 characters"
               >
-                <Input
+                <PasswordInput
                   id="student-password"
-                  type="password"
                   value={form.password}
                   onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                   placeholder="Student password"

@@ -81,11 +81,19 @@ module.exports = {
           from: { opacity: "0", transform: "scale(0.96)" },
           to: { opacity: "1", transform: "scale(1)" },
         },
+        // Dialog keyframes preserve the centering translate so that
+        // -translate-x-1/2 -translate-y-1/2 isn't overridden mid-animation
+        // (which caused the dialog to flash from the bottom-right).
+        "dialog-in": {
+          from: { opacity: "0", transform: "translate(-50%, -50%) scale(0.96)" },
+          to: { opacity: "1", transform: "translate(-50%, -50%) scale(1)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 200ms ease-out",
         "slide-up": "slide-up 240ms ease-out",
         "scale-in": "scale-in 160ms ease-out",
+        "dialog-in": "dialog-in 160ms ease-out",
       },
     },
   },

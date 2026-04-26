@@ -36,7 +36,7 @@ export function DialogContent({
           "fixed left-1/2 top-1/2 z-50 w-[92vw] -translate-x-1/2 -translate-y-1/2",
           sizeClass,
           "rounded-lg bg-surface shadow-lg border border-border",
-          "data-[state=open]:animate-scale-in focus:outline-none",
+          "data-[state=open]:animate-dialog-in focus:outline-none",
           className
         )}
         {...props}

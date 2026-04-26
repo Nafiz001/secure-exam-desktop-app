@@ -7,10 +7,11 @@ import { cn } from "../../lib/cn";
 
 // ─── Thresholds ──────────────────────────────────────────────────────────────
 // Yaw (left-right): (noseTip.x - eyeMid.x) / eyeWidth
-const YAW_THRESHOLD        = 0.20;
+// Loosened (was 0.20) so a small natural head turn doesn't fire a violation.
+const YAW_THRESHOLD        = 0.32;
 // Pitch (up-down):  (noseTip.y - eyeMid.y) / faceHeight
-const PITCH_DOWN_THRESHOLD = 0.58;  // head dropped → phone/notes
-const PITCH_UP_THRESHOLD   = 0.12;  // head raised → looking up/away
+const PITCH_DOWN_THRESHOLD = 0.70;  // head dropped → phone/notes (was 0.58)
+const PITCH_UP_THRESHOLD   = 0.05;  // head raised → looking up/away (was 0.12)
 
 // Snapshot upload interval — 3s so teacher sees near-live frames
 const SNAPSHOT_INTERVAL_MS = 3000;
@@ -20,10 +21,18 @@ const DISPLAY_W = 200;
 const DISPLAY_H = 150;
 
 // Per-event throttle — don't resend same event within this window
-const EVENT_THROTTLE_MS = 10000;
+// (longer window = fewer false positives reaching the teacher)
+const EVENT_THROTTLE_MS = 30000;
 
-// Camera warmup — give sensor time to adjust before first detection
-const CAMERA_WARMUP_MS = 800;
+// Camera warmup — give the sensor and the student time to settle before any
+// detection runs. Was 800 ms, but that fired ~3 violations as soon as the
+// camera turned on (BlazeFace sees auto-exposure frames or a half-framed face
+// during the first second).
+const CAMERA_WARMUP_MS = 5000;
+
+// After warmup, also discard the first N detection frames silently so the
+// student has a moment to position themselves before any event is reported.
+const STABILIZATION_FRAMES = 8;
 
 // ─── Head pose from BlazeFace keypoints ──────────────────────────────────────
 // BlazeFace landmark order: 0=rightEye, 1=leftEye, 2=noseTip, 3=mouth,
@@ -98,6 +107,9 @@ export default function ProctoringCamera({ token, examId, enabled }) {
   const cancelledRef      = useRef(false);
   const lastEventRef      = useRef({});   // { eventType: timestamp }
   const lastStatusRef     = useRef({ faceCount: 0, status: "ok" });
+  // Counts detection frames since startup; events are suppressed until this
+  // exceeds STABILIZATION_FRAMES so the camera/face has time to settle.
+  const stabilizationFramesRef = useRef(0);
 
   // 'loading' | 'ok' | 'denied' | 'model_error' | 'camera_error'
   const [cameraStatus, setCameraStatus] = useState("loading");
@@ -175,7 +187,13 @@ export default function ProctoringCamera({ token, examId, enabled }) {
       }
     }
 
-    if (eventType) postEvent(eventType, details); // fire-and-forget
+    // Skip event reporting for the first few detection frames so the camera
+    // and student have time to settle (else we get a burst of false-positive
+    // "no_face" / "looking_away" events as soon as the camera turns on).
+    stabilizationFramesRef.current += 1;
+    const isStabilized = stabilizationFramesRef.current > STABILIZATION_FRAMES;
+
+    if (eventType && isStabilized) postEvent(eventType, details); // fire-and-forget
 
     lastStatusRef.current = { faceCount, status };
 

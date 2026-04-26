@@ -35,7 +35,7 @@ import {
   CircleDot,
   ChevronRight,
 } from "lucide-react";
-import { apiRequest } from "../../api";
+import { apiRequest, API_BASE_URL } from "../../api";
 import { useModal } from "../../components/modals/ModalProvider";
 import {
   Button,
@@ -53,6 +53,7 @@ import {
   Spinner,
   EmptyState,
   Divider,
+  toast,
 } from "../../components/ui";
 import { cn } from "../../lib/cn";
 import AIAssistant from "./AIAssistant";
@@ -152,7 +153,12 @@ export default function TeacherDashboard({ token }) {
   const [formWebcamRequired, setFormWebcamRequired] = useState(false);
   const [formQuestionFlowMode, setFormQuestionFlowMode] = useState("all_at_once");
   const [formRandomizeQuestionOrder, setFormRandomizeQuestionOrder] = useState(false);
+  const [formAutoSubmitThreshold, setFormAutoSubmitThreshold] = useState("3");
+  const [formHideResultsFromStudents, setFormHideResultsFromStudents] = useState(false);
+  const [formAllowMultipleAttempts, setFormAllowMultipleAttempts] = useState(false);
   const [roomCode, setRoomCode] = useState("");
+  const [roomCodeJustCopied, setRoomCodeJustCopied] = useState(false);
+  const roomCodeCopyResetTimerRef = useRef(null);
   const [examStatus, setExamStatus] = useState("created");
   const [examStartedAt, setExamStartedAt] = useState(null);
   const [currentExamType, setCurrentExamType] = useState("lab_quiz");
@@ -386,6 +392,9 @@ export default function TeacherDashboard({ token }) {
     setFormWebcamRequired(false);
     setFormQuestionFlowMode("all_at_once");
     setFormRandomizeQuestionOrder(false);
+    setFormAutoSubmitThreshold("3");
+    setFormHideResultsFromStudents(false);
+    setFormAllowMultipleAttempts(false);
     setRoomCode("");
     setExamStatus("created");
     setExamStartedAt(null);
@@ -411,6 +420,13 @@ export default function TeacherDashboard({ token }) {
       setFormWebcamRequired(Boolean(exam.webcam_required));
       setFormQuestionFlowMode(normalizeQuestionFlowMode(exam.question_flow_mode));
       setFormRandomizeQuestionOrder(Boolean(exam.randomize_question_order));
+      setFormAutoSubmitThreshold(String(
+        Number.isFinite(Number(exam.auto_submit_violation_threshold)) && Number(exam.auto_submit_violation_threshold) > 0
+          ? exam.auto_submit_violation_threshold
+          : 3
+      ));
+      setFormHideResultsFromStudents(Boolean(exam.hide_results_from_students));
+      setFormAllowMultipleAttempts(Boolean(exam.allow_multiple_attempts));
       setRoomCode(exam.room_code || "");
       setExamStatus(exam.status || "created");
       setExamStartedAt(exam.started_at || null);
@@ -487,6 +503,14 @@ export default function TeacherDashboard({ token }) {
             webcam_required: formWebcamRequired,
             question_flow_mode: formQuestionFlowMode,
             randomize_question_order: formRandomizeQuestionOrder,
+            auto_submit_violation_threshold: (() => {
+              const n = Number(formAutoSubmitThreshold);
+              if (!Number.isFinite(n) || n < 1) return 3;
+              if (n > 50) return 50;
+              return Math.floor(n);
+            })(),
+            hide_results_from_students: formHideResultsFromStudents,
+            allow_multiple_attempts: formAllowMultipleAttempts,
           }),
         },
         token
@@ -503,6 +527,15 @@ export default function TeacherDashboard({ token }) {
       setFormExamType(exam.exam_type || examType);
       setFormQuestionFlowMode(normalizeQuestionFlowMode(exam.question_flow_mode || formQuestionFlowMode));
       setFormRandomizeQuestionOrder(Boolean(exam.randomize_question_order));
+      if (Number.isFinite(Number(exam.auto_submit_violation_threshold))) {
+        setFormAutoSubmitThreshold(String(exam.auto_submit_violation_threshold));
+      }
+      setFormHideResultsFromStudents(Boolean(exam.hide_results_from_students));
+      setFormAllowMultipleAttempts(Boolean(exam.allow_multiple_attempts));
+      // If the backend reopened a completed exam (we edited it), surface it.
+      if (result.data?.reopened) {
+        toast.success("Exam reopened — students can take it again.", { duration: 3000 });
+      }
       await loadExams();
       clearParticipantPolling();
       setView("form");
@@ -538,6 +571,38 @@ export default function TeacherDashboard({ token }) {
     }
   }
 
+  async function downloadResultsCsv(examId) {
+    if (!examId) return;
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/exams/${examId}/export-results.csv`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(text || `Export failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      // Pull filename from Content-Disposition if the server set one.
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = /filename="?([^";]+)"?/.exec(disposition);
+      const filename = match
+        ? match[1]
+        : `exam_${examId}_results_${new Date().toISOString().slice(0, 10)}.csv`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Results CSV downloaded.", { duration: 2500 });
+    } catch (err) {
+      toast.error(err.message || "Could not download results CSV.");
+    }
+  }
+
   async function copyRoomCodeToClipboard() {
     if (!roomCode) return;
     let copied = false;
@@ -566,12 +631,17 @@ export default function TeacherDashboard({ token }) {
       }
     }
     if (copied) {
-      await showAlert({ title: "Copied", message: `Room code "${roomCode}" copied to clipboard.` });
+      toast.success(`Room code ${roomCode} copied`, { duration: 2000 });
+      setRoomCodeJustCopied(true);
+      if (roomCodeCopyResetTimerRef.current) {
+        clearTimeout(roomCodeCopyResetTimerRef.current);
+      }
+      roomCodeCopyResetTimerRef.current = setTimeout(() => {
+        setRoomCodeJustCopied(false);
+        roomCodeCopyResetTimerRef.current = null;
+      }, 2000);
     } else {
-      await showAlert({
-        title: "Copy failed",
-        message: `Could not access the clipboard. Manually copy this code: ${roomCode}`,
-      });
+      toast.error(`Couldn't copy. Manually note the code: ${roomCode}`);
     }
   }
 
@@ -1166,7 +1236,7 @@ export default function TeacherDashboard({ token }) {
                       required
                     />
                   </FormField>
-                  <FormField label="Question presentation" htmlFor="exam-flow" className="sm:col-span-2">
+                  <FormField label="Question presentation" htmlFor="exam-flow">
                     <select
                       id="exam-flow"
                       value={formQuestionFlowMode}
@@ -1176,6 +1246,20 @@ export default function TeacherDashboard({ token }) {
                       <option value="all_at_once">All questions at once</option>
                       <option value="one_by_one">One question at a time</option>
                     </select>
+                  </FormField>
+                  <FormField
+                    label="Auto-submit after N violations"
+                    htmlFor="exam-violation-threshold"
+                    hint="Student is auto-submitted once they hit this many violations (1–50)."
+                  >
+                    <Input
+                      id="exam-violation-threshold"
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={formAutoSubmitThreshold}
+                      onChange={(event) => setFormAutoSubmitThreshold(event.target.value)}
+                    />
                   </FormField>
                 </div>
 
@@ -1205,6 +1289,34 @@ export default function TeacherDashboard({ token }) {
                       <span className="block font-medium text-ink">Require webcam proctoring</span>
                       <span className="text-ink-muted text-xs mt-0.5 block">
                         Face detection will monitor for suspicious activity during the exam.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-3 rounded-md border border-border bg-bg p-3 cursor-pointer hover:border-border-strong transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={formHideResultsFromStudents}
+                      onChange={(e) => setFormHideResultsFromStudents(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-border-strong text-primary focus:ring-primary-ring"
+                    />
+                    <span className="text-sm">
+                      <span className="block font-medium text-ink">Hide marks from students</span>
+                      <span className="text-ink-muted text-xs mt-0.5 block">
+                        Students will see only that they have submitted — no auto/manual scores or per-question feedback.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-3 rounded-md border border-border bg-bg p-3 cursor-pointer hover:border-border-strong transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={formAllowMultipleAttempts}
+                      onChange={(e) => setFormAllowMultipleAttempts(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-border-strong text-primary focus:ring-primary-ring"
+                    />
+                    <span className="text-sm">
+                      <span className="block font-medium text-ink">Allow multiple attempts (re-runnable for other sections)</span>
+                      <span className="text-ink-muted text-xs mt-0.5 block">
+                        Lets the same exam be taken again — useful when running the same paper for a different section. Each new attempt overwrites the previous submission.
                       </span>
                     </span>
                   </label>
@@ -1238,7 +1350,7 @@ export default function TeacherDashboard({ token }) {
                 </div>
               </CardHeader>
               <CardBody>
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                   <button
                     type="button"
                     onClick={() => openQuestionManager(currentExamId, currentExamTitle)}
@@ -1276,6 +1388,19 @@ export default function TeacherDashboard({ token }) {
                     <div className="min-w-0">
                       <p className="font-medium text-ink">Proctoring</p>
                       <p className="text-xs text-ink-muted mt-0.5">Live webcam monitoring</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadResultsCsv(currentExamId)}
+                    className="group flex items-start gap-3 rounded-lg border border-border bg-bg p-4 text-left hover:border-primary hover:bg-primary-subtle/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-ring"
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-md bg-success-subtle text-success">
+                      <FileText className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-medium text-ink">Export results (CSV)</p>
+                      <p className="text-xs text-ink-muted mt-0.5">All students, opens in Excel</p>
                     </div>
                   </button>
                   <button
@@ -1328,13 +1453,18 @@ export default function TeacherDashboard({ token }) {
                     {roomCode || "—"}
                   </span>
                   <IconButton
-                    aria-label="Copy room code"
-                    tooltip="Copy code"
+                    aria-label={roomCodeJustCopied ? "Room code copied" : "Copy room code"}
+                    tooltip={roomCodeJustCopied ? "Copied" : "Copy code"}
                     variant="ghost"
                     onClick={copyRoomCodeToClipboard}
                     disabled={!roomCode}
+                    className={cn(roomCodeJustCopied && "text-success")}
                   >
-                    <Copy className="h-4 w-4" />
+                    {roomCodeJustCopied ? (
+                      <Check className="h-4 w-4" />
+                    ) : (
+                      <Copy className="h-4 w-4" />
+                    )}
                   </IconButton>
                   <Divider orientation="vertical" className="h-6 mx-1" />
                   <Badge variant={getStatusBadgeVariant(effectiveExamStatus)}>
@@ -1414,25 +1544,35 @@ export default function TeacherDashboard({ token }) {
                               <p className="text-xs text-ink-subtle mt-1">Latest: {lastViolation}</p>
                             ) : null}
                           </div>
-                          <div className="flex items-center gap-1">
-                            <IconButton
-                              aria-label={isFrozen ? "Unfreeze screen" : "Freeze screen"}
-                              tooltip={isFrozen ? "Unfreeze" : "Freeze screen"}
-                              variant="ghost"
-                              onClick={() => handleToggleFreezeParticipant(participant)}
-                            >
-                              {isFrozen ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
-                            </IconButton>
-                            <IconButton
-                              aria-label="Force submit"
-                              tooltip="Force submit"
-                              variant="danger"
-                              onClick={() => handleForceSubmitParticipant(participant)}
-                              disabled={String(participant.status || "").toLowerCase() === "completed"}
-                            >
-                              <StopCircle className="h-4 w-4" />
-                            </IconButton>
-                          </div>
+                          {(() => {
+                            const isCompleted = String(participant.status || "").toLowerCase() === "completed";
+                            return (
+                              <div className="flex items-center gap-1">
+                                <IconButton
+                                  aria-label={isFrozen ? "Unfreeze screen" : "Freeze screen"}
+                                  tooltip={
+                                    isCompleted
+                                      ? "Disabled — student has submitted"
+                                      : isFrozen ? "Unfreeze" : "Freeze screen"
+                                  }
+                                  variant="ghost"
+                                  onClick={() => handleToggleFreezeParticipant(participant)}
+                                  disabled={isCompleted}
+                                >
+                                  {isFrozen ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                                </IconButton>
+                                <IconButton
+                                  aria-label="Force submit"
+                                  tooltip={isCompleted ? "Already submitted" : "Force submit"}
+                                  variant="danger"
+                                  onClick={() => handleForceSubmitParticipant(participant)}
+                                  disabled={isCompleted}
+                                >
+                                  <StopCircle className="h-4 w-4" />
+                                </IconButton>
+                              </div>
+                            );
+                          })()}
                         </li>
                       );
                     })}

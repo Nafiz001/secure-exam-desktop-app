@@ -7,6 +7,7 @@ import {
   Hourglass,
   Play,
   Eye,
+  EyeOff,
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
@@ -156,7 +157,23 @@ function getEvaluationStatusLabel(status) {
 
 export default function StudentDashboard({ token, user, onExamModeChange }) {
   const { showAlert, showConfirm } = useModal();
-  const [view, setView] = useState("dashboard");
+  // If localStorage has a stashed session for this user (from the login screen
+  // "Enter Exam by room code" flow, or a prior in-progress exam), start in
+  // "restoring" so the dashboard doesn't flash before the restore effect
+  // switches us into waiting/exam.
+  const [view, setView] = useState(() => {
+    if (typeof window === "undefined" || !user?.id) return "dashboard";
+    try {
+      const raw = window.localStorage.getItem(`student-session:${user.id}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.examId && parsed?.mode) return "restoring";
+      }
+    } catch {
+      // fall through to dashboard
+    }
+    return "dashboard";
+  });
   const [activeExams, setActiveExams] = useState([]);
   const [loadingActiveExams, setLoadingActiveExams] = useState(false);
   const [studentNameInput, setStudentNameInput] = useState(localStorage.getItem("studentDisplayName") || "");
@@ -421,7 +438,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
 
   const forceAutoSubmitExam = useCallback(
     async (examId, autoSubmitReason, options = {}) => {
-      const { silent = false } = options;
+      const { silent = false, keepView = false } = options;
       if (!examId || submissionInProgressRef.current) {
         return false;
       }
@@ -471,10 +488,12 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         }
 
         clearStudentSession();
-        resetExamState();
-        setWaitingExam(null);
-        setWaitingParticipantCount(0);
-        setView("dashboard");
+        if (!keepView) {
+          resetExamState();
+          setWaitingExam(null);
+          setWaitingParticipantCount(0);
+          setView("dashboard");
+        }
         await loadActiveExams();
         await loadMyResults();
         return true;
@@ -491,10 +510,12 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         }
 
         clearStudentSession();
-        resetExamState();
-        setWaitingExam(null);
-        setWaitingParticipantCount(0);
-        setView("dashboard");
+        if (!keepView) {
+          resetExamState();
+          setWaitingExam(null);
+          setWaitingParticipantCount(0);
+          setView("dashboard");
+        }
         await loadActiveExams();
         await loadMyResults();
         return alreadySubmitted;
@@ -619,6 +640,15 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     submitExamRef.current = submitExam;
   }, [submitExam]);
 
+  const dismissForceSubmitOverlay = useCallback(() => {
+    setIsTeacherForceSubmitting(false);
+    forceSubmitTriggeredRef.current = false;
+    resetExamState();
+    setWaitingExam(null);
+    setWaitingParticipantCount(0);
+    setView("dashboard");
+  }, [resetExamState]);
+
   const pollExamControl = useCallback(
     async (examId) => {
       if (!examId) return;
@@ -634,10 +664,12 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           forceSubmitTriggeredRef.current = true;
           clearExamControlPolling();
           setIsTeacherForceSubmitting(true);
+          // Stay on the exam view so the overlay sticks until the student
+          // dismisses it. dismissForceSubmitOverlay() handles cleanup.
           await forceAutoSubmitExam(
             examId,
             "Your teacher submitted your exam.",
-            { silent: true }
+            { silent: true, keepView: true }
           );
         }
       } catch (err) {
@@ -828,7 +860,10 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     } catch (err) {
       raw = null;
     }
-    if (!raw) return;
+    if (!raw) {
+      setView((v) => (v === "restoring" ? "dashboard" : v));
+      return;
+    }
 
     let saved = null;
     try {
@@ -838,6 +873,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     }
     if (!saved?.examId || !saved?.mode) {
       clearStudentSession();
+      setView((v) => (v === "restoring" ? "dashboard" : v));
       return;
     }
 
@@ -847,10 +883,12 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         const exam = result.data?.exam;
         if (!exam) {
           clearStudentSession();
+          setView((v) => (v === "restoring" ? "dashboard" : v));
           return;
         }
         if (exam.has_submitted || exam.status === "completed") {
           clearStudentSession();
+          setView((v) => (v === "restoring" ? "dashboard" : v));
           return;
         }
         if (exam.status === "in_progress" && startExamSessionRef.current) {
@@ -859,10 +897,13 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
         }
         if (enterWaitingRoomRef.current) {
           enterWaitingRoomRef.current(exam);
+        } else {
+          setView((v) => (v === "restoring" ? "dashboard" : v));
         }
       } catch (err) {
         // Restore failed (e.g. exam deleted / no longer accessible).
         clearStudentSession();
+        setView((v) => (v === "restoring" ? "dashboard" : v));
       }
     })();
   }, [clearStudentSession, sessionStorageKey, token]);
@@ -1011,7 +1052,16 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
     }
 
     const startTime = examData.started_at ? new Date(examData.started_at) : new Date();
-    const endTime = new Date(startTime.getTime() + Number(examData.duration) * 60 * 1000);
+    const startMs = Number.isFinite(startTime.getTime()) ? startTime.getTime() : Date.now();
+    const durationMin = Number(examData.duration);
+    // Fall back to 60 minutes if duration is missing/invalid so the timer
+    // always renders something instead of staying at "--:--".
+    const safeDurationMin = Number.isFinite(durationMin) && durationMin > 0 ? durationMin : 60;
+    const endTime = new Date(startMs + safeDurationMin * 60 * 1000);
+
+    // Seed display immediately so the chip never sits on "--:--" while the
+    // first tick is being scheduled.
+    setTimerText(formatTimerDisplay(Math.max(0, Math.floor((endTime - new Date()) / 1000))));
 
     const tick = () => {
       const now = new Date();
@@ -1341,6 +1391,9 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           </CardBody>
         </Card>
 
+        {/* "My active exams" panel removed — the join form above + auto-restore
+            handles waiting/live exams without a separate listing. */}
+        {false ? (
         <Card>
           <CardHeader>
             <div>
@@ -1435,6 +1488,7 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
             )}
           </CardBody>
         </Card>
+        ) : null}
 
         <Card>
           <CardHeader>
@@ -1466,7 +1520,9 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
             ) : (
               <ul className="space-y-2">
                 {results.map((result) => {
-                  const isCompleted = String(result.evaluation_status || "").toLowerCase() === "completed";
+                  const isHidden = Boolean(result.results_hidden);
+                  const isCompleted = !isHidden
+                    && String(result.evaluation_status || "").toLowerCase() === "completed";
                   return (
                     <li
                       key={result.submission_id}
@@ -1475,37 +1531,51 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="font-semibold text-ink">{result.exam_title}</p>
-                          <Badge variant={isCompleted ? "success" : "warning"}>
-                            {isCompleted ? (
-                              <>
-                                <CheckCircle2 className="h-3 w-3" /> Completed
-                              </>
-                            ) : (
-                              <>
-                                <Clock className="h-3 w-3" /> Pending
-                              </>
-                            )}
-                          </Badge>
+                          {isHidden ? (
+                            <Badge variant="neutral">
+                              <EyeOff className="h-3 w-3" /> Results hidden
+                            </Badge>
+                          ) : (
+                            <Badge variant={isCompleted ? "success" : "warning"}>
+                              {isCompleted ? (
+                                <>
+                                  <CheckCircle2 className="h-3 w-3" /> Completed
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="h-3 w-3" /> Pending
+                                </>
+                              )}
+                            </Badge>
+                          )}
                         </div>
                         <div className="mt-1.5 flex items-center gap-2 flex-wrap text-xs">
                           <Badge variant="outline">{result.exam_type || "lab_quiz"}</Badge>
                           <Badge variant="outline">Submitted {formatDateTime(result.submitted_at)}</Badge>
                         </div>
-                        <div className="mt-1.5 flex items-center gap-2 flex-wrap text-xs">
-                          <Badge variant="info">Auto {result.auto_score ?? 0}</Badge>
-                          <Badge variant="primary">Manual {result.manual_score ?? 0}</Badge>
-                          <Badge variant="success">Total {result.score ?? 0}</Badge>
-                        </div>
+                        {isHidden ? (
+                          <p className="mt-1.5 text-xs text-ink-muted italic">
+                            Your teacher has hidden marks for this exam.
+                          </p>
+                        ) : (
+                          <div className="mt-1.5 flex items-center gap-2 flex-wrap text-xs">
+                            <Badge variant="info">Auto {result.auto_score ?? 0}</Badge>
+                            <Badge variant="primary">Manual {result.manual_score ?? 0}</Badge>
+                            <Badge variant="success">Total {result.score ?? 0}</Badge>
+                          </div>
+                        )}
                       </div>
-                      <IconButton
-                        aria-label="View details"
-                        tooltip="View details"
-                        variant="secondary"
-                        onClick={() => loadResultDetails(result.submission_id)}
-                        disabled={loadingResultDetails}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </IconButton>
+                      {isHidden ? null : (
+                        <IconButton
+                          aria-label="View details"
+                          tooltip="View details"
+                          variant="secondary"
+                          onClick={() => loadResultDetails(result.submission_id)}
+                          disabled={loadingResultDetails}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </IconButton>
+                      )}
                     </li>
                   );
                 })}
@@ -1814,34 +1884,33 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
               </div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <div
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5",
-                  Number(timerText.replace(":", "")) > 500
-                    ? "border-border bg-bg"
-                    : "border-warning bg-warning-subtle"
-                )}
-                aria-live="polite"
-              >
-                <Clock className="h-4 w-4 text-ink-muted" />
-                <span className="text-sm font-mono font-semibold text-ink tabular-nums tracking-tight">
-                  {timerText}
-                </span>
-              </div>
-              <div
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5",
-                  violationCount > 0
-                    ? "border-danger bg-danger-subtle text-danger"
-                    : "border-border bg-bg text-ink-muted"
-                )}
-                aria-live="polite"
-              >
-                <ShieldAlert className="h-4 w-4" />
-                <span className="text-sm font-medium tabular-nums">
-                  {violationCount} violation{violationCount === 1 ? "" : "s"}
-                </span>
-              </div>
+              {(() => {
+                // Parse "MM:SS" → total seconds. Anything unparseable shows
+                // the neutral style (so a missing started_at doesn't make the
+                // timer invisible by collapsing to a yellow-on-yellow chip).
+                const m = /^(\d{1,3}):(\d{2})$/.exec(timerText);
+                const totalSec = m ? Number(m[1]) * 60 + Number(m[2]) : null;
+                const isCritical = totalSec !== null && totalSec > 0 && totalSec <= 60;
+                const isLow = totalSec !== null && totalSec > 60 && totalSec <= 300;
+                return (
+                  <div
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5",
+                      isCritical
+                        ? "border-danger bg-danger-subtle text-danger"
+                        : isLow
+                          ? "border-warning bg-warning-subtle text-warning"
+                          : "border-border bg-bg text-ink"
+                    )}
+                    aria-live="polite"
+                  >
+                    <Clock className="h-4 w-4 opacity-80" />
+                    <span className="text-sm font-mono font-semibold tabular-nums tracking-tight">
+                      {timerText}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -1883,27 +1952,6 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
               />
             </CardBody>
           </Card>
-
-          {warningMessage ? (
-            <div
-              role="alert"
-              aria-live="assertive"
-              className={cn(
-                "flex items-start gap-3 rounded-lg border-2 px-4 py-3 animate-slide-up",
-                warningSeverity === "high"
-                  ? "border-danger bg-danger-subtle text-danger"
-                  : "border-warning bg-warning-subtle text-warning"
-              )}
-            >
-              <ShieldAlert className="h-5 w-5 shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="text-sm font-bold uppercase tracking-wide">{warningMessage}</p>
-                <p className="text-xs mt-1 opacity-80">
-                  Repeated violations may result in your exam being force-submitted by your teacher.
-                </p>
-              </div>
-            </div>
-          ) : null}
 
           {/* Questions */}
           {totalQuestions === 0 ? (
@@ -2262,7 +2310,8 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
           </div>
         ) : null}
 
-        {/* Force-submit overlay — brief notice while we auto-submit */}
+        {/* Force-submit overlay — sticks until the student clicks OK so they
+            actually see the message instead of it flashing past. */}
         {isTeacherForceSubmitting ? (
           <div
             role="alertdialog"
@@ -2273,10 +2322,26 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-success-subtle text-success">
                 <CheckCircle2 className="h-7 w-7" />
               </div>
-              <h2 className="text-xl font-semibold">Exam submitted by teacher</h2>
+              <h2 className="text-xl font-semibold">Exam submitted by your teacher</h2>
               <p className="text-sm text-ink-muted">
-                Your answers were submitted automatically. Returning to dashboard…
+                Your answers were submitted automatically. Click OK to return to your dashboard.
               </p>
+              <div className="pt-2">
+                <Button
+                  size="lg"
+                  onClick={dismissForceSubmitOverlay}
+                  disabled={submittingExam}
+                  className="min-w-[120px]"
+                >
+                  {submittingExam ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Submitting…
+                    </>
+                  ) : (
+                    "OK"
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         ) : null}
@@ -2286,6 +2351,13 @@ export default function StudentDashboard({ token, user, onExamModeChange }) {
 
   return (
     <div className={cn(view === "exam" ? "" : "mx-auto max-w-[1200px] w-full px-4 sm:px-6 py-6 sm:py-8")}>
+      {view === "restoring" ? (
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <div className="flex items-center gap-3 text-ink-muted text-sm">
+            <Spinner /> Restoring your exam session…
+          </div>
+        </div>
+      ) : null}
       {view === "dashboard" ? renderDashboardView() : null}
       {view === "waiting" ? renderWaitingView() : null}
       {view === "exam" ? renderExamView() : null}

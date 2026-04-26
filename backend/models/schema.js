@@ -210,6 +210,15 @@ const initializeSchema = async () => {
 
       ALTER TABLE exams
       ADD COLUMN IF NOT EXISTS randomize_question_order BOOLEAN DEFAULT FALSE;
+
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS auto_submit_violation_threshold INTEGER DEFAULT 3;
+
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS hide_results_from_students BOOLEAN DEFAULT FALSE;
+
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS allow_multiple_attempts BOOLEAN DEFAULT FALSE;
     `);
 
     await client.query(`

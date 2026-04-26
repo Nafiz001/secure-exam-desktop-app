@@ -18,7 +18,8 @@ const {
   recordViolation,
   forceSubmitParticipant,
   toggleParticipantFreeze,
-  joinByRoom
+  joinByRoom,
+  exportExamResultsCsv
 } = require('../controllers/examController');
 const { runCode } = require('../controllers/codeExecutionController');
 const {
@@ -63,5 +64,8 @@ router.get('/:examId/submissions', protect, authorize('teacher'), getExamSubmiss
 router.get('/:examId/evaluation/participants', protect, authorize('teacher'), getEvaluationParticipants);
 router.get('/:examId/evaluation/submissions/:submissionId', protect, authorize('teacher'), getSubmissionAnswerSheet);
 router.put('/:examId/evaluation/submissions/:submissionId/score', protect, authorize('teacher'), evaluateWrittenAnswers);
+
+// CSV aggregate-results export (teacher only — own exams)
+router.get('/:id/export-results.csv', protect, authorize('teacher'), exportExamResultsCsv);
 
 module.exports = router;

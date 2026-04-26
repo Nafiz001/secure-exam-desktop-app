@@ -111,6 +111,19 @@ export default function AIAssistant({
     }
   }, [isOpen, activeTab]);
 
+  // Clear generated questions, added-state, errors, and chat history whenever
+  // the teacher opens a different exam — questions drafted for one exam should
+  // not linger when the context switches.
+  useEffect(() => {
+    setGeneratedQuestions([]);
+    setAddedIdxs(new Set());
+    setAddingIdx(null);
+    setGenError("");
+    setGenTopic("");
+    setMessages([WELCOME_MESSAGE]);
+    setChatInput("");
+  }, [currentExamId]);
+
   const examContext = currentExamId
     ? { title: currentExamTitle, type: currentExamType, duration: formDuration }
     : null;
@@ -303,8 +316,8 @@ export default function AIAssistant({
             </div>
           </TabsContent>
 
-          <TabsContent value="generate" className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 bg-bg/30">
-            <div className="space-y-3">
+          <TabsContent value="generate" className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3 bg-bg/30">
+            <div className="space-y-2">
               <FormField label="Topic" htmlFor="ai-topic">
                 <Input
                   id="ai-topic"

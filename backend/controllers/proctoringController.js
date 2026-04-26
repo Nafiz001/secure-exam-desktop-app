@@ -46,16 +46,40 @@ const reportEvent = async (req, res) => {
 
     // Mirror into the unified per-participant violation summary so the
     // teacher dashboard's single counter reflects ALL violations.
-    await pool.query(
+    const updated = await pool.query(
       `UPDATE exam_participants
        SET
          violation_count = COALESCE(violation_count, 0) + 1,
          last_violation_type = $1,
          last_violation_severity = $2,
          last_violation_at = CURRENT_TIMESTAMP
-       WHERE exam_id = $3 AND student_id = $4`,
+       WHERE exam_id = $3 AND student_id = $4
+       RETURNING violation_count, status`,
       [humanType.slice(0, 100), severity, examId, studentId]
     );
+
+    // If teacher set an auto-submit threshold and the student crossed it,
+    // flip force_submit_requested so the student's poll auto-submits the exam.
+    if (updated.rows.length > 0) {
+      const thresholdResult = await pool.query(
+        'SELECT auto_submit_violation_threshold FROM exams WHERE id = $1',
+        [examId]
+      );
+      const threshold = (() => {
+        const n = Number(thresholdResult.rows[0]?.auto_submit_violation_threshold);
+        return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 3;
+      })();
+      const reached = Number(updated.rows[0].violation_count) >= threshold
+        && String(updated.rows[0].status || '').toLowerCase() !== 'completed';
+      if (reached) {
+        await pool.query(
+          `UPDATE exam_participants
+           SET force_submit_requested = TRUE, is_frozen = FALSE
+           WHERE exam_id = $1 AND student_id = $2`,
+          [examId, studentId]
+        );
+      }
+    }
 
     res.json({ success: true });
   } catch (error) {
