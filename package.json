@@ -41,6 +41,7 @@
     "appId": "com.nafiz.secureexamdesktop",
     "productName": "Secure Exam Desktop",
     "asar": true,
+    "afterPack": "scripts/afterPack.js",
     "files": [
       "main.js",
       "preload.js",
@@ -53,7 +54,8 @@
         "from": "backend",
         "to": "backend",
         "filter": [
-          "**/*"
+          "**/*",
+          "node_modules/**/*"
         ]
       }
     ],
