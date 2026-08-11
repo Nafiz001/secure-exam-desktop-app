@@ -1,4 +1,6 @@
 const pool = require('../config/database');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
 /**
  * Generate unique room code
@@ -215,6 +217,7 @@ const getExamById = async (req, res) => {
           sample_output,
           starter_code,
           marks,
+          image_url,
           created_at
         FROM questions
         WHERE exam_id = $1
@@ -232,6 +235,7 @@ const getExamById = async (req, res) => {
           sample_output,
           starter_code,
           marks,
+          image_url,
           created_at
         FROM questions
         WHERE exam_id = $1
@@ -492,12 +496,13 @@ const submitExam = async (req, res) => {
 };
 
 /**
- * Student joins exam via room code
+ * Student joins exam via room code (no prior login required).
+ * Identifies/provisions a student account from name + roll number,
+ * and issues a JWT so the rest of the exam-taking flow stays authenticated.
  * POST /api/exams/join
  */
 const joinExam = async (req, res) => {
-  const { roomCode, studentName } = req.body;
-  const studentId = req.user.userId;
+  const { roomCode, studentName, rollNumber } = req.body;
 
   if (!roomCode) {
     return res.status(400).json({
@@ -513,8 +518,50 @@ const joinExam = async (req, res) => {
     });
   }
 
+  if (!rollNumber || String(rollNumber).trim() === '') {
+    return res.status(400).json({
+      success: false,
+      message: 'Roll number is required'
+    });
+  }
+
+  const normalizedName = studentName.trim();
+  const normalizedRoll = String(rollNumber).trim();
+
   try {
     await syncExpiredExamStatuses();
+
+    // Find or auto-provision the student account for this roll number.
+    let studentResult = await pool.query(
+      `SELECT id, name, email, role FROM users WHERE role = 'student' AND roll_number = $1 LIMIT 1`,
+      [normalizedRoll]
+    );
+
+    let student;
+    if (studentResult.rows.length === 0) {
+      let generatedEmail = `${normalizedRoll}@student.local`;
+      const emailExists = await pool.query('SELECT id FROM users WHERE email = $1 LIMIT 1', [generatedEmail]);
+      if (emailExists.rows.length > 0) {
+        generatedEmail = `${normalizedRoll}.${Date.now()}@student.local`;
+      }
+
+      const generatedPasswordHash = await bcrypt.hash(`roll:${normalizedRoll}:${Date.now()}`, 10);
+      const inserted = await pool.query(
+        `INSERT INTO users (name, email, password_hash, role, roll_number)
+         VALUES ($1, $2, $3, 'student', $4)
+         RETURNING id, name, email, role`,
+        [normalizedName, generatedEmail, generatedPasswordHash, normalizedRoll]
+      );
+      student = inserted.rows[0];
+    } else {
+      student = studentResult.rows[0];
+      if (student.name !== normalizedName) {
+        await pool.query('UPDATE users SET name = $1 WHERE id = $2', [normalizedName, student.id]);
+        student.name = normalizedName;
+      }
+    }
+
+    const studentId = student.id;
 
     const examResult = await pool.query(
       `SELECT e.*, u.name as teacher_name,
@@ -541,6 +588,13 @@ const joinExam = async (req, res) => {
       });
     }
 
+    const token = jwt.sign(
+      { userId: student.id, email: student.email, role: 'student' },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN }
+    );
+    const userPayload = { id: student.id, name: normalizedName, email: student.email, role: 'student' };
+
     const participantCheck = await pool.query(
       'SELECT id FROM exam_participants WHERE exam_id = $1 AND student_id = $2',
       [exam.id, studentId]
@@ -549,19 +603,19 @@ const joinExam = async (req, res) => {
     if (participantCheck.rows.length > 0) {
       await pool.query(
         'UPDATE exam_participants SET student_name = $1 WHERE exam_id = $2 AND student_id = $3',
-        [studentName.trim(), exam.id, studentId]
+        [normalizedName, exam.id, studentId]
       );
 
       return res.status(200).json({
         success: true,
         message: 'Already joined this exam',
-        data: { exam }
+        data: { exam, token, user: userPayload }
       });
     }
 
     await pool.query(
       'INSERT INTO exam_participants (exam_id, student_id, student_name, status) VALUES ($1, $2, $3, $4)',
-      [exam.id, studentId, studentName.trim(), 'waiting']
+      [exam.id, studentId, normalizedName, 'waiting']
     );
 
     if (exam.status === 'created') {
@@ -575,7 +629,7 @@ const joinExam = async (req, res) => {
     res.status(200).json({
       success: true,
       message: 'Successfully joined exam',
-      data: { exam }
+      data: { exam, token, user: userPayload }
     });
   } catch (error) {
     console.error('Join exam error:', error);

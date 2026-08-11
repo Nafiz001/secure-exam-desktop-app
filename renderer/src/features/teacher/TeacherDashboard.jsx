@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiRequest } from "../../api";
+import { apiRequest, apiUpload, resolveUploadUrl } from "../../api";
 import { useModal } from "../../components/modals/ModalProvider";
+
+function normalizeOptionsForEditing(rawOptions) {
+  const base = Array.isArray(rawOptions) && rawOptions.length > 0 ? rawOptions : ["", "", "", ""];
+  return [0, 1, 2, 3].map((i) => {
+    const opt = base[i];
+    if (opt && typeof opt === "object") return opt.text || "";
+    return opt || "";
+  });
+}
 
 function normalizeQuestionType(rawType) {
   const normalized = String(rawType || "mcq").toLowerCase();
@@ -86,7 +95,9 @@ export default function TeacherDashboard({ token }) {
   const [currentQuestionId, setCurrentQuestionId] = useState(null);
   const [questionText, setQuestionText] = useState("");
   const [questionType, setQuestionType] = useState("mcq");
-  const [questionOptions, setQuestionOptions] = useState(["", "", "", ""]);
+  const [questionOptions, setQuestionOptions] = useState(normalizeOptionsForEditing());
+  const [questionImage, setQuestionImage] = useState(null);
+  const [uploadingQuestionImage, setUploadingQuestionImage] = useState(false);
   const [questionCorrectAnswer, setQuestionCorrectAnswer] = useState("");
   const [questionReferenceAnswer, setQuestionReferenceAnswer] = useState("");
   const [questionSampleInput, setQuestionSampleInput] = useState("");
@@ -188,7 +199,8 @@ export default function TeacherDashboard({ token }) {
     setCurrentQuestionId(null);
     setQuestionText("");
     setQuestionType("mcq");
-    setQuestionOptions(["", "", "", ""]);
+    setQuestionOptions(normalizeOptionsForEditing());
+    setQuestionImage(null);
     setQuestionCorrectAnswer("");
     setQuestionReferenceAnswer("");
     setQuestionSampleInput("");
@@ -320,6 +332,7 @@ export default function TeacherDashboard({ token }) {
       return;
     }
 
+    const isNewExam = !currentExamId;
     setSavingExam(true);
     try {
       const endpoint = currentExamId ? `/exams/${currentExamId}` : "/exams";
@@ -337,9 +350,14 @@ export default function TeacherDashboard({ token }) {
       setExamStartedAt(exam.started_at || examStartedAt);
       setCurrentExamType(exam.exam_type || examType);
       setFormExamType(exam.exam_type || examType);
-      setView("form");
       await loadExams();
-      if (exam.id) startParticipantPolling(exam.id);
+
+      if (isNewExam) {
+        await openQuestionManager(exam.id, exam.title || title);
+      } else {
+        setView("form");
+        if (exam.id) startParticipantPolling(exam.id);
+      }
     } catch (err) {
       await showAlert({ title: "Error", message: err.message || "Failed to save exam." });
     } finally {
@@ -413,8 +431,8 @@ export default function TeacherDashboard({ token }) {
     setCurrentQuestionId(question.id);
     setQuestionText(question.question_text || "");
     setQuestionType(qType);
-    const options = Array.isArray(question.options) ? question.options : ["", "", "", ""];
-    setQuestionOptions([options[0] || "", options[1] || "", options[2] || "", options[3] || ""]);
+    setQuestionOptions(normalizeOptionsForEditing(question.options));
+    setQuestionImage(question.image_url || null);
     setQuestionCorrectAnswer(
       question.correct_answer === undefined || question.correct_answer === null
         ? ""
@@ -430,6 +448,24 @@ export default function TeacherDashboard({ token }) {
 
   function handleOptionChange(index, value) {
     setQuestionOptions((prev) => prev.map((opt, i) => (i === index ? value : opt)));
+  }
+
+  async function handleQuestionImageUpload(file) {
+    if (!file) return;
+
+    setUploadingQuestionImage(true);
+    try {
+      const result = await apiUpload("/uploads/question-image", file, token);
+      setQuestionImage(result.data.url);
+    } catch (err) {
+      await showAlert({ title: "Upload Failed", message: err.message || "Failed to upload image." });
+    } finally {
+      setUploadingQuestionImage(false);
+    }
+  }
+
+  function handleRemoveQuestionImage() {
+    setQuestionImage(null);
   }
 
   async function handleSaveQuestion(event) {
@@ -448,8 +484,9 @@ export default function TeacherDashboard({ token }) {
       return;
     }
 
+    let trimmedOptions = null;
     if (questionType === "mcq") {
-      const trimmedOptions = questionOptions.map((opt) => opt.trim());
+      trimmedOptions = questionOptions.map((opt) => opt.trim());
       if (trimmedOptions.some((opt) => !opt)) {
         await showAlert({ title: "Validation", message: "All four MCQ options are required." });
         return;
@@ -475,7 +512,8 @@ export default function TeacherDashboard({ token }) {
               question_text: trimmedQuestionText,
               question_type: "written",
               reference_answer: questionReferenceAnswer.trim(),
-              marks
+              marks,
+              image_url: questionImage
             }
           : questionType === "coding"
             ? {
@@ -484,14 +522,16 @@ export default function TeacherDashboard({ token }) {
                 sample_input: questionSampleInput,
                 sample_output: questionSampleOutput,
                 starter_code: questionStarterCode,
-                marks
+                marks,
+                image_url: questionImage
               }
           : {
               question_text: trimmedQuestionText,
               question_type: "mcq",
-              options: questionOptions.map((opt) => opt.trim()),
+              options: trimmedOptions,
               correct_answer: Number(questionCorrectAnswer),
-              marks
+              marks,
+              image_url: questionImage
             };
 
       await apiRequest(
@@ -839,6 +879,13 @@ export default function TeacherDashboard({ token }) {
                     <strong>
                       {index + 1}. {question.question_text}
                     </strong>
+                    {question.image_url ? (
+                      <img
+                        className="question-inline-image"
+                        src={resolveUploadUrl(question.image_url)}
+                        alt={`Question ${index + 1}`}
+                      />
+                    ) : null}
                     <span>
                       Type: {qType === "written" ? "Written" : qType === "coding" ? "Coding" : "MCQ"} | Marks: {question.marks}
                     </span>
@@ -920,6 +967,30 @@ export default function TeacherDashboard({ token }) {
                   required
                 />
               </label>
+
+              {questionImage ? (
+                <div className="option-image-preview">
+                  <img src={resolveUploadUrl(questionImage)} alt="Question preview" />
+                  <button type="button" className="secondary btn-inline" onClick={handleRemoveQuestionImage}>
+                    Remove Image
+                  </button>
+                </div>
+              ) : (
+                <label>
+                  <span>Question Image (optional)</span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    disabled={uploadingQuestionImage}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      handleQuestionImageUpload(file);
+                      event.target.value = "";
+                    }}
+                  />
+                  {uploadingQuestionImage ? <span className="muted small">Uploading...</span> : null}
+                </label>
+              )}
 
               {questionType === "mcq" ? (
                 <>
@@ -1150,6 +1221,13 @@ export default function TeacherDashboard({ token }) {
                     <p className="question-title">
                       {index + 1}. {item.question_text}
                     </p>
+                    {item.image_url ? (
+                      <img
+                        className="question-inline-image"
+                        src={resolveUploadUrl(item.image_url)}
+                        alt={`Question ${index + 1}`}
+                      />
+                    ) : null}
                     <p className="muted small">
                       Type: {qType === "written" ? "Written" : "MCQ"} | Max Marks: {maxMarks}
                     </p>

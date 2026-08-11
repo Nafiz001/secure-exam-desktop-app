@@ -15,25 +15,17 @@ const ROLE_OPTIONS = [
     label: "Teacher Login",
     subtitle: "Exam creation and management",
     cue: "Create papers, monitor participants, review submissions"
-  },
-  {
-    key: "student",
-    icon: "ST",
-    label: "Student Login",
-    subtitle: "Exam participation and submission",
-    cue: "Join quickly and start your assessment flow"
   }
 ];
 
-export default function LoginPage({ onLogin }) {
-  const [activeRole, setActiveRole] = useState("student");
+export default function LoginPage({ onLogin, onStudentJoin }) {
+  const [activeRole, setActiveRole] = useState("teacher");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [rollNumber, setRollNumber] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleRoleLogin(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     setError("");
 
@@ -64,36 +56,6 @@ export default function LoginPage({ onLogin }) {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function handleRollLogin(event) {
-    event.preventDefault();
-    setError("");
-
-    if (!rollNumber.trim()) {
-      setError("Please enter your roll number.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const result = await apiRequest("/auth/student-roll-login", {
-        method: "POST",
-        body: JSON.stringify({
-          roll_number: rollNumber.trim()
-        })
-      });
-
-      onLogin(result.data.token, result.data.user);
-    } catch (err) {
-      setError(err.message || "Direct student login failed.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleSubmit(event) {
-    await handleRoleLogin(event);
   }
 
   return (
@@ -128,6 +90,13 @@ export default function LoginPage({ onLogin }) {
               <small>{role.cue}</small>
             </button>
           ))}
+
+          <button type="button" className="role-card" onClick={onStudentJoin}>
+            <span className="role-icon" aria-hidden="true">ST</span>
+            <strong>Student</strong>
+            <span>Exam participation and submission</span>
+            <small>No account needed — join with a room code</small>
+          </button>
         </div>
 
         {error ? <div className="error-box">{error}</div> : null}
@@ -163,29 +132,6 @@ export default function LoginPage({ onLogin }) {
             {loading ? "Signing in..." : `Continue as ${activeRole.charAt(0).toUpperCase()}${activeRole.slice(1)}`}
           </button>
         </form>
-
-        {activeRole === "student" ? (
-          <div className="student-direct-panel">
-            <h3>Student Direct Login</h3>
-            <p className="muted small">
-              No email/password required. Enter your roll number for direct access.
-            </p>
-            <form className="form-stack" onSubmit={handleRollLogin}>
-              <label>
-                <span>Roll Number</span>
-                <input
-                  type="text"
-                  value={rollNumber}
-                  onChange={(event) => setRollNumber(event.target.value)}
-                  placeholder="e.g. 2007001"
-                />
-              </label>
-              <button type="submit" disabled={loading}>
-                {loading ? "Checking..." : "Login Using Roll Number"}
-              </button>
-            </form>
-          </div>
-        ) : null}
       </section>
     </main>
   );

@@ -20,6 +20,17 @@ function parseJsonArray(value, fallback = []) {
   return fallback;
 }
 
+// Only allow images that were produced by our own upload endpoint, so
+// question payloads can't be used to smuggle arbitrary external/local URLs.
+const UPLOADED_IMAGE_PATH_RE = /^\/uploads\/questions\/[A-Za-z0-9._-]+$/;
+
+function normalizeQuestionImageUrl(rawImageUrl) {
+  if (typeof rawImageUrl !== 'string') return null;
+  const trimmed = rawImageUrl.trim();
+  if (!trimmed || !UPLOADED_IMAGE_PATH_RE.test(trimmed)) return null;
+  return trimmed;
+}
+
 /**
  * Add question to exam (Teacher only - own exams)
  * POST /api/exams/:examId/questions
@@ -35,12 +46,14 @@ const addQuestion = async (req, res) => {
     sample_input,
     sample_output,
     starter_code,
-    marks
+    marks,
+    image_url
   } = req.body;
   const teacherId = req.user.userId;
 
   const normalizedType = normalizeQuestionType(question_type);
   const normalizedMarks = Number(marks);
+  const normalizedImageUrl = normalizeQuestionImageUrl(image_url);
 
   if (!question_text || normalizedMarks <= 0) {
     return res.status(400).json({
@@ -50,10 +63,10 @@ const addQuestion = async (req, res) => {
   }
 
   if (normalizedType === 'mcq') {
-    if (!Array.isArray(options) || options.length < 2) {
+    if (!Array.isArray(options) || options.length < 2 || options.some((opt) => !String(opt || '').trim())) {
       return res.status(400).json({
         success: false,
-        message: 'MCQ options must be an array with at least 2 choices'
+        message: 'MCQ options must be an array with at least 2 non-empty choices'
       });
     }
 
@@ -93,7 +106,9 @@ const addQuestion = async (req, res) => {
       });
     }
 
-    const mcqOptions = normalizedType === 'mcq' ? JSON.stringify(options) : null;
+    const mcqOptions = normalizedType === 'mcq'
+      ? JSON.stringify(options.map((opt) => String(opt).trim()))
+      : null;
     const mcqCorrectAnswer = normalizedType === 'mcq' ? String(correct_answer) : null;
     const writtenReference = normalizedType === 'written'
       ? (reference_answer || '')
@@ -105,12 +120,12 @@ const addQuestion = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO questions (
          exam_id, question_text, question_type, options, correct_answer, reference_answer,
-         sample_input, sample_output, starter_code, marks
-       ) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) 
+         sample_input, sample_output, starter_code, marks, image_url
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING
          id, exam_id, question_text, question_type, options, correct_answer, reference_answer,
-         sample_input, sample_output, starter_code, marks, created_at`,
+         sample_input, sample_output, starter_code, marks, image_url, created_at`,
       [
         examId,
         question_text,
@@ -121,7 +136,8 @@ const addQuestion = async (req, res) => {
         codingSampleInput,
         codingSampleOutput,
         codingStarter,
-        normalizedMarks
+        normalizedMarks,
+        normalizedImageUrl
       ]
     );
 
@@ -156,12 +172,14 @@ const updateQuestion = async (req, res) => {
     sample_input,
     sample_output,
     starter_code,
-    marks
+    marks,
+    image_url
   } = req.body;
   const teacherId = req.user.userId;
 
   const normalizedType = normalizeQuestionType(question_type);
   const normalizedMarks = marks === undefined || marks === null ? null : Number(marks);
+  const normalizedImageUrl = normalizeQuestionImageUrl(image_url);
 
   if (normalizedMarks !== null && normalizedMarks <= 0) {
     return res.status(400).json({
@@ -171,10 +189,10 @@ const updateQuestion = async (req, res) => {
   }
 
   if (normalizedType === 'mcq') {
-    if (!Array.isArray(options) || options.length < 2) {
+    if (!Array.isArray(options) || options.length < 2 || options.some((opt) => !String(opt || '').trim())) {
       return res.status(400).json({
         success: false,
-        message: 'MCQ options must be an array with at least 2 choices'
+        message: 'MCQ options must be an array with at least 2 non-empty choices'
       });
     }
 
@@ -216,7 +234,9 @@ const updateQuestion = async (req, res) => {
       });
     }
 
-    const nextOptions = normalizedType === 'mcq' ? JSON.stringify(options) : null;
+    const nextOptions = normalizedType === 'mcq'
+      ? JSON.stringify(options.map((opt) => String(opt).trim()))
+      : null;
     const nextCorrect = normalizedType === 'mcq' ? String(correct_answer) : null;
     const nextReference = normalizedType === 'written' ? (reference_answer || '') : null;
     const nextSampleInput = normalizedType === 'coding' ? (sample_input || '') : null;
@@ -224,7 +244,7 @@ const updateQuestion = async (req, res) => {
     const nextStarterCode = normalizedType === 'coding' ? (starter_code || '') : null;
 
     const result = await pool.query(
-      `UPDATE questions 
+      `UPDATE questions
        SET question_text = COALESCE($1, question_text),
            question_type = COALESCE($2, question_type),
            options = $3,
@@ -233,11 +253,12 @@ const updateQuestion = async (req, res) => {
            sample_input = $6,
            sample_output = $7,
            starter_code = $8,
-           marks = COALESCE($9, marks)
-       WHERE id = $10
+           marks = COALESCE($9, marks),
+           image_url = $10
+       WHERE id = $11
        RETURNING
          id, exam_id, question_text, question_type, options, correct_answer, reference_answer,
-         sample_input, sample_output, starter_code, marks, created_at`,
+         sample_input, sample_output, starter_code, marks, image_url, created_at`,
       [
         question_text,
         normalizedType,
@@ -248,6 +269,7 @@ const updateQuestion = async (req, res) => {
         nextSampleOutput,
         nextStarterCode,
         normalizedMarks,
+        normalizedImageUrl,
         questionId
       ]
     );
@@ -475,7 +497,8 @@ const getSubmissionAnswerSheet = async (req, res) => {
          sample_input,
          sample_output,
          starter_code,
-         marks
+         marks,
+         image_url
        FROM questions
        WHERE exam_id = $1
        ORDER BY id ASC`,
@@ -494,6 +517,7 @@ const getSubmissionAnswerSheet = async (req, res) => {
         sample_input: question.sample_input || '',
         sample_output: question.sample_output || '',
         starter_code: question.starter_code || '',
+        image_url: question.image_url || null,
         max_marks: Number(question.marks) || 0,
         selected_answer: answer.selected_answer ?? null,
         written_answer: answer.written_answer || '',

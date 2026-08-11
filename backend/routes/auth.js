@@ -1,14 +1,16 @@
 const express = require('express');
 const router = express.Router();
-const { register, login, studentRollLogin, getCurrentUser } = require('../controllers/authController');
-const { protect } = require('../middleware/auth');
+const { register, login, changePassword, getCurrentUser } = require('../controllers/authController');
+const { protect, authorize } = require('../middleware/auth');
 
 // Public routes
-router.post('/register', register);
 router.post('/login', login);
-router.post('/student-roll-login', studentRollLogin);
 
-// Protected route
+// Admin-only: create teacher/admin accounts with an initial password
+router.post('/register', protect, authorize('admin'), register);
+
+// Protected routes
 router.get('/me', protect, getCurrentUser);
+router.post('/change-password', protect, changePassword);
 
 module.exports = router;

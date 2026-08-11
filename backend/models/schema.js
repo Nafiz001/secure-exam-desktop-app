@@ -30,6 +30,11 @@ const initializeSchema = async () => {
       ADD COLUMN IF NOT EXISTS roll_number VARCHAR(50);
     `);
 
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
+    `);
+
     // Exams table
     await client.query(`
       CREATE TABLE IF NOT EXISTS exams (
@@ -116,6 +121,9 @@ const initializeSchema = async () => {
 
       ALTER TABLE questions
       ADD COLUMN IF NOT EXISTS starter_code TEXT;
+
+      ALTER TABLE questions
+      ADD COLUMN IF NOT EXISTS image_url TEXT;
 
       ALTER TABLE questions
       ALTER COLUMN options DROP NOT NULL;

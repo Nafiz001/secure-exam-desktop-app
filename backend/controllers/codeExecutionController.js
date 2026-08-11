@@ -12,6 +12,7 @@ function normalizeLanguage(rawLanguage) {
   if (normalized === 'javascript') return 'javascript';
   if (normalized === 'python') return 'python';
   if (normalized === 'cpp' || normalized === 'c++') return 'cpp';
+  if (normalized === 'c') return 'c';
   return null;
 }
 
@@ -58,7 +59,8 @@ async function runProgram({ language, code, stdin }) {
   const sourceMap = {
     javascript: { sourceFile: path.join(tempDir, 'main.js') },
     python: { sourceFile: path.join(tempDir, 'main.py') },
-    cpp: { sourceFile: path.join(tempDir, 'main.cpp'), binaryFile: path.join(tempDir, 'main.exe') }
+    cpp: { sourceFile: path.join(tempDir, 'main.cpp'), binaryFile: path.join(tempDir, 'main.exe') },
+    c: { sourceFile: path.join(tempDir, 'main.c'), binaryFile: path.join(tempDir, 'main.exe') }
   };
 
   const selected = sourceMap[language];
@@ -83,8 +85,12 @@ async function runProgram({ language, code, stdin }) {
       return { stdout, stderr };
     }
 
+    const compileCommand = language === 'c'
+      ? `gcc "${selected.sourceFile}" -std=c11 -O2 -o "${selected.binaryFile}"`
+      : `g++ "${selected.sourceFile}" -std=c++17 -O2 -o "${selected.binaryFile}"`;
+
     const compileResult = await execAsync(
-      `g++ "${selected.sourceFile}" -std=c++17 -O2 -o "${selected.binaryFile}"`,
+      compileCommand,
       { timeout: 12000, maxBuffer: 1024 * 1024 }
     );
 
@@ -114,7 +120,7 @@ const runCode = async (req, res) => {
 
   const normalizedLanguage = normalizeLanguage(language);
   if (!normalizedLanguage) {
-    return res.status(400).json({ success: false, message: 'Language must be javascript, python, or cpp' });
+    return res.status(400).json({ success: false, message: 'Language must be javascript, python, c, or cpp' });
   }
 
   if (!Number.isInteger(Number(question_id))) {

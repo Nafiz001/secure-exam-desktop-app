@@ -34,7 +34,8 @@ router.put('/:id', protect, authorize('teacher'), updateExam);
 router.delete('/:id', protect, authorize('teacher'), deleteExam);
 
 // Room code system routes
-router.post('/join', protect, authorize('student'), joinExam);
+// Public: students join with room code + name + roll number, no prior login
+router.post('/join', joinExam);
 router.get('/:id/participants', protect, authorize('teacher'), getExamParticipants);
 router.post('/:id/start', protect, authorize('teacher'), startExam);
 router.get('/:id/status', protect, getExamStatus);

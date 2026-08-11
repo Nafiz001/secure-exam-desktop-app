@@ -7,7 +7,7 @@ const pool = require('../config/database');
  * POST /api/auth/register
  */
 const register = async (req, res) => {
-  const { name, email, password, role, roll_number } = req.body;
+  const { name, email, password, role } = req.body;
 
   // Validation
   if (!name || !email || !password || !role) {
@@ -17,12 +17,13 @@ const register = async (req, res) => {
     });
   }
 
-  // Validate role
-  const validRoles = ['student', 'teacher', 'admin'];
+  // Validate role - students no longer have accounts created this way;
+  // they join exams directly via room code.
+  const validRoles = ['teacher', 'admin'];
   if (!validRoles.includes(role)) {
     return res.status(400).json({
       success: false,
-      message: 'Invalid role. Must be student, teacher, or admin'
+      message: 'Invalid role. Must be teacher or admin'
     });
   }
 
@@ -44,42 +45,18 @@ const register = async (req, res) => {
     const saltRounds = 10;
     const password_hash = await bcrypt.hash(password, saltRounds);
 
-    // Insert user
-    const normalizedRoll = role === 'student' && roll_number ? String(roll_number).trim() : null;
-
-    if (normalizedRoll) {
-      const rollExists = await pool.query(
-        'SELECT id FROM users WHERE role = $1 AND roll_number = $2',
-        ['student', normalizedRoll]
-      );
-
-      if (rollExists.rows.length > 0) {
-        return res.status(409).json({
-          success: false,
-          message: 'Student with this roll number already exists'
-        });
-      }
-    }
+    // Teacher accounts are created by an admin with an initial password
+    // and must change it on first login.
+    const mustChangePassword = role === 'teacher';
 
     const result = await pool.query(
-      `INSERT INTO users (name, email, password_hash, role, roll_number) 
-       VALUES ($1, $2, $3, $4, $5) 
-       RETURNING id, name, email, role, roll_number, created_at`,
-      [name, email, password_hash, role, normalizedRoll]
+      `INSERT INTO users (name, email, password_hash, role, must_change_password)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, name, email, role, must_change_password, created_at`,
+      [name, email, password_hash, role, mustChangePassword]
     );
 
     const user = result.rows[0];
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        userId: user.id, 
-        email: user.email, 
-        role: user.role 
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN }
-    );
 
     res.status(201).json({
       success: true,
@@ -90,9 +67,8 @@ const register = async (req, res) => {
           name: user.name,
           email: user.email,
           role: user.role,
-          roll_number: user.roll_number || null
-        },
-        token
+          must_change_password: user.must_change_password
+        }
       }
     });
 
@@ -123,7 +99,7 @@ const login = async (req, res) => {
   try {
     // Find user by email
     const result = await pool.query(
-      'SELECT id, name, email, password_hash, role, roll_number FROM users WHERE email = $1',
+      'SELECT id, name, email, password_hash, role, must_change_password FROM users WHERE email = $1',
       [email]
     );
 
@@ -166,7 +142,7 @@ const login = async (req, res) => {
           name: user.name,
           email: user.email,
           role: user.role,
-          roll_number: user.roll_number || null
+          must_change_password: user.must_change_password
         },
         token
       }
@@ -182,89 +158,65 @@ const login = async (req, res) => {
 };
 
 /**
- * Student direct login by roll number (no password)
- * POST /api/auth/student-roll-login
+ * Change own password (required on first login for admin-created teacher accounts)
+ * POST /api/auth/change-password
  */
-const studentRollLogin = async (req, res) => {
-  const { roll_number } = req.body;
+const changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
 
-  if (!roll_number) {
+  if (!currentPassword || !newPassword) {
     return res.status(400).json({
       success: false,
-      message: 'Roll number is required'
+      message: 'Current password and new password are required'
     });
   }
 
-  const normalizedRoll = String(roll_number).trim();
-  const generatedEmailBase = `${normalizedRoll}@student.local`;
+  if (newPassword.length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: 'New password must be at least 6 characters'
+    });
+  }
 
   try {
-    let result = await pool.query(
-      `SELECT id, name, email, role, roll_number
-       FROM users
-       WHERE role = 'student'
-         AND (
-           roll_number = $1
-           OR SPLIT_PART(email, '@', 1) = $1
-         )
-       LIMIT 1`,
-      [normalizedRoll]
+    const result = await pool.query(
+      'SELECT id, password_hash FROM users WHERE id = $1',
+      [req.user.userId]
     );
 
     if (result.rows.length === 0) {
-      // Auto-provision student account for first-time roll number login.
-      let generatedEmail = generatedEmailBase;
-      const emailExists = await pool.query(
-        'SELECT id FROM users WHERE email = $1 LIMIT 1',
-        [generatedEmail]
-      );
-
-      if (emailExists.rows.length > 0) {
-        generatedEmail = `${normalizedRoll}.${Date.now()}@student.local`;
-      }
-
-      const generatedPasswordHash = await bcrypt.hash(`roll:${normalizedRoll}:${Date.now()}`, 10);
-      const inserted = await pool.query(
-        `INSERT INTO users (name, email, password_hash, role, roll_number)
-         VALUES ($1, $2, $3, 'student', $4)
-         RETURNING id, name, email, role, roll_number`,
-        [`Student ${normalizedRoll}`, generatedEmail, generatedPasswordHash, normalizedRoll]
-      );
-
-      result = { rows: [inserted.rows[0]] };
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
     }
 
     const user = result.rows[0];
+    const isPasswordValid = await bcrypt.compare(currentPassword, user.password_hash);
 
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        email: user.email,
-        role: user.role
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN }
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+
+    const newPasswordHash = await bcrypt.hash(newPassword, 10);
+
+    await pool.query(
+      'UPDATE users SET password_hash = $1, must_change_password = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [newPasswordHash, user.id]
     );
 
     res.status(200).json({
       success: true,
-      message: 'Student login successful',
-      data: {
-        user: {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          roll_number: user.roll_number || normalizedRoll
-        },
-        token
-      }
+      message: 'Password changed successfully'
     });
   } catch (error) {
-    console.error('Student roll login error:', error);
+    console.error('Change password error:', error);
     res.status(500).json({
       success: false,
-      message: 'Internal server error during student roll login'
+      message: 'Internal server error while changing password'
     });
   }
 };
@@ -276,7 +228,7 @@ const studentRollLogin = async (req, res) => {
 const getCurrentUser = async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, name, email, role, created_at FROM users WHERE id = $1',
+      'SELECT id, name, email, role, must_change_password, created_at FROM users WHERE id = $1',
       [req.user.userId]
     );
 
@@ -306,6 +258,6 @@ const getCurrentUser = async (req, res) => {
 module.exports = {
   register,
   login,
-  studentRollLogin,
+  changePassword,
   getCurrentUser
 };

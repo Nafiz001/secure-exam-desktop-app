@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
-import { apiRequest } from "../../api";
+import { apiRequest, resolveUploadUrl } from "../../api";
 import { useModal } from "../../components/modals/ModalProvider";
 
 function formatTimerDisplay(totalSeconds) {
@@ -9,6 +9,20 @@ function formatTimerDisplay(totalSeconds) {
   const seconds = safeSeconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
+
+const LANGUAGE_FILE_EXTENSIONS = {
+  cpp: "cpp",
+  c: "c",
+  python: "py",
+  javascript: "js"
+};
+
+const MONACO_LANGUAGE_IDS = {
+  cpp: "cpp",
+  c: "c",
+  python: "python",
+  javascript: "javascript"
+};
 
 function normalizeQuestionType(rawType) {
   const normalized = String(rawType || "mcq").toLowerCase();
@@ -31,6 +45,17 @@ function defaultCodeForLanguage(language) {
       "  cin.tie(nullptr);",
       "",
       "  // Write your C++ solution here",
+      "",
+      "  return 0;",
+      "}"
+    ].join("\n");
+  }
+  if (language === "c") {
+    return [
+      "#include <stdio.h>",
+      "",
+      "int main() {",
+      "  // Write your C solution here",
       "",
       "  return 0;",
       "}"
@@ -59,19 +84,13 @@ function buildFormattedAnswers(answerSource, codingSource) {
   }));
 }
 
-function getExamStatusToneClass(status) {
-  const normalized = String(status || "waiting").toLowerCase();
-  if (normalized === "in_progress") return "student-chip-live";
-  if (normalized === "completed") return "student-chip-done";
-  return "student-chip-wait";
-}
-
-export default function StudentDashboard({ token, user }) {
+export default function StudentDashboard({ token, user, onAuthenticated }) {
   const { showAlert, showConfirm } = useModal();
   const [view, setView] = useState("dashboard");
   const [activeExams, setActiveExams] = useState([]);
   const [loadingActiveExams, setLoadingActiveExams] = useState(false);
-  const [studentNameInput, setStudentNameInput] = useState(localStorage.getItem("studentDisplayName") || "");
+  const [studentNameInput, setStudentNameInput] = useState("");
+  const [rollNumberInput, setRollNumberInput] = useState("");
   const [roomCodeInput, setRoomCodeInput] = useState("");
   const [joinError, setJoinError] = useState("");
   const [joiningExam, setJoiningExam] = useState(false);
@@ -89,6 +108,7 @@ export default function StudentDashboard({ token, user }) {
   const [violationCount, setViolationCount] = useState(0);
   const [examViolations, setExamViolations] = useState([]);
 
+  const tokenRef = useRef(token);
   const waitingPollIntervalRef = useRef(null);
   const examTimerIntervalRef = useRef(null);
   const warningTimeoutRef = useRef(null);
@@ -111,6 +131,10 @@ export default function StudentDashboard({ token, user }) {
     }),
     []
   );
+
+  useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
 
   useEffect(() => {
     viewRef.current = view;
@@ -154,9 +178,12 @@ export default function StudentDashboard({ token, user }) {
   }, []);
 
   const loadActiveExams = useCallback(async () => {
+    if (!token) {
+      return;
+    }
     setLoadingActiveExams(true);
     try {
-      const result = await apiRequest("/exams/my-active", {}, token);
+      const result = await apiRequest("/exams/my-active", {}, tokenRef.current);
       setActiveExams(result.data.exams || []);
     } catch (err) {
       await showAlert({
@@ -210,7 +237,7 @@ export default function StudentDashboard({ token, user }) {
               violations: violationSource
             })
           },
-          token
+          tokenRef.current
         );
 
         if (window.electronAPI?.submitExam) {
@@ -314,7 +341,7 @@ export default function StudentDashboard({ token, user }) {
               violations: examViolationsRef.current
             })
           },
-          token
+          tokenRef.current
         );
 
         if (window.electronAPI?.submitExam) {
@@ -373,7 +400,7 @@ export default function StudentDashboard({ token, user }) {
     async (examId) => {
       setExamLoading(true);
       try {
-        const result = await apiRequest(`/exams/${examId}`, {}, token);
+        const result = await apiRequest(`/exams/${examId}`, {}, tokenRef.current);
         const exam = result.data.exam;
 
         if (exam.has_submitted) {
@@ -431,7 +458,7 @@ export default function StudentDashboard({ token, user }) {
   const checkExamStatus = useCallback(
     async (examId) => {
       try {
-        const result = await apiRequest(`/exams/${examId}/status`, {}, token);
+        const result = await apiRequest(`/exams/${examId}/status`, {}, tokenRef.current);
         const data = result.data || {};
         const participantCount = data.participants_count ?? data.participant_count ?? 0;
         setWaitingParticipantCount(participantCount);
@@ -480,10 +507,16 @@ export default function StudentDashboard({ token, user }) {
       setJoinError("");
 
       const normalizedName = studentNameInput.trim();
+      const normalizedRoll = rollNumberInput.trim();
       const normalizedRoomCode = roomCodeInput.trim().toUpperCase();
 
       if (!normalizedName) {
         setJoinError("Please enter your name.");
+        return;
+      }
+
+      if (!normalizedRoll) {
+        setJoinError("Please enter your roll number.");
         return;
       }
 
@@ -494,18 +527,25 @@ export default function StudentDashboard({ token, user }) {
 
       setJoiningExam(true);
       try {
-        localStorage.setItem("studentDisplayName", normalizedName);
         const result = await apiRequest(
           "/exams/join",
           {
             method: "POST",
             body: JSON.stringify({
               roomCode: normalizedRoomCode,
-              studentName: normalizedName
+              studentName: normalizedName,
+              rollNumber: normalizedRoll
             })
           },
           token
         );
+
+        if (result.data.token && result.data.user) {
+          tokenRef.current = result.data.token;
+          if (onAuthenticated) {
+            onAuthenticated(result.data.token, result.data.user);
+          }
+        }
 
         const joinedExam = result.data.exam;
         setRoomCodeInput("");
@@ -515,15 +555,13 @@ export default function StudentDashboard({ token, user }) {
         } else {
           enterWaitingRoom(joinedExam);
         }
-
-        await loadActiveExams();
       } catch (err) {
         setJoinError(err.message || "Failed to join exam.");
       } finally {
         setJoiningExam(false);
       }
     },
-    [enterWaitingRoom, loadActiveExams, roomCodeInput, startExamSession, studentNameInput, token]
+    [enterWaitingRoom, onAuthenticated, rollNumberInput, roomCodeInput, startExamSession, studentNameInput, token]
   );
 
   const handleLeaveWaitingRoom = useCallback(async () => {
@@ -544,22 +582,6 @@ export default function StudentDashboard({ token, user }) {
     setView("dashboard");
     await loadActiveExams();
   }, [clearWaitingPolling, loadActiveExams, showConfirm]);
-
-  const handleRejoinExam = useCallback(
-    async (examId) => {
-      try {
-        const result = await apiRequest(`/exams/${examId}`, {}, token);
-        const exam = result.data.exam;
-        enterWaitingRoom(exam);
-      } catch (err) {
-        await showAlert({
-          title: "Error",
-          message: err.message || "Failed to rejoin exam."
-        });
-      }
-    },
-    [enterWaitingRoom, showAlert, token]
-  );
 
   useEffect(() => {
     loadActiveExams();
@@ -794,7 +816,7 @@ export default function StudentDashboard({ token, user }) {
             stdin: current.stdin
           })
         },
-        token
+        tokenRef.current
       );
 
       handleCodingStateChange(question, {
@@ -812,25 +834,32 @@ export default function StudentDashboard({ token, user }) {
   }
 
   function renderDashboardView() {
-    const waitingCount = activeExams.filter((exam) => String(exam.status || "").toLowerCase() === "waiting").length;
-    const liveCount = activeExams.filter((exam) => String(exam.status || "").toLowerCase() === "in_progress").length;
-
     return (
-      <>
-        <section className="card student-panel student-panel-hero">
+      <div className="student-join-shell">
+        <section className="card student-panel student-panel-hero student-panel-narrow">
           <div className="student-panel-glow" aria-hidden="true" />
-          <p className="student-kicker">Student Access</p>
           <h2 className="student-title">Join Exam</h2>
-          <p className="muted student-subtitle">Enter your name and room code provided by your teacher.</p>
+          <p className="muted student-subtitle">Enter your name, roll number, and the room code provided by your teacher.</p>
 
           <form className="form-stack" onSubmit={handleJoinExam}>
             <label>
-              <span>Your Name</span>
+              <span>Name</span>
               <input
                 type="text"
                 value={studentNameInput}
                 onChange={(event) => setStudentNameInput(event.target.value)}
                 placeholder="Enter your name"
+                required
+              />
+            </label>
+
+            <label>
+              <span>Roll No.</span>
+              <input
+                type="text"
+                value={rollNumberInput}
+                onChange={(event) => setRollNumberInput(event.target.value)}
+                placeholder="Enter your roll number"
                 required
               />
             </label>
@@ -854,56 +883,7 @@ export default function StudentDashboard({ token, user }) {
             </button>
           </form>
         </section>
-
-        <section className="card student-panel">
-          <div className="card-head">
-            <div>
-              <h2 className="student-title">My Active Exams</h2>
-              <p className="student-subline">Track waiting and live exams in one place.</p>
-            </div>
-            <button className="secondary" onClick={loadActiveExams} disabled={loadingActiveExams}>
-              Refresh
-            </button>
-          </div>
-
-          <div className="student-stats-row">
-            <span className="student-chip student-chip-neutral">Total {activeExams.length}</span>
-            <span className="student-chip student-chip-wait">Waiting {waitingCount}</span>
-            <span className="student-chip student-chip-live">Live {liveCount}</span>
-          </div>
-
-          {loadingActiveExams ? <p>Loading active exams...</p> : null}
-
-          {!loadingActiveExams && activeExams.length === 0 ? (
-            <p className="muted">No active exams found.</p>
-          ) : null}
-
-          <ul className="list student-list">
-            {activeExams.map((exam) => (
-              <li key={exam.id} className="student-list-item">
-                <div className="student-list-head">
-                  <strong>{exam.title}</strong>
-                  <span className={`student-chip ${getExamStatusToneClass(exam.status)}`}>{exam.status}</span>
-                </div>
-                <div className="student-meta-row">
-                  <span className="student-meta-chip">{exam.duration} mins</span>
-                  <span className="student-meta-chip">Questions {exam.question_count || 0}</span>
-                </div>
-                {exam.status === "waiting" ? (
-                  <button className="secondary btn-inline" onClick={() => handleRejoinExam(exam.id)}>
-                    Enter Waiting Room
-                  </button>
-                ) : null}
-                {exam.status === "in_progress" ? (
-                  <button className="btn-inline" onClick={() => startExamSession(exam.id)} disabled={examLoading}>
-                    {examLoading ? "Opening..." : "Start Exam"}
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </section>
-      </>
+      </div>
     );
   }
 
@@ -1004,6 +984,13 @@ export default function StudentDashboard({ token, user }) {
                     <p className="question-title">
                       {index + 1}. {question.question_text}
                     </p>
+                    {question.image_url ? (
+                      <img
+                        className="question-inline-image"
+                        src={resolveUploadUrl(question.image_url)}
+                        alt={`Question ${index + 1}`}
+                      />
+                    ) : null}
                     <p className="muted small student-question-meta">
                       Type: {qType === "written" ? "Written" : qType === "coding" ? "Coding" : "MCQ"} | Marks: {question.marks}
                     </p>
@@ -1030,6 +1017,7 @@ export default function StudentDashboard({ token, user }) {
                           >
                             <option value="javascript">JavaScript</option>
                             <option value="python">Python</option>
+                            <option value="c">C</option>
                             <option value="cpp">C++</option>
                           </select>
                         </label>
@@ -1047,8 +1035,8 @@ export default function StudentDashboard({ token, user }) {
                           <span>Code Editor</span>
                           <Editor
                             height="320px"
-                            path={`question-${question.id}.${codeState.language === "cpp" ? "cpp" : codeState.language === "python" ? "py" : "js"}`}
-                            language={codeState.language === "cpp" ? "cpp" : codeState.language}
+                            path={`question-${question.id}.${LANGUAGE_FILE_EXTENSIONS[codeState.language] || "js"}`}
+                            language={MONACO_LANGUAGE_IDS[codeState.language] || "javascript"}
                             value={codeState.code}
                             options={monacoEditorOptions}
                             keepCurrentModel
