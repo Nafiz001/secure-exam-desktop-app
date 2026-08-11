@@ -10,7 +10,7 @@
     "dev:renderer": "vite --config renderer/vite.config.mjs",
     "build:renderer": "vite build --config renderer/vite.config.mjs",
     "start:react": "npm run start",
-    "pack:win": "npm run build:renderer && npm run install:backend && electron-builder --win --config.win.signAndEditExecutable=false"
+    "pack:win": "npm run build:renderer && npm run install:backend && electron-builder --win nsis portable --config.win.signAndEditExecutable=false"
   },
   "repository": {
     "type": "git",
@@ -58,8 +58,18 @@
       }
     ],
     "win": {
-      "target": "nsis",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
       "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "${productName} Portable ${version}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "${productName} Setup ${version}.${ext}",
+      "oneClick": true
     }
   }
 }

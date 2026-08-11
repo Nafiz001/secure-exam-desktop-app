@@ -19,12 +19,14 @@ body {
 
 .login-page-shell {
   display: grid;
-  grid-template-columns: minmax(420px, 1.08fr) minmax(420px, 0.92fr);
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
   gap: 14px;
   align-items: stretch;
   width: 100%;
+  max-width: 100%;
   min-height: 100vh;
   margin: 0;
+  overflow-x: hidden;
   animation: auth-shell-in 520ms ease-out;
 }
 
@@ -93,7 +95,7 @@ body {
   animation: auth-card-in 640ms ease-out both;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  justify-content: center;
   padding: 14px 16px;
 }
 
