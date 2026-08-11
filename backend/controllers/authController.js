@@ -222,6 +222,85 @@ const changePassword = async (req, res) => {
 };
 
 /**
+ * List all teacher accounts (Admin only)
+ * GET /api/auth/teachers
+ */
+const listTeachers = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, name, email, must_change_password, created_at
+       FROM users
+       WHERE role = 'teacher'
+       ORDER BY created_at DESC`
+    );
+
+    res.status(200).json({
+      success: true,
+      data: {
+        teachers: result.rows
+      }
+    });
+  } catch (error) {
+    console.error('List teachers error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching teachers'
+    });
+  }
+};
+
+/**
+ * Reset a teacher's password to a new admin-issued temporary password
+ * (Admin only). The teacher is forced to change it again on next login.
+ * PUT /api/auth/teachers/:id/reset-password
+ */
+const resetTeacherPassword = async (req, res) => {
+  const teacherId = req.params.id;
+  const { newPassword } = req.body;
+
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: 'A temporary password of at least 6 characters is required'
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT id FROM users WHERE id = $1 AND role = 'teacher'`,
+      [teacherId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
+    }
+
+    const newPasswordHash = await bcrypt.hash(newPassword, 10);
+
+    await pool.query(
+      `UPDATE users
+       SET password_hash = $1, must_change_password = TRUE, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [newPasswordHash, teacherId]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Temporary password set. The teacher must change it on next login.'
+    });
+  } catch (error) {
+    console.error('Reset teacher password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while resetting password'
+    });
+  }
+};
+
+/**
  * Verify token and get current user
  * GET /api/auth/me
  */
@@ -259,5 +338,7 @@ module.exports = {
   register,
   login,
   changePassword,
+  listTeachers,
+  resetTeacherPassword,
   getCurrentUser
 };

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { apiRequest } from "../api";
+import { useModal } from "../components/modals/ModalProvider";
 
 const ROLE_OPTIONS = [
   {
@@ -19,11 +20,22 @@ const ROLE_OPTIONS = [
 ];
 
 export default function LoginPage({ onLogin, onStudentJoin }) {
+  const { showAlert } = useModal();
   const [activeRole, setActiveRole] = useState("teacher");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  async function handleForgotPassword() {
+    await showAlert({
+      title: "Forgot Password",
+      message:
+        activeRole === "teacher"
+          ? "Teacher passwords can only be reset by an admin. Please contact your admin — they can set a new temporary password for your account from the Admin Panel."
+          : "Please contact the system administrator to have your password reset."
+    });
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -130,6 +142,10 @@ export default function LoginPage({ onLogin, onStudentJoin }) {
 
           <button type="submit" disabled={loading}>
             {loading ? "Signing in..." : `Continue as ${activeRole.charAt(0).toUpperCase()}${activeRole.slice(1)}`}
+          </button>
+
+          <button type="button" className="secondary" onClick={handleForgotPassword}>
+            Forgot password?
           </button>
         </form>
       </section>
