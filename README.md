@@ -1,5 +1,9 @@
 # Invigilo — Secure Exam Desktop Application
 
+<p align="center">
+  <img src="./docs/slides/slide1.png" alt="Invigilo — Cover" width="100%" />
+</p>
+
 A secure desktop application for conducting proctored online examinations, built with **Electron**, **React**, **Express**, and **PostgreSQL**. Invigilo supports multiple-choice, written, and auto-graded coding questions, a passwordless room-code join flow for students, and real-time exam lifecycle management for teachers.
 
 This document describes the system architecture, the architectural and design patterns applied, and instructions to build and run the project — written to accompany the project's academic/journal submission.
@@ -16,7 +20,6 @@ This document describes the system architecture, the architectural and design pa
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Screenshots](#screenshots)
-- [Presentation Slides](#presentation-slides)
 - [Getting Started](#getting-started)
 - [Download](#download)
 - [Installing & Running the App (End Users)](#installing--running-the-app-end-users)
@@ -40,6 +43,10 @@ Invigilo is packaged as a single Electron desktop application with an embedded b
 ---
 
 ## System Architecture
+
+<p align="center">
+  <img src="./docs/slides/slide2.png" alt="Three layers, one process tree" width="90%" />
+</p>
 
 ```mermaid
 flowchart TB
@@ -113,6 +120,10 @@ The system is best described as a **three-tier client–server architecture**, d
 
 ## Exam Lifecycle (Sequence Diagram)
 
+<p align="center">
+  <img src="./docs/slides/slide3.png" alt="Exam lifecycle — create to evaluate" width="90%" />
+</p>
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -168,6 +179,10 @@ sequenceDiagram
 ---
 
 ## Features
+
+<p align="center">
+  <img src="./docs/slides/slide5.png" alt="Local code execution & Evaluation desk" width="90%" />
+</p>
 
 ### Authentication & Access Control
 - Stateless JWT authentication with a 24-hour token expiry
@@ -315,54 +330,7 @@ Screenshots of the running application. All images live under [`docs/screenshots
 
 ---
 
-## Presentation Slides
-
-A 5-slide presentation deck is included in this repository at [`docs/slides/invigilo-slides.html`](./docs/slides/invigilo-slides.html) — open it in any modern browser to view (use `←` / `→` to navigate, or click the side arrows). PNG exports of each slide are also committed under [`docs/slides/`](./docs/slides/) for embedding in reports or PDFs.
-
-| # | Slide | Preview |
-|---|---|---|
-| 1 | Cover — Invigilo | ![Slide 1 — Cover](./docs/slides/slide1.png) |
-| 2 | Architecture (three layers, one process tree) | ![Slide 2 — Architecture](./docs/slides/slide2.png) |
-| 3 | Exam Lifecycle (create → join → start → answer → evaluate) | ![Slide 3 — Lifecycle](./docs/slides/slide3.png) |
-| 4 | Proctoring (OS-level security) | ![Slide 4 — Proctoring](./docs/slides/slide4.png) |
-| 5 | Local code execution & Evaluation desk | ![Slide 5 — Evaluation](./docs/slides/slide5.png) |
-
-<details>
-<summary>Slide 1 — Cover</summary>
-
-![Slide 1 — Cover](./docs/slides/slide1.png)
-
-</details>
-
-<details>
-<summary>Slide 2 — Architecture</summary>
-
-![Slide 2 — Architecture](./docs/slides/slide2.png)
-
-</details>
-
-<details>
-<summary>Slide 3 — Exam Lifecycle</summary>
-
-![Slide 3 — Lifecycle](./docs/slides/slide3.png)
-
-</details>
-
-<details>
-<summary>Slide 4 — Proctoring</summary>
-
-![Slide 4 — Proctoring](./docs/slides/slide4.png)
-
-</details>
-
-<details>
-<summary>Slide 5 — Code Execution & Evaluation</summary>
-
-![Slide 5 — Evaluation](./docs/slides/slide5.png)
-
-</details>
-
----
+> **Presentation deck:** The 5-slide walkthrough is also available as an interactive HTML deck at [`docs/slides/invigilo-slides.html`](./docs/slides/invigilo-slides.html) — open it in any modern browser and use `←` / `→` to navigate.
 
 ## Getting Started
 
@@ -628,6 +596,10 @@ CREATE TABLE exam_participants (
 ---
 
 ## Security Notes
+
+<p align="center">
+  <img src="./docs/slides/slide4.png" alt="Proctoring — OS-level security" width="90%" />
+</p>
 
 - Passwords are hashed with bcrypt; JWTs are signed with a server-side secret and expire after 24 hours.
 - Every protected route runs through a `protect` (token verification) → `authorize(role)` (role check) middleware chain — see [Architectural & Design Patterns](#architectural--design-patterns).
