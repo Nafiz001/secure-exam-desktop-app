@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Invigilo — Secure Exam Desktop App · Presentation</title>
+<style>
+  /* ============================================================
+     THEME — blends the reference slide style with Invigilo's
+     real palette (teal from renderer/src/styles.css).
+     ============================================================ */
+  :root {
+    /* Invigilo-derived colors */
+    --teal-deep:   #183c39;   /* primary heading */
+    --teal-mid:    #2b5e5a;   /* body emphasis */
+    --teal-soft:   #dcefed;   /* wave fills */
+    --teal-line:   #c6ddda;   /* subtle borders */
+    --teal-bg:     #ecf5f3;   /* gradient base */
+
+    /* Reference-derived colors */
+    --bg-light:    #d8eefe;   /* page background top */
+    --bg-mid:      #c9e6fb;
+    --accent:      #f59e0b;   /* orange badges */
+    --accent-deep: #ea7c0a;
+    --ink:         #1f2937;
+    --muted:       #64748b;
+    --card:        #ffffff;
+    --shadow:      0 18px 40px rgba(20, 60, 70, 0.10);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg-light);
+    overflow: hidden;
+  }
+
+  /* ============================================================
+     STAGE — 16:9 slides centered with side arrows.
+     ============================================================ */
+  .stage {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: min(96vw, calc(96vh * 16 / 9));
+    height: min(96vh, calc(96vw * 9 / 16));
+    max-width: 1280px;
+    max-height: 720px;
+    background: linear-gradient(160deg, #eaf4fc 0%, #d8eefe 60%, #c9e6fb 100%);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    display: none;
+  }
+  .slide.active { display: block; animation: fadeIn .35s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* Decorative waves — exact shapes from the reference */
+  .wave-tl, .wave-br, .wave-bl, .wave-tr {
+    position: absolute;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .wave-tl { top: -20px; left: -20px; width: 220px; opacity: .8; }
+  .wave-tr { top: -40px; right: -30px; width: 280px; opacity: .75; transform: scaleX(-1); }
+  .wave-bl { bottom: -20px; left: -20px; width: 260px; opacity: .75; }
+  .wave-br { bottom: -40px; right: -20px; width: 220px; opacity: .7; transform: scaleX(-1); }
+
+  .slide-inner {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    padding: 56px 72px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ============================================================
+     TYPOGRAPHY
+     ============================================================ */
+  .eyebrow {
+    color: var(--accent-deep);
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    font-size: 14px;
+    margin: 0 0 6px;
+  }
+  h1.title {
+    color: var(--teal-deep);
+    font-size: clamp(38px, 5vw, 64px);
+    line-height: 1.05;
+    margin: 0 0 18px;
+    font-weight: 800;
+    letter-spacing: -.5px;
+  }
+  h2.title {
+    color: var(--teal-deep);
+    font-size: clamp(30px, 3.6vw, 44px);
+    line-height: 1.1;
+    margin: 0 0 14px;
+    font-weight: 800;
+    letter-spacing: -.3px;
+  }
+  .lead {
+    color: var(--teal-mid);
+    font-size: clamp(16px, 1.6vw, 20px);
+    margin: 0 0 24px;
+    max-width: 720px;
+    line-height: 1.5;
+  }
+
+  /* ============================================================
+     NAV ARROWS + PAGE COUNTER
+     ============================================================ */
+  .nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    border: 1px solid var(--teal-line);
+    background: var(--card);
+    color: var(--teal-deep);
+    font-size: 20px;
+    cursor: pointer;
+    z-index: 10;
+    box-shadow: 0 6px 18px rgba(20,60,70,.10);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform .15s ease, background .15s ease;
+  }
+  .nav:hover { background: var(--teal-soft); transform: translateY(-50%) scale(1.06); }
+  .nav.prev { left: 18px; }
+  .nav.next { right: 18px; }
+  .counter {
+    position: absolute;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--teal-mid);
+    font-weight: 600;
+    letter-spacing: .15em;
+    font-size: 13px;
+    z-index: 10;
+    background: rgba(255,255,255,.55);
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--teal-line);
+  }
+  .dots {
+    position: absolute;
+    bottom: 18px;
+    right: 24px;
+    display: flex;
+    gap: 8px;
+    z-index: 10;
+  }
+  .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--teal-line);
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    transition: background .2s, transform .2s;
+  }
+  .dot.active { background: var(--accent); transform: scale(1.25); }
+
+  /* ============================================================
+     SLIDE 1 — COVER
+     ============================================================ */
+  .cover {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 40px;
+  }
+  .cover-text { flex: 1.2; }
+  .cover-art  { flex: 1; display: flex; align-items: center; justify-content: center; }
+
+  /* ============================================================
+     SLIDE 2 — ARCHITECTURE (SVG diagram)
+     ============================================================ */
+  .arch-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 6px;
+  }
+  .arch-svg { width: 100%; max-width: 1100px; height: auto; }
+
+  /* ============================================================
+     SLIDE 3 — EXAM LIFECYCLE (numbered list)
+     ============================================================ */
+  .lifecycle {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+    margin-top: 6px;
+  }
+  .step {
+    background: var(--card);
+    border: 1px solid var(--teal-line);
+    border-radius: 14px;
+    padding: 16px 14px;
+    box-shadow: var(--shadow);
+    position: relative;
+  }
+  .step .num {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 800;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  .step h3 {
+    margin: 4px 0 6px;
+    color: var(--teal-deep);
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .step p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+  .lifecycle-note {
+    margin-top: 14px;
+    padding: 12px 16px;
+    background: rgba(245, 158, 11, .12);
+    border-left: 4px solid var(--accent);
+    border-radius: 8px;
+    color: var(--teal-mid);
+    font-size: 13.5px;
+  }
+
+  /* ============================================================
+     SLIDE 4 — PROCTORING (3-column feature cards)
+     ============================================================ */
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    margin-top: 6px;
+  }
+  .feature {
+    background: var(--card);
+    border: 1px solid var(--teal-line);
+    border-radius: 14px;
+    padding: 18px;
+    box-shadow: var(--shadow);
+  }
+  .feature .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px; height: 38px;
+    border-radius: 10px;
+    background: var(--teal-soft);
+    color: var(--teal-deep);
+    margin-bottom: 10px;
+  }
+  .feature h3 {
+    margin: 0 0 6px;
+    color: var(--teal-deep);
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .feature p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .feature ul {
+    margin: 8px 0 0;
+    padding-left: 18px;
+    color: var(--muted);
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+  .feature ul li { margin-bottom: 2px; }
+
+  .proc-banner {
+    margin-top: 14px;
+    padding: 12px 18px;
+    background: linear-gradient(90deg, var(--teal-deep), var(--teal-mid));
+    color: #fff;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 13.5px;
+  }
+  .proc-banner strong { color: var(--accent); letter-spacing: .05em; }
+
+  /* ============================================================
+     SLIDE 5 — CODE EXECUTION + EVALUATION (2-column)
+     ============================================================ */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1.05fr .95fr;
+    gap: 22px;
+    margin-top: 6px;
+  }
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--teal-line);
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: var(--shadow);
+  }
+  .panel h3 {
+    margin: 0 0 8px;
+    color: var(--teal-deep);
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .panel p { margin: 0 0 10px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+  .lang-row { display: flex; gap: 8px; margin: 8px 0 12px; flex-wrap: wrap; }
+  .lang-pill {
+    background: var(--teal-soft);
+    color: var(--teal-deep);
+    border: 1px solid var(--teal-line);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .codeblock {
+    background: #0f2a28;
+    color: #c9e6fb;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow: auto;
+    white-space: pre;
+  }
+  .codeblock .k { color: #82e0a8; }
+  .codeblock .s { color: #ffd28a; }
+  .codeblock .c { color: #6ea8b3; font-style: italic; }
+  .checklist { margin: 6px 0 0; padding: 0; list-style: none; }
+  .checklist li {
+    display: flex; gap: 8px; align-items: flex-start;
+    padding: 6px 0; color: var(--ink); font-size: 13px;
+  }
+  .checklist li::before {
+    content: '✓'; color: var(--accent-deep); font-weight: 800; flex-shrink: 0;
+  }
+
+  /* ============================================================
+     SCREENSHOT PLACEHOLDER (you'll add real images later)
+     ============================================================ */
+  .shot-placeholder {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    background:
+      repeating-linear-gradient(45deg,
+        rgba(255,255,255,.7) 0 12px,
+        rgba(220,239,237,.7) 12px 24px);
+    border: 2px dashed var(--teal-line);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--teal-mid);
+    font-weight: 600;
+    text-align: center;
+    padding: 20px;
+    box-shadow: var(--shadow);
+  }
+
+  /* Footer brand mark */
+  .brand {
+    position: absolute;
+    bottom: 18px;
+    left: 24px;
+    font-weight: 800;
+    color: var(--teal-deep);
+    letter-spacing: .15em;
+    font-size: 12px;
+    z-index: 10;
+  }
+  .brand .dot-accent { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="stage" id="stage">
+
+  <!-- Decorative wave SVGs (reused across slides via ::before-like positioning is hard,
+       so each slide carries its own corner decorations) -->
+
+  <!-- ============================ SLIDE 1: COVER ============================ -->
+  <section class="slide active" data-slide="1">
+    <svg class="wave-tl" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,0 C60,40 60,90 0,140 L0,0 Z" fill="#cfe7f5"/>
+      <path d="M0,0 C40,30 40,70 0,110 L0,0 Z" fill="#bcdcef"/>
+    </svg>
+    <svg class="wave-br" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <path d="M200,200 C140,160 140,110 200,60 L200,200 Z" fill="#cfe7f5"/>
+    </svg>
+
+    <div class="slide-inner cover">
+      <div class="cover-text">
+        <p class="eyebrow">Secure Exam Desktop App</p>
+        <h1 class="title">INVIGILO</h1>
+        <p class="lead">
+          A single <strong>.exe</strong> for proctored online exams — Electron shell,
+          React UI, embedded Express API, and PostgreSQL. Three roles. One room code.
+          Zero external dependencies for the student.
+        </p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
+          <span class="lang-pill">Electron</span>
+          <span class="lang-pill">React 19</span>
+          <span class="lang-pill">Express</span>
+          <span class="lang-pill">PostgreSQL</span>
+          <span class="lang-pill">Node · Python · C/C++</span>
+        </div>
+      </div>
+      <div class="cover-art">
+        <!-- Inline "shield + monitor" hero illustration -->
+        <svg viewBox="0 0 360 280" xmlns="http://www.w3.org/2000/svg" style="width:100%; max-width:360px;">
+          <!-- monitor -->
+          <rect x="40" y="40" width="280" height="170" rx="10" fill="#183c39"/>
+          <rect x="52" y="52" width="256" height="146" rx="6" fill="#2b5e5a"/>
+          <!-- screen content lines -->
+          <rect x="70" y="74"  width="120" height="10" rx="3" fill="#c9e6fb"/>
+          <rect x="70" y="92"  width="180" height="8"  rx="3" fill="#9bc8e8"/>
+          <rect x="70" y="108" width="150" height="8"  rx="3" fill="#9bc8e8"/>
+          <rect x="70" y="124" width="170" height="8"  rx="3" fill="#9bc8e8"/>
+          <rect x="70" y="148" width="80"  height="22" rx="6" fill="#f59e0b"/>
+          <!-- shield -->
+          <path d="M250,150 L310,170 L310,230 C310,260 285,278 250,286 C215,278 190,260 190,230 L190,170 Z"
+                fill="#ffffff" stroke="#183c39" stroke-width="3"/>
+          <path d="M222,230 L244,252 L284,206" fill="none" stroke="#f59e0b" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- gear -->
+          <circle cx="92" cy="50" r="22" fill="#f59e0b"/>
+          <circle cx="92" cy="50" r="9" fill="#ffffff"/>
+          <!-- stars -->
+          <path d="M260,30 l3,8 8,0 -7,5 3,8 -7,-5 -7,5 3,-8 -7,-5 8,0 z" fill="#183c39"/>
+          <path d="M310,100 l2,5 5,0 -4,4 2,5 -5,-3 -5,3 2,-5 -4,-4 5,0 z" fill="#183c39"/>
+        </svg>
+      </div>
+    </div>
+    <div class="brand">INVIGILO<span class="dot-accent">·</span>SECURE EXAM</div>
+  </section>
+
+  <!-- ============================ SLIDE 2: ARCHITECTURE ============================ -->
+  <section class="slide" data-slide="2">
+    <svg class="wave-bl" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,200 C40,170 40,130 0,90 L0,200 Z" fill="#cfe7f5"/>
+    </svg>
+    <svg class="wave-tr" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,0 C40,30 40,70 0,110 L0,0 Z" fill="#bcdcef"/>
+    </svg>
+
+    <div class="slide-inner">
+      <p class="eyebrow">02 · Architecture</p>
+      <h2 class="title">Three layers. One process tree.</h2>
+      <p class="lead">
+        Electron's main process owns the OS-level window, supervises the backend,
+        and runs proctoring. The renderer is a pure UI shell — it never touches the
+        database directly. Everything flows through the local REST API.
+      </p>
+
+      <div class="arch-wrap">
+        <svg class="arch-svg" viewBox="0 0 1100 360" xmlns="http://www.w3.org/2000/svg">
+          <!-- ====== Top: Student / Teacher / Admin (actors) ====== -->
+          <g font-family="Segoe UI, sans-serif">
+            <g transform="translate(60,10)">
+              <rect width="180" height="50" rx="10" fill="#183c39"/>
+              <text x="90" y="31" text-anchor="middle" fill="#c9e6fb" font-weight="700" font-size="15">Student</text>
+            </g>
+            <g transform="translate(460,10)">
+              <rect width="180" height="50" rx="10" fill="#183c39"/>
+              <text x="90" y="31" text-anchor="middle" fill="#c9e6fb" font-weight="700" font-size="15">Teacher</text>
+            </g>
+            <g transform="translate(860,10)">
+              <rect width="180" height="50" rx="10" fill="#183c39"/>
+              <text x="90" y="31" text-anchor="middle" fill="#c9e6fb" font-weight="700" font-size="15">Admin</text>
+            </g>
+            <!-- arrows down -->
+            <path d="M150,60 L150,90"  stroke="#2b5e5a" stroke-width="2" marker-end="url(#arr)"/>
+            <path d="M550,60 L550,90"  stroke="#2b5e5a" stroke-width="2" marker-end="url(#arr)"/>
+            <path d="M950,60 L950,90"  stroke="#2b5e5a" stroke-width="2" marker-end="url(#arr)"/>
+          </g>
+
+          <!-- ====== Middle: Electron container ====== -->
+          <g transform="translate(30,95)">
+            <rect width="1040" height="195" rx="14" fill="#ffffff" stroke="#c6ddda" stroke-width="2"/>
+            <text x="20" y="28" font-family="Segoe UI, sans-serif" font-size="13" font-weight="700" fill="#2b5e5a">
+              ELECTRON DESKTOP APPLICATION · single packaged .exe
+            </text>
+
+            <!-- Renderer (React) -->
+            <g transform="translate(20,50)">
+              <rect width="240" height="125" rx="10" fill="#dcefed" stroke="#c6ddda"/>
+              <text x="120" y="26" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="14" font-weight="700" fill="#183c39">React Renderer (Vite)</text>
+              <text x="120" y="50" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#2b5e5a">LoginPage · AdminDashboard</text>
+              <text x="120" y="66" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#2b5e5a">TeacherDashboard · StudentDashboard</text>
+              <text x="120" y="86" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#2b5e5a">contextBridge (preload.js)</text>
+              <text x="120" y="102" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#2b5e5a">no Node access · IPC only</text>
+            </g>
+
+            <!-- IPC -->
+            <g transform="translate(280,90)">
+              <text x="70" y="0" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" font-weight="700" fill="#f59e0b">IPC</text>
+              <text x="70" y="14" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#2b5e5a">onViolation</text>
+              <text x="70" y="28" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#2b5e5a">startExam</text>
+              <text x="70" y="42" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#2b5e5a">submitExam</text>
+              <!-- double arrow -->
+              <line x1="20" y1="60" x2="120" y2="60" stroke="#f59e0b" stroke-width="2"
+                    marker-end="url(#arrOrange)" marker-start="url(#arrOrangeStart)"/>
+            </g>
+
+            <!-- Main Process -->
+            <g transform="translate(420,50)">
+              <rect width="290" height="125" rx="10" fill="#183c39"/>
+              <text x="145" y="26" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="14" font-weight="700" fill="#c9e6fb">Electron Main Process</text>
+              <text x="145" y="50" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#dcefed">BrowserWindow · fullscreen lock</text>
+              <text x="145" y="66" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#dcefed">ps-list scan · forbidden processes</text>
+              <text x="145" y="82" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#dcefed">blur / focus monitoring</text>
+              <text x="145" y="98" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#dcefed">spawns &amp; supervises backend</text>
+              <text x="145" y="114" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#f59e0b">proctoring is OS-level, not in DOM</text>
+            </g>
+
+            <!-- Spawn arrow + Backend box -->
+            <g transform="translate(730,50)">
+              <rect width="290" height="125" rx="10" fill="#ecf5f3" stroke="#c6ddda"/>
+              <text x="145" y="26" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="14" font-weight="700" fill="#183c39">Express Backend · :5000</text>
+              <text x="145" y="50" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#2b5e5a">/api/auth · /api/exams</text>
+              <text x="145" y="66" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#2b5e5a">bcryptjs · JWT · multer</text>
+              <text x="145" y="82" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#2b5e5a">MCQ auto-grading · manual grading</text>
+              <text x="145" y="98" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#2b5e5a">local code runner (JS/Py/C/C++)</text>
+              <text x="145" y="114" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                    font-size="11" fill="#ea7c0a">stateless · JSON only</text>
+            </g>
+          </g>
+
+          <!-- spawn arrow from main to backend -->
+          <path d="M740,108 L730,108" stroke="#ea7c0a" stroke-width="2" marker-end="url(#arrOrange)"/>
+
+          <!-- arrow defs -->
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#2b5e5a"/>
+            </marker>
+            <marker id="arrOrange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="#f59e0b"/>
+            </marker>
+            <marker id="arrOrangeStart" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M10,0 L0,5 L10,10 z" fill="#f59e0b"/>
+            </marker>
+          </defs>
+
+          <!-- ====== Bottom: PostgreSQL ====== -->
+          <g transform="translate(440,310)">
+            <ellipse cx="110" cy="0" rx="110" ry="14" fill="#183c39"/>
+            <path d="M0,0 L0,30 A110,14 0 0 0 220,30 L220,0" fill="#183c39"/>
+            <ellipse cx="110" cy="0" rx="110" ry="14" fill="#2b5e5a" opacity=".4"/>
+            <text x="110" y="20" text-anchor="middle" font-family="Segoe UI, sans-serif"
+                  font-size="13" font-weight="700" fill="#c9e6fb">PostgreSQL · Supabase</text>
+          </g>
+          <!-- backend -> db arrow -->
+          <path d="M875,213 L575,310" stroke="#2b5e5a" stroke-width="2" marker-end="url(#arr)"/>
+        </svg>
+      </div>
+    </div>
+    <div class="brand">INVIGILO<span class="dot-accent">·</span>ARCHITECTURE</div>
+  </section>
+
+  <!-- ============================ SLIDE 3: EXAM LIFECYCLE ============================ -->
+  <section class="slide" data-slide="3">
+    <svg class="wave-tl" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,0 C60,40 60,90 0,140 L0,0 Z" fill="#cfe7f5"/>
+    </svg>
+    <svg class="wave-br" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <path d="M200,200 C140,160 140,110 200,60 L200,200 Z" fill="#cfe7f5"/>
+    </svg>
+
+    <div class="slide-inner">
+      <p class="eyebrow">03 · Exam Lifecycle</p>
+      <h2 class="title">From room code to graded submission</h2>
+      <p class="lead">
+        Every exam follows the same five-step path. Server-side automation removes
+        friction: students get a passwordless join, teachers get auto room codes,
+        and MCQs grade themselves the moment the timer hits zero.
+      </p>
+
+      <div class="lifecycle">
+        <div class="step">
+          <span class="num">01</span>
+          <h3>Create</h3>
+          <p>Teacher defines exam type (<code>lab_quiz</code>/<code>lab_test</code>), duration, and adds MCQ / written / coding questions.</p>
+        </div>
+        <div class="step">
+          <span class="num">02</span>
+          <h3>Join</h3>
+          <p>Student enters <strong>name + roll + room code</strong>. Server auto-provisions an account and issues a JWT — no signup.</p>
+        </div>
+        <div class="step">
+          <span class="num">03</span>
+          <h3>Start</h3>
+          <p>Teacher flips status to <code>in_progress</code>. Window locks fullscreen, proctoring monitor activates.</p>
+        </div>
+        <div class="step">
+          <span class="num">04</span>
+          <h3>Answer</h3>
+          <p>MCQs · written text · Monaco editor for coding with <strong>live local execution</strong> against sample I/O.</p>
+        </div>
+        <div class="step">
+          <span class="num">05</span>
+          <h3>Evaluate</h3>
+          <p>MCQs auto-grade. Written &amp; coding answers hit the <strong>Evaluation Desk</strong> for teacher review.</p>
+        </div>
+      </div>
+
+      <div class="lifecycle-note">
+        <strong>Auto magic:</strong> room codes exclude confusing chars (0/O/1/I/L), a background job
+        syncs expired exams to <code>completed</code>, and submissions persist a violation log JSON for audit.
+      </div>
+    </div>
+    <div class="brand">INVIGILO<span class="dot-accent">·</span>LIFECYCLE</div>
+  </section>
+
+  <!-- ============================ SLIDE 4: PROCTORING ============================ -->
+  <section class="slide" data-slide="4">
+    <svg class="wave-bl" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,200 C40,170 40,130 0,90 L0,200 Z" fill="#cfe7f5"/>
+    </svg>
+    <svg class="wave-tr" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,0 C40,30 40,70 0,110 L0,0 Z" fill="#bcdcef"/>
+    </svg>
+
+    <div class="slide-inner">
+      <p class="eyebrow">04 · Proctoring</p>
+      <h2 class="title">Security at the OS layer, not the DOM</h2>
+      <p class="lead">
+        Because Invigilo is a native Electron window, proctoring runs in the main process — outside the renderer's reach. The student can't DevTools their way past it.
+      </p>
+
+      <div class="grid-3">
+        <div class="feature">
+          <div class="badge">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+              <rect x="3" y="4" width="18" height="13" rx="2"/>
+              <path d="M8 21h8M12 17v4"/>
+            </svg>
+          </div>
+          <h3>Window lockdown</h3>
+          <p>During an active exam the window is forced fullscreen, always-on-top, and visible across workspaces.</p>
+          <ul>
+            <li>Minimize / resize / close disabled</li>
+            <li>Fullscreen exit instantly reverted</li>
+            <li><code>Alt+F4</code> and <code>F11</code> intercepted</li>
+          </ul>
+        </div>
+
+        <div class="feature">
+          <div class="badge">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+              <circle cx="12" cy="12" r="9"/>
+              <path d="M12 7v5l3 2"/>
+            </svg>
+          </div>
+          <h3>Process scanner</h3>
+          <p><code>ps-list</code> runs every second, matching against a deny-list of cheating tools.</p>
+          <ul>
+            <li>OBS Studio · Bandicam</li>
+            <li>AnyDesk · TeamViewer</li>
+            <li>Substring match — any rename attempt caught</li>
+          </ul>
+        </div>
+
+        <div class="feature">
+          <div class="badge">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+              <path d="M12 3l8 4v6c0 4.5-3.4 8.4-8 9-4.6-.6-8-4.5-8-9V7l8-4z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </div>
+          <h3>Violation tracking</h3>
+          <p>Every event is graded (low / medium / high), tallied, and surfaced to the teacher in real time.</p>
+          <ul>
+            <li>Blur / focus loss → medium</li>
+            <li>Fullscreen exit → high</li>
+            <li>Threshold reached → auto-submit</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="proc-banner">
+        <span class="badge" style="background:rgba(255,255,255,.15); color:#f59e0b;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+            <path d="M12 2L1 21h22L12 2z"/><path d="M12 9v6M12 18h.01"/>
+          </svg>
+        </span>
+        <div>
+          <strong>OBSERV&nbsp;PATTERN</strong>&nbsp;&nbsp;·&nbsp;&nbsp;
+          Main process emits <code style="color:#f59e0b;">violation</code> events over IPC;
+          renderer subscribes via <code>onViolation</code>. Tampering with the UI cannot stop detection.
+        </div>
+      </div>
+    </div>
+    <div class="brand">INVIGILO<span class="dot-accent">·</span>PROCTORING</div>
+  </section>
+
+  <!-- ============================ SLIDE 5: CODE EXECUTION + EVALUATION ============================ -->
+  <section class="slide" data-slide="5">
+    <svg class="wave-tl" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0,0 C60,40 60,90 0,140 L0,0 Z" fill="#cfe7f5"/>
+    </svg>
+    <svg class="wave-br" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+      <path d="M200,200 C140,160 140,110 200,60 L200,200 Z" fill="#cfe7f5"/>
+    </svg>
+
+    <div class="slide-inner">
+      <p class="eyebrow">05 · Code Execution &amp; Evaluation</p>
+      <h2 class="title">A local judge — and a desk for the rest</h2>
+      <p class="lead">
+        Coding questions run on the student's own machine in a temp dir with bounded
+        timeout. Written answers and edge-case code submissions land in the
+        Evaluation Desk for the teacher to score and comment.
+      </p>
+
+      <div class="two-col">
+        <!-- LEFT: local code judge -->
+        <div class="panel">
+          <h3>Local code judge · Strategy pattern</h3>
+          <p>
+            No external judge API. Per-request <code>mkdtemp</code> sandbox,
+            child-process execution, timeouts enforced at 8s run / 12s compile.
+          </p>
+          <div class="lang-row">
+            <span class="lang-pill">JavaScript</span>
+            <span class="lang-pill">Python</span>
+            <span class="lang-pill">C</span>
+            <span class="lang-pill">C++</span>
+          </div>
+          <div class="codeblock"><span class="c">// backend/controllers/codeExecutionController.js</span>
+<span class="k">const</span> dir = <span class="k">await</span> mkdtemp(<span class="s">`/tmp/invigilo-`</span>);
+<span class="k">await</span> writeFile(<span class="s">`${dir}/main.${ext}`</span>, source);
+<span class="k">const</span> child = exec(compileCmd, { cwd: dir, timeout: <span class="s">12000</span> });
+<span class="c">// run with sample I/O, capture stdout/stderr</span></div>
+        </div>
+
+        <!-- RIGHT: evaluation desk -->
+        <div class="panel">
+          <h3>Evaluation desk</h3>
+          <p>
+            Server auto-grades MCQs the instant a student submits. Everything else —
+            written answers, edge-case code — opens here for teacher review with
+            per-question marks and comments.
+          </p>
+          <ul class="checklist">
+            <li>Per-participant submission picker</li>
+            <li>Side-by-side answer vs. reference answer</li>
+            <li>Auto-score + manual-score combined into <code>total</code></li>
+            <li>Evaluation status: <code>pending</code> → <code>completed</code></li>
+            <li>Violation JSON preserved on every submission</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Screenshot placeholder — you'll drop a real image here later -->
+      <div style="margin-top:18px;">
+        <div class="shot-placeholder" id="shot5">
+          App screenshot placeholder — replace with
+          <code>docs/screenshots/evaluation-desk.png</code>
+        </div>
+      </div>
+    </div>
+    <div class="brand">INVIGILO<span class="dot-accent">·</span>EVALUATION</div>
+  </section>
+
+  <!-- ============================ NAV ============================ -->
+  <button class="nav prev" id="prev" aria-label="Previous slide">&#8249;</button>
+  <button class="nav next" id="next" aria-label="Next slide">&#8250;</button>
+  <div class="counter" id="counter">1 / 5</div>
+  <div class="dots" id="dots"></div>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const total  = slides.length;
+  let current = 1;
+
+  const counterEl = document.getElementById('counter');
+  const dotsEl    = document.getElementById('dots');
+
+  // Build dot buttons
+  slides.forEach((_, i) => {
+    const b = document.createElement('button');
+    b.className = 'dot';
+    b.setAttribute('aria-label', `Go to slide ${i+1}`);
+    b.addEventListener('click', () => go(i + 1));
+    dotsEl.appendChild(b);
+  });
+
+  function go(n) {
+    current = Math.max(1, Math.min(total, n));
+    slides.forEach(s => s.classList.toggle('active', Number(s.dataset.slide) === current));
+    [...dotsEl.children].forEach((d, i) => d.classList.toggle('active', i === current - 1));
+    counterEl.textContent = `${current} / ${total}`;
+  }
+
+  document.getElementById('prev').addEventListener('click', () => go(current - 1));
+  document.getElementById('next').addEventListener('click', () => go(current + 1));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { go(current + 1); }
+    if (e.key === 'ArrowLeft'  || e.key === 'PageUp')                    { go(current - 1); }
+    if (e.key === 'Home') go(1);
+    if (e.key === 'End')  go(total);
+  });
+
+  // Init
+  go(1);
+
+  // Optional: if a real screenshot appears at the documented path, swap it in automatically.
+  const candidate = '../screenshots/evaluation-desk.png';
+  const img = new Image();
+  img.onload = () => {
+    const ph = document.getElementById('shot5');
+    if (ph) ph.outerHTML = `<img src="${candidate}" alt="Evaluation desk" style="width:100%; border-radius:16px; box-shadow:var(--shadow);" />`;
+  };
+  img.src = candidate;
+</script>
+
+</body>
+</html>
