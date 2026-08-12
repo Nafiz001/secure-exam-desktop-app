@@ -16,6 +16,7 @@ This document describes the system architecture, the architectural and design pa
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Screenshots](#screenshots)
+- [Presentation Slides](#presentation-slides)
 - [Getting Started](#getting-started)
 - [Download](#download)
 - [Installing & Running the App (End Users)](#installing--running-the-app-end-users)
@@ -265,16 +266,101 @@ secure-exam-desktop-app/
 
 ## Screenshots
 
-> _Screenshots to be added here — run the app locally (see [Getting Started](#getting-started)) and place images under `docs/screenshots/`._
+Screenshots of the running application. All images live under [`docs/screenshots/`](./docs/screenshots/).
+
+### App Screens
 
 | Screen | Preview |
 |---|---|
-| Login / role selection | `docs/screenshots/login.png` |
-| Student join (room code) | `docs/screenshots/student-join.png` |
-| Teacher dashboard | `docs/screenshots/teacher-dashboard.png` |
-| Question editor | `docs/screenshots/question-editor.png` |
-| Student exam view | `docs/screenshots/student-exam.png` |
-| Evaluation desk | `docs/screenshots/evaluation-desk.png` |
+| Login / role selection | ![Login](./docs/screenshots/login.png) |
+| Student join (room code) | ![Student join](./docs/screenshots/student-join.png) |
+| Teacher dashboard | ![Teacher dashboard](./docs/screenshots/teacher-dashboard.png) |
+| Admin panel | ![Admin panel](./docs/screenshots/admin-panel.png) |
+| Question manager | ![Question manager](./docs/screenshots/question-manage.png) |
+
+<details>
+<summary>Login / role selection</summary>
+
+![Login](./docs/screenshots/login.png)
+
+</details>
+
+<details>
+<summary>Student join (room code)</summary>
+
+![Student join](./docs/screenshots/student-join.png)
+
+</details>
+
+<details>
+<summary>Teacher dashboard</summary>
+
+![Teacher dashboard](./docs/screenshots/teacher-dashboard.png)
+
+</details>
+
+<details>
+<summary>Admin panel</summary>
+
+![Admin panel](./docs/screenshots/admin-panel.png)
+
+</details>
+
+<details>
+<summary>Question manager</summary>
+
+![Question manager](./docs/screenshots/question-manage.png)
+
+</details>
+
+---
+
+## Presentation Slides
+
+A 5-slide presentation deck is included in this repository at [`docs/slides/invigilo-slides.html`](./docs/slides/invigilo-slides.html) — open it in any modern browser to view (use `←` / `→` to navigate, or click the side arrows). PNG exports of each slide are also committed under [`docs/slides/`](./docs/slides/) for embedding in reports or PDFs.
+
+| # | Slide | Preview |
+|---|---|---|
+| 1 | Cover — Invigilo | ![Slide 1 — Cover](./docs/slides/slide1.png) |
+| 2 | Architecture (three layers, one process tree) | ![Slide 2 — Architecture](./docs/slides/slide2.png) |
+| 3 | Exam Lifecycle (create → join → start → answer → evaluate) | ![Slide 3 — Lifecycle](./docs/slides/slide3.png) |
+| 4 | Proctoring (OS-level security) | ![Slide 4 — Proctoring](./docs/slides/slide4.png) |
+| 5 | Local code execution & Evaluation desk | ![Slide 5 — Evaluation](./docs/slides/slide5.png) |
+
+<details>
+<summary>Slide 1 — Cover</summary>
+
+![Slide 1 — Cover](./docs/slides/slide1.png)
+
+</details>
+
+<details>
+<summary>Slide 2 — Architecture</summary>
+
+![Slide 2 — Architecture](./docs/slides/slide2.png)
+
+</details>
+
+<details>
+<summary>Slide 3 — Exam Lifecycle</summary>
+
+![Slide 3 — Lifecycle](./docs/slides/slide3.png)
+
+</details>
+
+<details>
+<summary>Slide 4 — Proctoring</summary>
+
+![Slide 4 — Proctoring](./docs/slides/slide4.png)
+
+</details>
+
+<details>
+<summary>Slide 5 — Code Execution & Evaluation</summary>
+
+![Slide 5 — Evaluation](./docs/slides/slide5.png)
+
+</details>
 
 ---
 
