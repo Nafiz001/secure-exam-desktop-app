@@ -17,6 +17,8 @@ This document describes the system architecture, the architectural and design pa
 - [Project Structure](#project-structure)
 - [Screenshots](#screenshots)
 - [Getting Started](#getting-started)
+- [Download](#download)
+- [Installing & Running the App (End Users)](#installing--running-the-app-end-users)
 - [Building a Distributable (.exe)](#building-a-distributable-exe)
 - [API Reference](#api-reference)
 - [Database Schema](#database-schema)
@@ -320,6 +322,91 @@ cd ..
 npm start
 ```
 This builds the renderer and launches the Electron app, which in turn spawns the backend automatically. For frontend-only iteration, `npm run dev:renderer` starts the Vite dev server independently.
+
+---
+
+## Download
+
+A pre-built Windows build (bundling both the **portable** `.exe` and the **NSIS installer** `.exe`) is available below.
+
+| File | Size | Contents |
+|---|---|---|
+| [`Invigilo-Setup-1.0.0.zip`](https://github.com/Nafiz001/secure-exam-desktop-app/releases/latest) | ~189 MB | `Invigilo-Portable-1.0.0.exe`, `Invigilo-Setup-1.0.0.exe` |
+
+> **Direct download (forces immediate download):**
+> `https://github.com/Nafiz001/secure-exam-desktop-app/releases/download/v1.0.0/Invigilo-Setup-1.0.0.zip`
+>
+> The zip is also checked into this repository under [`releases/`](./releases/).
+
+### Verify the download (optional)
+
+Once downloaded, you can confirm the archive extracted cleanly:
+
+```bash
+unzip -t Invigilo-Setup-1.0.0.zip
+```
+
+You should see two top-level files: `Invigilo-Portable-1.0.0.exe` and `Invigilo-Setup-1.0.0.exe`.
+
+---
+
+## Installing & Running the App (End Users)
+
+The zip contains two executables — pick whichever fits your situation.
+
+### Option A — Installer (`Invigilo-Setup-1.0.0.exe`)
+
+Best for most users. Installs to `Program Files`, adds a Start Menu shortcut, and supports clean uninstall.
+
+1. **Download** `Invigilo-Setup-1.0.0.zip` from the [Download](#download) section above.
+2. **Extract** the zip anywhere (e.g. your `Downloads` folder).
+3. **Double-click** `Invigilo-Setup-1.0.0.exe`.
+4. If Windows SmartScreen appears, click **More info → Run anyway**. (The app is unsigned — see the note below.)
+5. Follow the installer prompts:
+   - Accept the license.
+   - Choose the install location (default is fine).
+   - Choose whether to create a desktop shortcut.
+6. Click **Install**, then **Finish**.
+7. **Launch** Invigilo from the Start Menu (or the desktop shortcut, if you created one).
+
+**To uninstall later:** Settings → Apps → Installed apps → *Invigilo* → Uninstall.
+
+### Option B — Portable (`Invigilo-Portable-1.0.0.exe`)
+
+Best for exam labs, USB sticks, or machines where you can't install software. No installation, no registry changes — just run it.
+
+1. **Download** `Invigilo-Setup-1.0.0.zip` from the [Download](#download) section above.
+2. **Extract** the zip to a folder you have write access to (e.g. `Desktop\Invigilo\` or a USB drive). **Do not run it from inside the zip** — Windows may lock the executable.
+3. **Double-click** `Invigilo-Portable-1.0.0.exe`.
+4. If SmartScreen appears, click **More info → Run anyway**.
+5. The app launches directly — no installer window. Your local data lives next to the `.exe`, so **keep the folder intact** if you want to preserve settings between sessions.
+
+### First-time launch — Windows SmartScreen
+
+Because the build is unsigned, Windows will warn the first time you run either executable. To proceed:
+
+1. Click **More info** on the SmartScreen dialog.
+2. Click **Run anyway**.
+
+To silence the prompt permanently (optional), right-click the `.exe` → **Properties** → check **Unblock** → Apply.
+
+### First-time launch — inside the app
+
+When the app opens for the first time:
+
+- **Admins / Teachers:** log in with your registered email + password (or use the password-reset flow if `must_change_password` is set).
+- **Students:** enter the **room code** provided by your invigilator along with your **name** and **roll number** — no account required.
+- The app spawns its own local backend on `http://localhost:5000` automatically; you do **not** need to start it manually.
+- During an active exam the window is forced into fullscreen and the proctoring monitor is active — closing or switching windows will be recorded.
+
+### Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `Windows protected your PC` blocks the app | Click **More info → Run anyway** (see above). |
+| App opens but nothing loads | The local backend on port `5000` may be blocked. Close other apps using that port and relaunch. |
+| Portable app loses data between sessions | You deleted or moved its folder. Keep the folder containing `Invigilo-Portable-1.0.0.exe` intact. |
+| `MSVCP140.dll` / `VCRUNTIME` missing | Install the [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe). |
 
 ---
 
