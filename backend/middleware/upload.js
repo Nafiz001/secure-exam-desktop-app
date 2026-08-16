@@ -1,28 +1,18 @@
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
 const multer = require('multer');
 
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'questions');
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const ALLOWED_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
-const ALLOWED_MIME_TYPES = {
-  'image/png': '.png',
-  'image/jpeg': '.jpg',
-  'image/webp': '.webp',
-  'image/gif': '.gif'
-};
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const ext = ALLOWED_MIME_TYPES[file.mimetype] || '';
-    cb(null, `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${ext}`);
-  }
-});
+// Images are kept in memory only, never written to local disk: this backend
+// runs locally per-install (one instance per teacher/student machine) while
+// all installs share one central database. A disk-stored file would only
+// ever be visible to whichever machine's backend received the upload —
+// invisible to every other machine. Encoding to a base64 data URI and
+// storing it directly in the DB row (same pattern already used for webcam
+// proctoring snapshots) makes the image travel with the exam data itself.
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  if (!ALLOWED_MIME_TYPES[file.mimetype]) {
+  if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
     cb(new Error('Only PNG, JPEG, WEBP, or GIF images are allowed'));
     return;
   }
@@ -35,4 +25,4 @@ const uploadQuestionImage = multer({
   limits: { fileSize: 5 * 1024 * 1024 }
 });
 
-module.exports = { uploadQuestionImage, UPLOAD_DIR };
+module.exports = { uploadQuestionImage };

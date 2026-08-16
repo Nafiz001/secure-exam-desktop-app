@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   register,
+  registerTeacherSelf,
   login,
   changePassword,
   listTeachers,
@@ -12,6 +13,7 @@ const { protect, authorize } = require('../middleware/auth');
 
 // Public routes
 router.post('/login', login);
+router.post('/register-teacher', registerTeacherSelf);
 
 // Admin-only: create teacher/admin accounts with an initial password
 router.post('/register', protect, authorize('admin'), register);

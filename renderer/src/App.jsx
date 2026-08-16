@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ModalProvider, useModal } from "./components/modals/ModalProvider";
 import { setUnauthorizedHandler } from "./api";
 import AdminDashboard from "./features/admin/AdminDashboard";
@@ -34,6 +34,11 @@ function AppShell() {
     }
   });
   const [studentMode, setStudentMode] = useState(false);
+  const [studentInExam, setStudentInExam] = useState(false);
+
+  const handleStudentViewChange = useCallback((view) => {
+    setStudentInExam(view === "exam");
+  }, []);
 
   function handleLogin(nextToken, nextUser) {
     localStorage.setItem("token", nextToken);
@@ -48,6 +53,7 @@ function AppShell() {
     setToken(null);
     setUser(null);
     setStudentMode(false);
+    setStudentInExam(false);
   }
 
   function handlePasswordChanged() {
@@ -88,9 +94,13 @@ function AppShell() {
               <p className="muted">Logged in as</p>
               <h1>{user.name}</h1>
             </div>
-            <button className="danger" onClick={handleLogout}>
-              Logout
-            </button>
+            {/* Hidden during an active exam so a student can't abandon it via
+                Logout instead of submitting. */}
+            {!studentInExam ? (
+              <button className="danger" onClick={handleLogout}>
+                Logout
+              </button>
+            ) : null}
           </header>
         ) : (
           <div className="student-join-topbar">
@@ -101,7 +111,7 @@ function AppShell() {
         )}
 
         <div className="content-stack">
-          <StudentDashboard token={token} user={user} onAuthenticated={handleLogin} />
+          <StudentDashboard token={token} user={user} onAuthenticated={handleLogin} onViewChange={handleStudentViewChange} />
         </div>
       </main>
     );

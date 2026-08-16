@@ -22,12 +22,16 @@ function parseJsonArray(value, fallback = []) {
 
 // Only allow images that were produced by our own upload endpoint, so
 // question payloads can't be used to smuggle arbitrary external/local URLs.
-const UPLOADED_IMAGE_PATH_RE = /^\/uploads\/questions\/[A-Za-z0-9._-]+$/;
+// Images are base64 data URIs (not file paths) so they travel with the exam
+// row in the shared database instead of living only on whichever machine's
+// local backend received the upload.
+const DATA_URI_RE = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+=*$/;
+const MAX_DATA_URI_LENGTH = 10_000_000; // ~7MB decoded, comfortably under the 5MB upload cap's base64 size
 
 function normalizeQuestionImageUrl(rawImageUrl) {
   if (typeof rawImageUrl !== 'string') return null;
   const trimmed = rawImageUrl.trim();
-  if (!trimmed || !UPLOADED_IMAGE_PATH_RE.test(trimmed)) return null;
+  if (!trimmed || trimmed.length > MAX_DATA_URI_LENGTH || !DATA_URI_RE.test(trimmed)) return null;
   return trimmed;
 }
 

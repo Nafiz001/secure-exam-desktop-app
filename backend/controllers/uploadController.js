@@ -1,5 +1,8 @@
 /**
  * Handle a single question-option image upload (Teacher only).
+ * Returns the image as a base64 data URI rather than a file path — see
+ * middleware/upload.js for why (local-disk storage doesn't survive across
+ * the multiple machines that share this app's central database).
  * POST /api/uploads/question-image
  */
 const uploadQuestionImage = (req, res) => {
@@ -10,11 +13,13 @@ const uploadQuestionImage = (req, res) => {
     });
   }
 
+  const dataUri = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+
   res.status(201).json({
     success: true,
     message: 'Image uploaded successfully',
     data: {
-      url: `/uploads/questions/${req.file.filename}`
+      url: dataUri
     }
   });
 };

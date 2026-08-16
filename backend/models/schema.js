@@ -102,6 +102,30 @@ const initializeSchema = async () => {
       );
     `);
 
+    // Webcam proctoring: per-event log + latest snapshot per student
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS proctoring_events (
+        id SERIAL PRIMARY KEY,
+        exam_id INTEGER REFERENCES exams(id) ON DELETE CASCADE,
+        student_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        event_type VARCHAR(50) NOT NULL,
+        details TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS proctoring_snapshots (
+        exam_id INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+        student_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        snapshot_base64 TEXT,
+        face_count INTEGER DEFAULT 0,
+        status VARCHAR(20) DEFAULT 'ok',
+        updated_at TIMESTAMPTZ DEFAULT NOW(),
+        PRIMARY KEY (exam_id, student_id)
+      );
+    `);
+
     // Safe additive migrations for existing databases
     await client.query(`
       ALTER TABLE exams
@@ -149,6 +173,42 @@ const initializeSchema = async () => {
       ADD COLUMN IF NOT EXISTS evaluated_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
     `);
 
+    // Webcam proctoring: exam-level toggle + per-participant violation summary
+    await client.query(`
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS webcam_required BOOLEAN DEFAULT FALSE;
+
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS auto_submit_violation_threshold INTEGER DEFAULT 3;
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS violation_count INTEGER DEFAULT 0;
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS last_violation_type VARCHAR(100);
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS last_violation_severity VARCHAR(20);
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS last_violation_at TIMESTAMP NULL;
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS force_submit_requested BOOLEAN DEFAULT FALSE;
+
+      ALTER TABLE exam_participants
+      ADD COLUMN IF NOT EXISTS is_frozen BOOLEAN DEFAULT FALSE;
+    `);
+
+    // Retake support + student-facing results visibility
+    await client.query(`
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS allow_multiple_attempts BOOLEAN DEFAULT FALSE;
+
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS show_results_to_students BOOLEAN DEFAULT FALSE;
+    `);
+
     // Backfill score fields for old rows
     await client.query(`
       UPDATE submissions
@@ -180,6 +240,9 @@ const initializeSchema = async () => {
       CREATE INDEX IF NOT EXISTS idx_submissions_eval_status ON submissions(exam_id, evaluation_status);
       CREATE INDEX IF NOT EXISTS idx_exam_participants_exam_id ON exam_participants(exam_id);
       CREATE INDEX IF NOT EXISTS idx_exam_participants_student_id ON exam_participants(student_id);
+      CREATE INDEX IF NOT EXISTS idx_exam_participants_violation_count ON exam_participants(exam_id, violation_count);
+      CREATE INDEX IF NOT EXISTS idx_proctoring_events_exam ON proctoring_events(exam_id);
+      CREATE INDEX IF NOT EXISTS idx_proctoring_events_student ON proctoring_events(exam_id, student_id);
     `);
 
     await client.query('COMMIT');

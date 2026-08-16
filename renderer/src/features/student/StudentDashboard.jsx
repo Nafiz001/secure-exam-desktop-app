@@ -2,12 +2,33 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { apiRequest, resolveUploadUrl } from "../../api";
 import { useModal } from "../../components/modals/ModalProvider";
+import ProctoringCamera from "./ProctoringCamera";
 
 function formatTimerDisplay(totalSeconds) {
   const safeSeconds = Math.max(0, totalSeconds);
   const minutes = Math.floor(safeSeconds / 60);
   const seconds = safeSeconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+// Score visibility is a per-exam teacher setting (off by default) — the
+// backend already omits the numeric fields and sets results_hidden when
+// it's off, so this just picks the right message for whatever came back.
+function buildScoreLines(submission) {
+  if (submission.results_hidden) {
+    return {
+      scoreLine: "Your teacher has not enabled result visibility for this exam yet.",
+      pendingLine: ""
+    };
+  }
+
+  const hasWrittenPending = submission.evaluation_status === "pending";
+  const scoreLine = hasWrittenPending
+    ? `Current auto score: ${submission.auto_score ?? 0}.`
+    : `Final score: ${submission.score ?? 0}.`;
+  const pendingLine = hasWrittenPending ? "\nWritten answers will be evaluated by your teacher." : "";
+
+  return { scoreLine, pendingLine };
 }
 
 const LANGUAGE_FILE_EXTENSIONS = {
@@ -84,7 +105,7 @@ function buildFormattedAnswers(answerSource, codingSource) {
   }));
 }
 
-export default function StudentDashboard({ token, user, onAuthenticated }) {
+export default function StudentDashboard({ token, user, onAuthenticated, onViewChange }) {
   const { showAlert, showConfirm } = useModal();
   const [view, setView] = useState("dashboard");
   const [activeExams, setActiveExams] = useState([]);
@@ -138,7 +159,10 @@ export default function StudentDashboard({ token, user, onAuthenticated }) {
 
   useEffect(() => {
     viewRef.current = view;
-  }, [view]);
+    if (typeof onViewChange === "function") {
+      onViewChange(view);
+    }
+  }, [view, onViewChange]);
 
   useEffect(() => {
     examDataRef.current = examData;
@@ -252,14 +276,7 @@ export default function StudentDashboard({ token, user, onAuthenticated }) {
         }
 
         const submission = result.data?.submission || {};
-        const hasWrittenPending = submission.evaluation_status === "pending";
-        const scoreLine = hasWrittenPending
-          ? `Current auto score: ${submission.auto_score ?? 0}.`
-          : `Final score: ${submission.score ?? 0}.`;
-
-        const pendingLine = hasWrittenPending
-          ? "\nWritten answers will be evaluated by your teacher."
-          : "";
+        const { scoreLine, pendingLine } = buildScoreLines(submission);
 
         await showAlert({
           title: "Submission Complete",
@@ -356,14 +373,7 @@ export default function StudentDashboard({ token, user, onAuthenticated }) {
         }
 
         const submission = result.data?.submission || {};
-        const hasWrittenPending = submission.evaluation_status === "pending";
-        const scoreLine = hasWrittenPending
-          ? `Current auto score: ${submission.auto_score ?? 0}.`
-          : `Final score: ${submission.score ?? 0}.`;
-
-        const pendingLine = hasWrittenPending
-          ? "\nWritten answers will be evaluated by your teacher."
-          : "";
+        const { scoreLine, pendingLine } = buildScoreLines(submission);
 
         await showAlert({
           title: "Submission Complete",
@@ -427,6 +437,39 @@ export default function StudentDashboard({ token, user, onAuthenticated }) {
           }
         }
 
+        if (exam.webcam_required) {
+          const agreed = await showConfirm({
+            title: "Webcam Required",
+            message:
+              "This exam requires your webcam for proctoring. Your camera will be active throughout the exam and periodic snapshots will be recorded for the teacher to review. Do you want to allow camera access and proceed?",
+            confirmText: "Allow & Start Exam",
+            cancelText: "Cancel"
+          });
+
+          if (!agreed) {
+            setExamLoading(false);
+            return;
+          }
+
+          try {
+            if (!navigator.mediaDevices?.getUserMedia) {
+              throw Object.assign(new Error("getUserMedia not supported"), { name: "NotSupportedError" });
+            }
+            const testStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            testStream.getTracks().forEach((t) => t.stop());
+          } catch (camErr) {
+            let camMessage = "Could not access your camera. Make sure it is connected and not in use by another application, then try again.";
+            if (camErr.name === "NotAllowedError" || camErr.name === "PermissionDeniedError") {
+              camMessage = "Camera access was denied. You must allow camera access to take this proctored exam.";
+            } else if (camErr.name === "NotSupportedError") {
+              camMessage = "Camera API is not available. Please restart the application.";
+            }
+            await showAlert({ title: "Camera Access Failed", message: camMessage });
+            setExamLoading(false);
+            return;
+          }
+        }
+
         clearWaitingPolling();
         setWaitingExam(null);
         setWaitingParticipantCount(0);
@@ -452,7 +495,7 @@ export default function StudentDashboard({ token, user, onAuthenticated }) {
         setExamLoading(false);
       }
     },
-    [clearWaitingPolling, forceAutoSubmitExam, loadActiveExams, resetExamState, showAlert, token, user]
+    [clearWaitingPolling, forceAutoSubmitExam, loadActiveExams, resetExamState, showAlert, showConfirm, token, user]
   );
 
   const checkExamStatus = useCallback(
@@ -947,13 +990,17 @@ export default function StudentDashboard({ token, user, onAuthenticated }) {
       <>
         <section className="card student-panel student-panel-exam-header">
           <div className="card-head">
-            <h2 className="student-title">{examData.title}</h2>
-            <div className="badge-row">
-              <span className="badge">Time Left: {timerText}</span>
-              <span className="badge">Violations: {violationCount}</span>
+            <div>
+              <h2 className="student-title">{examData.title}</h2>
+              <div className="badge-row">
+                <span className="badge">Time Left: {timerText}</span>
+                <span className="badge">Violations: {violationCount}</span>
+                {examData.webcam_required ? <span className="badge">Proctored</span> : null}
+              </div>
+              <p className="muted">{examData.description || "No description"}</p>
             </div>
+            <ProctoringCamera token={tokenRef.current} examId={examData.id} enabled={Boolean(examData.webcam_required)} />
           </div>
-          <p className="muted">{examData.description || "No description"}</p>
         </section>
 
         {warningMessage ? (

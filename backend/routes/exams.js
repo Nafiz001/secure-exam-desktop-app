@@ -7,12 +7,15 @@ const {
   getExamById,
   updateExam,
   deleteExam,
+  restartExam,
+  duplicateExam,
   submitExam,
   joinExam,
   getExamParticipants,
   startExam,
   getExamStatus,
-  getMyActiveExams
+  getMyActiveExams,
+  exportExamResultsCsv
 } = require('../controllers/examController');
 const { runCode } = require('../controllers/codeExecutionController');
 const {
@@ -32,6 +35,9 @@ router.get('/my-active', protect, authorize('student'), getMyActiveExams);
 router.get('/:id', protect, getExamById);
 router.put('/:id', protect, authorize('teacher'), updateExam);
 router.delete('/:id', protect, authorize('teacher'), deleteExam);
+router.post('/:id/restart', protect, authorize('teacher'), restartExam);
+router.post('/:id/duplicate', protect, authorize('teacher'), duplicateExam);
+router.get('/:id/export-results.csv', protect, authorize('teacher'), exportExamResultsCsv);
 
 // Room code system routes
 // Public: students join with room code + name + roll number, no prior login

@@ -74,6 +74,10 @@ export async function apiUpload(path, file, token = null) {
 
 export function resolveUploadUrl(uploadPath) {
   if (!uploadPath) return "";
+  // Question images are base64 data URIs (embedded in the DB row itself so
+  // they're visible from any machine, not just whichever one received the
+  // upload) — return as-is, nothing to resolve against a server origin.
+  if (/^data:/i.test(uploadPath)) return uploadPath;
   if (/^https?:\/\//i.test(uploadPath)) return uploadPath;
   const serverOrigin = API_BASE_URL.replace(/\/api\/?$/, "");
   return `${serverOrigin}${uploadPath}`;

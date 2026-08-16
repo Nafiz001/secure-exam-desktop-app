@@ -7,6 +7,8 @@ const { initializeSchema } = require('./models/schema');
 const authRoutes = require('./routes/auth');
 const examRoutes = require('./routes/exams');
 const uploadRoutes = require('./routes/uploads');
+const aiRoutes = require('./routes/ai');
+const proctoringRoutes = require('./routes/proctoring');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -16,8 +18,10 @@ app.use(cors({
   origin: true, // Accept all origins (needed for Electron file:// protocol)
   credentials: true
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Raised from the 100kb default to comfortably fit base64 webcam snapshots
+// and base64 question images (up to ~7MB encoded) in JSON request bodies.
+app.use(express.json({ limit: '12mb' }));
+app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -32,6 +36,8 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/auth', authRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/uploads', uploadRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/proctoring', proctoringRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

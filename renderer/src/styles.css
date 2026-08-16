@@ -1315,3 +1315,510 @@ button.danger:hover {
     align-items: flex-start;
   }
 }
+
+/* ===== AI Assistant (Teacher Dashboard) ===== */
+
+.ai-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  background: teal;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
+}
+
+.ai-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.ai-panel {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 41;
+  width: min(420px, calc(100vw - 32px));
+  height: min(640px, calc(100vh - 32px));
+  background: #fff;
+  border: 1px solid #dbe2f0;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(16px);
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.ai-panel-open {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.ai-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  background: linear-gradient(135deg, #ecfeff 0%, #f0fdfa 100%);
+}
+
+.ai-panel-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-panel-title {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.ai-panel-subtitle {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-close-btn {
+  flex-shrink: 0;
+}
+
+.ai-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: teal;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.ai-avatar-lg {
+  width: 34px;
+  height: 34px;
+  font-size: 0.75rem;
+}
+
+.ai-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 14px 0;
+}
+
+.ai-tab {
+  flex: 1;
+  background: #f1f5f9;
+  color: #475569;
+  border-radius: 8px 8px 0 0;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.ai-tab:hover {
+  background: #e2e8f0;
+}
+
+.ai-tab-active {
+  background: #fff;
+  color: teal;
+  border: 1px solid #e2e8f0;
+  border-bottom-color: #fff;
+}
+
+.ai-tab-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 12px 14px;
+  gap: 10px;
+}
+
+.ai-chat-panel {
+  padding: 0;
+}
+
+.ai-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-message-row {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.ai-message-row-user {
+  justify-content: flex-end;
+}
+
+.ai-bubble {
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  max-width: 85%;
+}
+
+.ai-bubble-user {
+  background: teal;
+  color: #fff;
+  border-bottom-right-radius: 3px;
+}
+
+.ai-bubble-model {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-bottom-left-radius: 3px;
+}
+
+.ai-thinking {
+  color: #64748b;
+  font-style: italic;
+}
+
+.ai-chat-input-row {
+  border-top: 1px solid #e2e8f0;
+  padding: 10px 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.ai-chat-input-row textarea {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 0.88rem;
+  font-family: inherit;
+  resize: none;
+}
+
+.ai-chat-actions {
+  justify-content: flex-end;
+}
+
+.ai-generate-panel label {
+  gap: 6px;
+}
+
+.ai-generate-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ai-hint-box {
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.ai-hint-box ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.ai-generated-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-question-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+  background: #fff;
+}
+
+.ai-question-meta {
+  display: flex;
+  gap: 6px;
+}
+
+.ai-question-text {
+  margin: 0;
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+}
+
+.ai-details summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.ai-details p,
+.ai-details pre {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  color: #475569;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 520px) {
+  .ai-panel {
+    right: 16px;
+    left: 16px;
+    width: auto;
+  }
+
+  .ai-generate-options {
+    grid-template-columns: 1fr;
+  }
+}
+
+.login-credits {
+  position: fixed;
+  left: 18px;
+  bottom: 12px;
+  z-index: 5;
+  color: #3e716c;
+  pointer-events: none;
+}
+
+.login-credits p {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.6);
+}
+
+@media (max-width: 980px) {
+  .login-credits {
+    position: static;
+    margin-top: 12px;
+    text-align: center;
+  }
+}
+
+/* ===== Webcam Proctoring ===== */
+
+.checkbox-field {
+  display: flex !important;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #dbe2f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.checkbox-field input[type="checkbox"] {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.checkbox-field span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
+}
+
+.checkbox-field small {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.proctor-cam {
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid #0f172a;
+  background: #0f172a;
+}
+
+.proctor-cam-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 160ms ease;
+}
+
+.proctor-cam-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.proctor-cam-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 8px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.proctor-cam-status-loading {
+  background: rgba(15, 23, 42, 0.92);
+}
+
+.proctor-cam-status-error {
+  background: rgba(220, 38, 38, 0.92);
+}
+
+.proctor-cam-live-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(21, 128, 61, 0.9);
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.proctor-cam-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  animation: proctor-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes proctor-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.proctor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.proctor-card {
+  border: 2px solid #dbe2f0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.proctor-tone-ok {
+  border-color: #86efac;
+}
+
+.proctor-tone-warning {
+  border-color: #fcd34d;
+}
+
+.proctor-tone-violation {
+  border-color: #fca5a5;
+}
+
+.proctor-tone-unknown {
+  border-color: #dbe2f0;
+}
+
+.proctor-card-selected {
+  box-shadow: 0 0 0 2px teal;
+}
+
+.proctor-card-thumb {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.proctor-card-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.proctor-card-badge {
+  position: absolute;
+  top: 6px;
+  background: rgba(15, 23, 42, 0.8);
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.66rem;
+  text-transform: capitalize;
+}
+
+.proctor-card-badge-left {
+  left: 6px;
+}
+
+.proctor-card-badge-right {
+  right: 6px;
+}
+
+.proctor-card-body {
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.proctor-card-name {
+  margin: 0;
+  font-weight: 700;
+  font-size: 0.86rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

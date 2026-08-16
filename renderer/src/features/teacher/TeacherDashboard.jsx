@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { apiRequest, apiUpload, resolveUploadUrl } from "../../api";
+import { apiRequest, apiUpload, resolveUploadUrl, API_BASE_URL } from "../../api";
 import { useModal } from "../../components/modals/ModalProvider";
+import AIAssistant from "./AIAssistant";
 
 function normalizeOptionsForEditing(rawOptions) {
   const base = Array.isArray(rawOptions) && rawOptions.length > 0 ? rawOptions : ["", "", "", ""];
@@ -70,6 +71,14 @@ function getExamTypeToneClass(examType) {
   return "teacher-meta-chip-quiz";
 }
 
+function getProctoringToneClass(status) {
+  const normalized = String(status || "unknown").toLowerCase();
+  if (normalized === "violation") return "proctor-tone-violation";
+  if (normalized === "warning") return "proctor-tone-warning";
+  if (normalized === "ok") return "proctor-tone-ok";
+  return "proctor-tone-unknown";
+}
+
 export default function TeacherDashboard({ token }) {
   const { showAlert, showConfirm } = useModal();
   const [view, setView] = useState("list");
@@ -88,6 +97,18 @@ export default function TeacherDashboard({ token }) {
   const [currentExamType, setCurrentExamType] = useState("lab_quiz");
   const [participants, setParticipants] = useState([]);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
+  const [formWebcamRequired, setFormWebcamRequired] = useState(false);
+  const [formAllowMultipleAttempts, setFormAllowMultipleAttempts] = useState(false);
+  const [formShowResultsToStudents, setFormShowResultsToStudents] = useState(false);
+  const [restartingExam, setRestartingExam] = useState(false);
+  const [duplicatingExam, setDuplicatingExam] = useState(false);
+
+  const [proctoringStudents, setProctoringStudents] = useState([]);
+  const [loadingProctoring, setLoadingProctoring] = useState(false);
+  const [selectedProctoringStudent, setSelectedProctoringStudent] = useState(null);
+  const [proctoringEvents, setProctoringEvents] = useState([]);
+  const [loadingProctoringEvents, setLoadingProctoringEvents] = useState(false);
+  const proctoringPollRef = useRef(null);
 
   const [questions, setQuestions] = useState([]);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
@@ -195,6 +216,23 @@ export default function TeacherDashboard({ token }) {
     [showAlert, token]
   );
 
+  const loadProctoringStatus = useCallback(
+    async (examId, { silent = false } = {}) => {
+      if (!silent) setLoadingProctoring(true);
+      try {
+        const result = await apiRequest(`/proctoring/${examId}/students`, {}, token);
+        setProctoringStudents(result.data.students || []);
+      } catch (err) {
+        if (!silent) {
+          await showAlert({ title: "Error", message: err.message || "Failed to load proctoring data." });
+        }
+      } finally {
+        if (!silent) setLoadingProctoring(false);
+      }
+    },
+    [showAlert, token]
+  );
+
   const resetQuestionForm = useCallback(() => {
     setCurrentQuestionId(null);
     setQuestionText("");
@@ -252,11 +290,13 @@ export default function TeacherDashboard({ token }) {
   useEffect(() => {
     return () => {
       clearParticipantPolling();
+      clearProctoringPolling();
     };
   }, [clearParticipantPolling]);
 
   async function openCreateForm() {
     clearParticipantPolling();
+    clearProctoringPolling();
     setCurrentExamId(null);
     setCurrentExamTitle("");
     setFormTitle("");
@@ -268,11 +308,15 @@ export default function TeacherDashboard({ token }) {
     setExamStartedAt(null);
     setCurrentExamType("lab_quiz");
     setParticipants([]);
+    setFormWebcamRequired(false);
+    setFormAllowMultipleAttempts(false);
+    setFormShowResultsToStudents(false);
     setView("form");
   }
 
   async function openEditForm(examId) {
     clearParticipantPolling();
+    clearProctoringPolling();
     try {
       const result = await apiRequest(`/exams/${examId}`, {}, token);
       const exam = result.data.exam;
@@ -286,6 +330,9 @@ export default function TeacherDashboard({ token }) {
       setExamStatus(exam.status || "created");
       setExamStartedAt(exam.started_at || null);
       setCurrentExamType(exam.exam_type || "lab_quiz");
+      setFormWebcamRequired(Boolean(exam.webcam_required));
+      setFormAllowMultipleAttempts(Boolean(exam.allow_multiple_attempts));
+      setFormShowResultsToStudents(Boolean(exam.show_results_to_students));
       setView("form");
 
       if (exam.room_code) {
@@ -339,7 +386,18 @@ export default function TeacherDashboard({ token }) {
       const method = currentExamId ? "PUT" : "POST";
       const result = await apiRequest(
         endpoint,
-        { method, body: JSON.stringify({ title, description: formDescription, exam_type: examType, duration }) },
+        {
+          method,
+          body: JSON.stringify({
+            title,
+            description: formDescription,
+            exam_type: examType,
+            duration,
+            webcam_required: formWebcamRequired,
+            allow_multiple_attempts: formAllowMultipleAttempts,
+            show_results_to_students: formShowResultsToStudents
+          })
+        },
         token
       );
       const exam = result.data.exam;
@@ -350,6 +408,9 @@ export default function TeacherDashboard({ token }) {
       setExamStartedAt(exam.started_at || examStartedAt);
       setCurrentExamType(exam.exam_type || examType);
       setFormExamType(exam.exam_type || examType);
+      setFormWebcamRequired(Boolean(exam.webcam_required));
+      setFormAllowMultipleAttempts(Boolean(exam.allow_multiple_attempts));
+      setFormShowResultsToStudents(Boolean(exam.show_results_to_students));
       await loadExams();
 
       if (isNewExam) {
@@ -386,6 +447,58 @@ export default function TeacherDashboard({ token }) {
     }
   }
 
+  async function handleRestartExam() {
+    if (!currentExamId) return;
+    const confirmed = await showConfirm({
+      title: "Restart Exam",
+      message:
+        "This reopens the exam so students can rejoin with the same room code. " +
+        (formAllowMultipleAttempts
+          ? "Since \"Allow multiple attempts\" is on, students who already submitted can submit again."
+          : "Students who already submitted still can't submit again unless you enable \"Allow multiple attempts\"."),
+      confirmText: "Restart",
+      cancelText: "Cancel"
+    });
+    if (!confirmed) return;
+
+    setRestartingExam(true);
+    try {
+      const result = await apiRequest(`/exams/${currentExamId}/restart`, { method: "POST" }, token);
+      const exam = result.data.exam;
+      setExamStatus(exam.status || "created");
+      setExamStartedAt(exam.started_at || null);
+      await loadExams();
+      await showAlert({ title: "Success", message: "Exam restarted. The room code is active again." });
+    } catch (err) {
+      await showAlert({ title: "Error", message: err.message || "Failed to restart exam." });
+    } finally {
+      setRestartingExam(false);
+    }
+  }
+
+  async function handleDuplicateExam(examId, examTitle) {
+    const confirmed = await showConfirm({
+      title: "Duplicate Exam",
+      message: `Create a copy of "${examTitle}" with a new room code and the same questions?`,
+      confirmText: "Duplicate",
+      cancelText: "Cancel"
+    });
+    if (!confirmed) return;
+
+    setDuplicatingExam(true);
+    try {
+      const result = await apiRequest(`/exams/${examId}/duplicate`, { method: "POST" }, token);
+      const exam = result.data.exam;
+      await loadExams();
+      await showAlert({ title: "Success", message: `Duplicated as "${exam.title}" (room code ${exam.room_code}).` });
+      await openEditForm(exam.id);
+    } catch (err) {
+      await showAlert({ title: "Error", message: err.message || "Failed to duplicate exam." });
+    } finally {
+      setDuplicatingExam(false);
+    }
+  }
+
   async function copyRoomCodeToClipboard() {
     if (!roomCode) return;
     try {
@@ -398,6 +511,7 @@ export default function TeacherDashboard({ token }) {
 
   async function openQuestionManager(examId, examTitle) {
     clearParticipantPolling();
+    clearProctoringPolling();
     resetQuestionForm();
     setCurrentExamId(examId);
     setCurrentExamTitle(examTitle);
@@ -409,6 +523,7 @@ export default function TeacherDashboard({ token }) {
 
   async function openSubmissionsView(examId, examTitle) {
     clearParticipantPolling();
+    clearProctoringPolling();
     setCurrentExamId(examId);
     setCurrentExamTitle(examTitle);
     setSelectedSubmissionSheet(null);
@@ -416,6 +531,68 @@ export default function TeacherDashboard({ token }) {
     setWrittenCommentDraft({});
     setView("submissions");
     await loadEvaluationParticipants(examId);
+  }
+
+  function clearProctoringPolling() {
+    if (proctoringPollRef.current) {
+      clearInterval(proctoringPollRef.current);
+      proctoringPollRef.current = null;
+    }
+  }
+
+  async function openProctoringView(examId, examTitle) {
+    clearParticipantPolling();
+    clearProctoringPolling();
+    setCurrentExamId(examId);
+    setCurrentExamTitle(examTitle);
+    setSelectedProctoringStudent(null);
+    setProctoringEvents([]);
+    setView("proctoring");
+    await loadProctoringStatus(examId);
+    proctoringPollRef.current = setInterval(() => {
+      loadProctoringStatus(examId, { silent: true });
+    }, 3000);
+  }
+
+  async function loadStudentProctoringEvents(student) {
+    setSelectedProctoringStudent(student);
+    setProctoringEvents([]);
+    setLoadingProctoringEvents(true);
+    try {
+      const result = await apiRequest(`/proctoring/${currentExamId}/events/${student.student_id}`, {}, token);
+      setProctoringEvents(result.data.events || []);
+    } catch (err) {
+      await showAlert({ title: "Error", message: err.message || "Failed to load event log." });
+    } finally {
+      setLoadingProctoringEvents(false);
+    }
+  }
+
+  async function downloadResultsCsv(examId) {
+    if (!examId) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/exams/${examId}/export-results.csv`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(text || `Export failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = /filename="?([^";]+)"?/.exec(disposition);
+      const filename = match ? match[1] : `exam_${examId}_results_${new Date().toISOString().slice(0, 10)}.csv`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      await showAlert({ title: "Error", message: err.message || "Could not download results CSV." });
+    }
   }
 
   function openAddQuestionForm() {
@@ -704,6 +881,13 @@ export default function TeacherDashboard({ token }) {
                 <button className="secondary btn-inline" onClick={() => openSubmissionsView(exam.id, exam.title)}>
                   Evaluation
                 </button>
+                <button
+                  className="secondary btn-inline"
+                  onClick={() => handleDuplicateExam(exam.id, exam.title)}
+                  disabled={duplicatingExam}
+                >
+                  Duplicate
+                </button>
                 <button className="btn-inline" onClick={() => handleDeleteExam(exam.id, exam.title)}>
                   Delete
                 </button>
@@ -771,6 +955,42 @@ export default function TeacherDashboard({ token }) {
               />
             </label>
 
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={formWebcamRequired}
+                onChange={(event) => setFormWebcamRequired(event.target.checked)}
+              />
+              <span>
+                <strong>Require webcam proctoring</strong>
+                <small>Face detection will monitor for suspicious activity during the exam.</small>
+              </span>
+            </label>
+
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={formAllowMultipleAttempts}
+                onChange={(event) => setFormAllowMultipleAttempts(event.target.checked)}
+              />
+              <span>
+                <strong>Allow multiple attempts</strong>
+                <small>Students can submit again, replacing their previous attempt (e.g. after you restart the exam).</small>
+              </span>
+            </label>
+
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={formShowResultsToStudents}
+                onChange={(event) => setFormShowResultsToStudents(event.target.checked)}
+              />
+              <span>
+                <strong>Show results to students</strong>
+                <small>Off by default — students see "submitted successfully" only, no score, until you turn this on.</small>
+              </span>
+            </label>
+
             <button type="submit" disabled={savingExam}>
               {savingExam ? "Saving..." : "Save Exam"}
             </button>
@@ -792,6 +1012,24 @@ export default function TeacherDashboard({ token }) {
                 <button className="secondary" onClick={() => openQuestionManager(currentExamId, currentExamTitle)}>
                   Manage Questions
                 </button>
+                {formWebcamRequired ? (
+                  <button className="secondary" onClick={() => openProctoringView(currentExamId, currentExamTitle)}>
+                    Proctoring
+                  </button>
+                ) : null}
+                <button className="secondary" onClick={() => downloadResultsCsv(currentExamId)}>
+                  Export Results (CSV)
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => handleDuplicateExam(currentExamId, currentExamTitle || formTitle || "Exam")}
+                  disabled={duplicatingExam}
+                >
+                  {duplicatingExam ? "Duplicating..." : "Duplicate Exam"}
+                </button>
+                <button className="btn-inline" onClick={() => handleDeleteExam(currentExamId, currentExamTitle || formTitle || "Exam")}>
+                  Delete Exam
+                </button>
               </div>
             </div>
 
@@ -803,12 +1041,18 @@ export default function TeacherDashboard({ token }) {
               </button>
               <span className="badge">Status: {effectiveExamStatus || "created"}</span>
               <span className="badge">Type: {currentExamType || "lab_quiz"}</span>
-              <button
-                onClick={handleStartExamNow}
-                disabled={!roomCode || effectiveExamStatus === "in_progress" || effectiveExamStatus === "completed"}
-              >
-                {effectiveExamStatus === "in_progress" ? "Exam In Progress" : "Start Exam"}
-              </button>
+              {effectiveExamStatus === "completed" ? (
+                <button onClick={handleRestartExam} disabled={restartingExam}>
+                  {restartingExam ? "Restarting..." : "Restart Exam"}
+                </button>
+              ) : (
+                <button
+                  onClick={handleStartExamNow}
+                  disabled={!roomCode || effectiveExamStatus === "in_progress"}
+                >
+                  {effectiveExamStatus === "in_progress" ? "Exam In Progress" : "Start Exam"}
+                </button>
+              )}
             </div>
 
             {loadingParticipants ? <p className="muted top-spaced">Loading participants...</p> : null}
@@ -1324,12 +1568,143 @@ export default function TeacherDashboard({ token }) {
     return renderEvaluationParticipantsView();
   }
 
+  function renderProctoringView() {
+    const violations = proctoringStudents.filter((s) => s.proctoring_status === "violation").length;
+    const warnings = proctoringStudents.filter((s) => s.proctoring_status === "warning").length;
+    const okCount = proctoringStudents.length - violations - warnings;
+
+    return (
+      <div className="content-stack teacher-stack">
+        <section className="card teacher-panel">
+          <div className="teacher-section-strip">
+            <span className="teacher-section-tag">Live Monitor</span>
+            <span className="teacher-section-note">Auto-refreshes every 3 seconds with the latest snapshots.</span>
+          </div>
+          <div className="card-head">
+            <h2 className="teacher-title">Proctoring: {currentExamTitle}</h2>
+            <button
+              className="secondary"
+              onClick={() => {
+                clearProctoringPolling();
+                setSelectedProctoringStudent(null);
+                setProctoringEvents([]);
+                setView("form");
+                if (currentExamId) startParticipantPolling(currentExamId);
+              }}
+            >
+              Back to Exam
+            </button>
+          </div>
+
+          <div className="actions-row top-spaced">
+            <span className="teacher-chip teacher-chip-done">OK {okCount}</span>
+            <span className="teacher-chip teacher-chip-wait">Warning {warnings}</span>
+            <span className="teacher-chip teacher-chip-created">Violation {violations}</span>
+            <span className="muted">{proctoringStudents.length} total students</span>
+          </div>
+        </section>
+
+        {loadingProctoring && proctoringStudents.length === 0 ? (
+          <p className="muted">Loading proctoring data...</p>
+        ) : proctoringStudents.length === 0 ? (
+          <section className="card teacher-panel">
+            <p className="muted">No students are in this exam yet. Once students join, their live feeds appear here.</p>
+          </section>
+        ) : (
+          <div className="proctor-grid">
+            {proctoringStudents.map((s) => {
+              const isSelected = selectedProctoringStudent?.student_id === s.student_id;
+              const tone = s.proctoring_status || "unknown";
+              return (
+                <div key={s.student_id} className={`proctor-card ${getProctoringToneClass(tone)} ${isSelected ? "proctor-card-selected" : ""}`}>
+                  <div className="proctor-card-thumb">
+                    {s.snapshot_base64 ? (
+                      <img src={s.snapshot_base64} alt={s.student_name} />
+                    ) : (
+                      <span className="muted small">No feed</span>
+                    )}
+                    <span className="proctor-card-badge proctor-card-badge-left">{tone}</span>
+                    <span className="proctor-card-badge proctor-card-badge-right">
+                      {s.face_count} {Number(s.face_count) === 1 ? "face" : "faces"}
+                    </span>
+                  </div>
+                  <div className="proctor-card-body">
+                    <p className="proctor-card-name" title={s.student_name}>{s.student_name}</p>
+                    <div className="actions-row">
+                      {Number(s.no_face_count) > 0 ? (
+                        <span className="teacher-chip teacher-chip-wait">Away x{s.no_face_count}</span>
+                      ) : null}
+                      {Number(s.multiple_faces_count) > 0 ? (
+                        <span className="teacher-chip teacher-chip-created">Multi x{s.multiple_faces_count}</span>
+                      ) : null}
+                      {Number(s.looking_away_count) > 0 ? (
+                        <span className="teacher-chip teacher-chip-wait">Look x{s.looking_away_count}</span>
+                      ) : null}
+                      {Number(s.looking_down_count) > 0 ? (
+                        <span className="teacher-chip teacher-chip-wait">Down x{s.looking_down_count}</span>
+                      ) : null}
+                      {Number(s.total_events) === 0 ? <span className="teacher-chip teacher-chip-done">Clean</span> : null}
+                    </div>
+                    <button
+                      className="secondary btn-inline"
+                      onClick={() => (isSelected ? setSelectedProctoringStudent(null) : loadStudentProctoringEvents(s))}
+                    >
+                      {isSelected ? "Close log" : `Events (${s.total_events})`}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {selectedProctoringStudent ? (
+          <section className="card teacher-panel">
+            <div className="card-head">
+              <h3 className="teacher-title">Event log: {selectedProctoringStudent.student_name}</h3>
+              <button className="secondary btn-inline" onClick={() => setSelectedProctoringStudent(null)}>
+                Close
+              </button>
+            </div>
+            {loadingProctoringEvents ? (
+              <p className="muted top-spaced">Loading events...</p>
+            ) : proctoringEvents.length === 0 ? (
+              <p className="muted top-spaced">No events recorded. This student has had a clean session so far.</p>
+            ) : (
+              <ul className="list top-spaced teacher-list">
+                {proctoringEvents.map((ev) => (
+                  <li key={ev.id} className="teacher-list-item">
+                    <strong>{String(ev.event_type || "").replace(/_/g, " ")}</strong>
+                    <span>{formatDateTime(ev.created_at)}</span>
+                    {ev.details ? <span className="muted small">{ev.details}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <section className={`teacher-ui teacher-view-${view}`}>
       {view === "form" ? renderExamFormView() : null}
       {view === "questions" ? renderQuestionManagerView() : null}
       {view === "submissions" ? renderSubmissionsView() : null}
+      {view === "proctoring" ? renderProctoringView() : null}
       {view === "list" ? renderExamListView() : null}
+
+      <AIAssistant
+        token={token}
+        currentExamId={currentExamId}
+        currentExamTitle={currentExamTitle}
+        currentExamType={currentExamType}
+        formDuration={formDuration}
+        onQuestionAdded={
+          view === "questions" && currentExamId ? () => loadQuestionsForExam(currentExamId) : null
+        }
+      />
     </section>
   );
 }

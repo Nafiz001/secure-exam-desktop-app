@@ -22,10 +22,22 @@ const ROLE_OPTIONS = [
 export default function LoginPage({ onLogin, onStudentJoin }) {
   const { showAlert } = useModal();
   const [activeRole, setActiveRole] = useState("teacher");
+  const [authMode, setAuthMode] = useState("login"); // "login" | "create" (teacher only)
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const [signupName, setSignupName] = useState("");
+  const [signupEmail, setSignupEmail] = useState("");
+  const [signupPassword, setSignupPassword] = useState("");
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState("");
+
+  function switchRole(role) {
+    setActiveRole(role);
+    setAuthMode("login");
+    setError("");
+  }
 
   async function handleForgotPassword() {
     await showAlert({
@@ -70,6 +82,42 @@ export default function LoginPage({ onLogin, onStudentJoin }) {
     }
   }
 
+  async function handleCreateAccount(event) {
+    event.preventDefault();
+    setError("");
+
+    if (!signupName.trim() || !signupEmail.trim() || !signupPassword) {
+      setError("Name, email, and password are required.");
+      return;
+    }
+    if (signupPassword.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    if (signupPassword !== signupConfirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await apiRequest("/auth/register-teacher", {
+        method: "POST",
+        body: JSON.stringify({
+          name: signupName.trim(),
+          email: signupEmail.trim(),
+          password: signupPassword
+        })
+      });
+
+      onLogin(result.data.token, result.data.user);
+    } catch (err) {
+      setError(err.message || "Failed to create account.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <main className="page login-page-shell">
       <section className="auth-hero-panel">
@@ -91,10 +139,7 @@ export default function LoginPage({ onLogin, onStudentJoin }) {
               key={role.key}
               type="button"
               className={`role-card ${activeRole === role.key ? "role-card-active" : ""}`}
-              onClick={() => {
-                setActiveRole(role.key);
-                setError("");
-              }}
+              onClick={() => switchRole(role.key)}
             >
               <span className="role-icon" aria-hidden="true">{role.icon}</span>
               <strong>{role.label}</strong>
@@ -113,42 +158,115 @@ export default function LoginPage({ onLogin, onStudentJoin }) {
 
         {error ? <div className="error-box">{error}</div> : null}
 
-        <form className="form-stack" onSubmit={handleSubmit}>
-          <h3 className="auth-form-title">{ROLE_OPTIONS.find((r) => r.key === activeRole)?.label}</h3>
+        {activeRole === "teacher" && authMode === "create" ? (
+          <form className="form-stack" onSubmit={handleCreateAccount}>
+            <h3 className="auth-form-title">Create Teacher Account</h3>
 
-          <label>
-            <span>Email</span>
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="your@email.com"
-              autoComplete="email"
-              required
-            />
-          </label>
+            <label>
+              <span>Full Name</span>
+              <input
+                type="text"
+                value={signupName}
+                onChange={(event) => setSignupName(event.target.value)}
+                placeholder="Your name"
+                autoComplete="name"
+                required
+              />
+            </label>
 
-          <label>
-            <span>Password</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="Enter your password"
-              autoComplete="current-password"
-              required
-            />
-          </label>
+            <label>
+              <span>Email</span>
+              <input
+                type="email"
+                value={signupEmail}
+                onChange={(event) => setSignupEmail(event.target.value)}
+                placeholder="your@email.com"
+                autoComplete="email"
+                required
+              />
+            </label>
 
-          <button type="submit" disabled={loading}>
-            {loading ? "Signing in..." : `Continue as ${activeRole.charAt(0).toUpperCase()}${activeRole.slice(1)}`}
-          </button>
+            <label>
+              <span>Password</span>
+              <input
+                type="password"
+                value={signupPassword}
+                onChange={(event) => setSignupPassword(event.target.value)}
+                placeholder="At least 6 characters"
+                autoComplete="new-password"
+                required
+              />
+            </label>
 
-          <button type="button" className="secondary" onClick={handleForgotPassword}>
-            Forgot password?
-          </button>
-        </form>
+            <label>
+              <span>Confirm Password</span>
+              <input
+                type="password"
+                value={signupConfirmPassword}
+                onChange={(event) => setSignupConfirmPassword(event.target.value)}
+                placeholder="Re-enter your password"
+                autoComplete="new-password"
+                required
+              />
+            </label>
+
+            <button type="submit" disabled={loading}>
+              {loading ? "Creating account..." : "Create Account"}
+            </button>
+
+            <button type="button" className="secondary" onClick={() => { setAuthMode("login"); setError(""); }}>
+              Already have an account? Log in
+            </button>
+          </form>
+        ) : (
+          <form className="form-stack" onSubmit={handleSubmit}>
+            <h3 className="auth-form-title">{ROLE_OPTIONS.find((r) => r.key === activeRole)?.label}</h3>
+
+            <label>
+              <span>Email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="your@email.com"
+                autoComplete="email"
+                required
+              />
+            </label>
+
+            <label>
+              <span>Password</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Enter your password"
+                autoComplete="current-password"
+                required
+              />
+            </label>
+
+            <button type="submit" disabled={loading}>
+              {loading ? "Signing in..." : `Continue as ${activeRole.charAt(0).toUpperCase()}${activeRole.slice(1)}`}
+            </button>
+
+            <button type="button" className="secondary" onClick={handleForgotPassword}>
+              Forgot password?
+            </button>
+
+            {activeRole === "teacher" ? (
+              <button type="button" className="secondary" onClick={() => { setAuthMode("create"); setError(""); }}>
+                New teacher? Create Account
+              </button>
+            ) : null}
+          </form>
+        )}
       </section>
+
+      <footer className="login-credits">
+        <p>Developed by: Dewan Salman Rahman Zisan, Md. Nafiz Ahmed</p>
+        <p>Supervised By: Waliul Islam Sumon</p>
+      </footer>
     </main>
   );
 }
