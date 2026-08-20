@@ -1,20 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ModalProvider, useModal } from "./components/modals/ModalProvider";
 import { setUnauthorizedHandler } from "./api";
-import AdminDashboard from "./features/admin/AdminDashboard";
 import StudentDashboard from "./features/student/StudentDashboard";
 import TeacherDashboard from "./features/teacher/TeacherDashboard";
 import LoginPage from "./pages/LoginPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
-
-function DashboardContent({ token, user }) {
-  const content = useMemo(() => {
-    if (user.role === "teacher") return <TeacherDashboard token={token} />;
-    return <AdminDashboard token={token} />;
-  }, [token, user]);
-
-  return content;
-}
 
 function AppShell() {
   const { showAlert } = useModal();
@@ -121,7 +111,7 @@ function AppShell() {
     return <LoginPage onLogin={handleLogin} onStudentJoin={() => setStudentMode(true)} />;
   }
 
-  if (user.role !== "admin" && user.must_change_password) {
+  if (user.must_change_password) {
     return <ChangePasswordPage token={token} onChanged={handlePasswordChanged} onLogout={handleLogout} />;
   }
 
@@ -139,7 +129,7 @@ function AppShell() {
       </header>
 
       <div className="content-stack">
-        <DashboardContent token={token} user={user} />
+        <TeacherDashboard token={token} />
       </div>
     </main>
   );

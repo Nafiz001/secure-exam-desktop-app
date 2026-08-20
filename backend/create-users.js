@@ -3,17 +3,9 @@ const bcrypt = require('bcryptjs');
 
 async function createUsers() {
   try {
-    console.log('Creating 3 user accounts in Supabase...\n');
+    console.log('Creating test accounts in Supabase...\n');
 
-    // 1. Admin
-    const adminHash = await bcrypt.hash('admin123', 10);
-    await pool.query(
-      'INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4)',
-      ['Dewan Admin', 'dewan.admin@kuet.ac.bd', adminHash, 'admin']
-    );
-    console.log('✅ Admin created: dewan.admin@kuet.ac.bd / admin123');
-
-    // 2. Teacher
+    // 1. Teacher
     const teacherHash = await bcrypt.hash('teacher123', 10);
     await pool.query(
       'INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4)',
@@ -21,7 +13,7 @@ async function createUsers() {
     );
     console.log('✅ Teacher created: dewan.teacher@kuet.ac.bd / teacher123');
 
-    // 3. Student
+    // 2. Student
     const studentHash = await bcrypt.hash('student123', 10);
     await pool.query(
       'INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4)',
@@ -30,7 +22,7 @@ async function createUsers() {
     console.log('✅ Student created: dewan.student@kuet.ac.bd / student123');
 
     console.log('\n╔═══════════════════════════════════════════════╗');
-    console.log('║  ALL 3 ACCOUNTS CREATED IN SUPABASE! ✅       ║');
+    console.log('║  TEST ACCOUNTS CREATED IN SUPABASE! ✅        ║');
     console.log('╚═══════════════════════════════════════════════╝');
 
     process.exit(0);

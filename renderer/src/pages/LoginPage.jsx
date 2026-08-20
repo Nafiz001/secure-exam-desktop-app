@@ -4,13 +4,6 @@ import { useModal } from "../components/modals/ModalProvider";
 
 const ROLE_OPTIONS = [
   {
-    key: "admin",
-    icon: "AD",
-    label: "Admin Login",
-    subtitle: "System control and oversight",
-    cue: "Audit users, roles, and platform settings"
-  },
-  {
     key: "teacher",
     icon: "TR",
     label: "Teacher Login",
@@ -42,10 +35,7 @@ export default function LoginPage({ onLogin, onStudentJoin }) {
   async function handleForgotPassword() {
     await showAlert({
       title: "Forgot Password",
-      message:
-        activeRole === "teacher"
-          ? "Teacher passwords can only be reset by an admin. Please contact your admin — they can set a new temporary password for your account from the Admin Panel."
-          : "Please contact the system administrator to have your password reset."
+      message: "Password recovery isn't available yet. Please create a new account, or contact the developers directly."
     });
   }
 
@@ -124,7 +114,7 @@ export default function LoginPage({ onLogin, onStudentJoin }) {
         <p className="auth-badge">Secure Access Portal</p>
         <h1>Invigilo</h1>
         <p className="auth-hero-copy">
-          Professional and streamlined access for Admin, Teacher, and Student roles.
+          Professional and streamlined access for Teacher and Student roles.
           Fast, focused, and exam-ready.
         </p>
       </section>

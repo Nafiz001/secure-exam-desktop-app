@@ -235,7 +235,7 @@ const getExamById = async (req, res) => {
     }
 
     let questionsQuery;
-    if (role === 'teacher' || role === 'admin') {
+    if (role === 'teacher') {
       questionsQuery = `
         SELECT
           id,

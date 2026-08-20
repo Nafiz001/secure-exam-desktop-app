@@ -55,7 +55,7 @@ const protect = async (req, res, next) => {
 /**
  * Authorize based on roles
  * Middleware: authorize(...roles)
- * Usage: authorize('admin', 'teacher')
+ * Usage: authorize('teacher', 'student')
  */
 const authorize = (...roles) => {
   return (req, res, next) => {
