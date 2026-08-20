@@ -7,6 +7,7 @@ const {
   changePassword,
   listTeachers,
   resetTeacherPassword,
+  deleteTeacher,
   getCurrentUser
 } = require('../controllers/authController');
 const { protect, authorize } = require('../middleware/auth');
@@ -21,6 +22,7 @@ router.post('/register', protect, authorize('admin'), register);
 // Admin-only: manage teacher accounts
 router.get('/teachers', protect, authorize('admin'), listTeachers);
 router.put('/teachers/:id/reset-password', protect, authorize('admin'), resetTeacherPassword);
+router.delete('/teachers/:id', protect, authorize('admin'), deleteTeacher);
 
 // Protected routes
 router.get('/me', protect, getCurrentUser);

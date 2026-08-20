@@ -22,6 +22,7 @@ export default function AdminDashboard({ token }) {
   const [resetTargetId, setResetTargetId] = useState(null);
   const [resetPasswordValue, setResetPasswordValue] = useState("");
   const [resettingPassword, setResettingPassword] = useState(false);
+  const [deletingTeacherId, setDeletingTeacherId] = useState(null);
 
   const loadTeachers = useCallback(async () => {
     setLoadingTeachers(true);
@@ -129,6 +130,27 @@ export default function AdminDashboard({ token }) {
     }
   }
 
+  async function handleDeleteTeacher(teacher) {
+    const confirmed = await showConfirm({
+      title: "Delete Teacher Account",
+      message: `Delete ${teacher.name} (${teacher.email})? This also permanently deletes every exam they created, along with its questions, submissions, and proctoring data. This cannot be undone.`,
+      confirmText: "Delete",
+      cancelText: "Cancel"
+    });
+    if (!confirmed) return;
+
+    setDeletingTeacherId(teacher.id);
+    try {
+      await apiRequest(`/auth/teachers/${teacher.id}`, { method: "DELETE" }, token);
+      if (resetTargetId === teacher.id) cancelResetPassword();
+      await loadTeachers();
+    } catch (err) {
+      await showAlert({ title: "Error", message: err.message || "Failed to delete teacher account." });
+    } finally {
+      setDeletingTeacherId(null);
+    }
+  }
+
   return (
     <div className="content-stack">
       <section className="card">
@@ -218,6 +240,14 @@ export default function AdminDashboard({ token }) {
                   <div className="actions-row teacher-actions">
                     <button className="secondary btn-inline" type="button" onClick={() => openResetPasswordFor(teacher.id)}>
                       Reset Password
+                    </button>
+                    <button
+                      className="btn-inline"
+                      type="button"
+                      onClick={() => handleDeleteTeacher(teacher)}
+                      disabled={deletingTeacherId === teacher.id}
+                    >
+                      {deletingTeacherId === teacher.id ? "Deleting..." : "Delete"}
                     </button>
                   </div>
                 )}

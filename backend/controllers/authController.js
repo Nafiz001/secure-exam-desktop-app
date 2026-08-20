@@ -377,6 +377,40 @@ const resetTeacherPassword = async (req, res) => {
 };
 
 /**
+ * Delete a teacher account (Admin only). Cascades to that teacher's exams,
+ * questions, submissions, and proctoring data via the exams.created_by FK.
+ * DELETE /api/auth/teachers/:id
+ */
+const deleteTeacher = async (req, res) => {
+  const teacherId = req.params.id;
+
+  try {
+    const result = await pool.query(
+      `DELETE FROM users WHERE id = $1 AND role = 'teacher' RETURNING id, name, email`,
+      [teacherId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Teacher not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Teacher account deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete teacher error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while deleting teacher'
+    });
+  }
+};
+
+/**
  * Verify token and get current user
  * GET /api/auth/me
  */
@@ -417,5 +451,6 @@ module.exports = {
   changePassword,
   listTeachers,
   resetTeacherPassword,
+  deleteTeacher,
   getCurrentUser
 };
