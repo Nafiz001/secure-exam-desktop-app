@@ -37,7 +37,7 @@ This document describes the system architecture, the architectural and design pa
 Invigilo is packaged as a single Electron desktop application with an embedded backend process, so invigilators and students only ever run one executable. Internally it is composed of three cooperating layers:
 
 1. **Desktop shell (Electron main process)** — owns the OS-level window, spawns and supervises the backend API as a child process, and performs local proctoring (forbidden-process detection, window-focus/blur monitoring, forced full-screen during an active exam).
-2. **Presentation layer (React renderer, built with Vite)** — role-specific single-page dashboards for Admin, Teacher, and Student, talking to the backend exclusively over a local HTTP REST API.
+2. **Presentation layer (React renderer, built with Vite)** — role-specific single-page dashboards for Teacher and Student, talking to the backend exclusively over a local HTTP REST API.
 3. **Application/data layer (Express + PostgreSQL)** — stateless, JWT-authenticated REST API implementing exam, question, submission, and code-execution logic, backed by a PostgreSQL database (Supabase-hosted).
 
 ---
@@ -62,8 +62,7 @@ flowchart TB
         Preload["Preload Script — preload.js<br/>contextBridge (safe IPC surface)"]
 
         subgraph RendererProc["Renderer Process — React SPA (Vite build)"]
-            LoginPg["Login / Student Join"]
-            AdminUI["Admin Dashboard"]
+            LoginPg["Login / Teacher Sign-up / Student Join"]
             TeacherUI["Teacher Dashboard<br/>(exam + question + evaluation manager)"]
             StudentUI["Student Dashboard<br/>(join, waiting room, exam runner)"]
         end
@@ -186,9 +185,9 @@ sequenceDiagram
 
 ### Authentication & Access Control
 - Stateless JWT authentication with a 24-hour token expiry
-- Role-based access control: **Admin**, **Teacher**, **Student**
+- Role-based access control: **Teacher**, **Student** — no admin role or admin panel; there is no gatekeeper account required to get started
 - **Passwordless student access** — students join with just their name, roll number, and the room code; an account is auto-provisioned on first join, no registration flow required
-- **Admin-issued teacher onboarding** — an admin creates teacher accounts with a temporary password; teachers are forced to set a new password on first login (`must_change_password` flag)
+- **Teacher self-registration** — teachers create their own account (name, email, password) directly from the login screen and are signed in immediately, no approval step
 - Centralized session-expiry handling — any `401` response automatically logs the user out with a clear "session expired" prompt, instead of leaving a dead session on screen
 
 ### Exam Management (Teacher)
@@ -255,7 +254,7 @@ secure-exam-desktop-app/
 │   │   ├── auth.js               # protect / authorize (JWT + role guard)
 │   │   └── upload.js             # multer disk storage for question images
 │   ├── controllers/
-│   │   ├── authController.js     # login, admin-only register, change-password
+│   │   ├── authController.js     # login, teacher self-registration, change-password
 │   │   ├── examController.js     # exam CRUD, room-code join, start, status
 │   │   ├── questionController.js # question CRUD, submissions, evaluation
 │   │   ├── codeExecutionController.js  # sandboxed JS/Python/C/C++ execution
@@ -267,9 +266,8 @@ secure-exam-desktop-app/
 │   └── src/
 │       ├── App.jsx                # Top-level routing/session state
 │       ├── api.js                 # fetch wrapper + session-expiry interceptor
-│       ├── pages/                 # LoginPage, ChangePasswordPage
+│       ├── pages/                 # LoginPage (teacher login + sign-up), ChangePasswordPage
 │       └── features/
-│           ├── admin/AdminDashboard.jsx
 │           ├── teacher/TeacherDashboard.jsx
 │           └── student/StudentDashboard.jsx
 │
@@ -290,7 +288,6 @@ Screenshots of the running application. All images live under [`docs/screenshots
 | Login / role selection | ![Login](./docs/screenshots/login.png) |
 | Student join (room code) | ![Student join](./docs/screenshots/student-join.png) |
 | Teacher dashboard | ![Teacher dashboard](./docs/screenshots/teacher-dashboard.png) |
-| Admin panel | ![Admin panel](./docs/screenshots/admin-panel.png) |
 | Question manager | ![Question manager](./docs/screenshots/question-manage.png) |
 
 <details>
@@ -311,13 +308,6 @@ Screenshots of the running application. All images live under [`docs/screenshots
 <summary>Teacher dashboard</summary>
 
 ![Teacher dashboard](./docs/screenshots/teacher-dashboard.png)
-
-</details>
-
-<details>
-<summary>Admin panel</summary>
-
-![Admin panel](./docs/screenshots/admin-panel.png)
 
 </details>
 
@@ -364,12 +354,13 @@ JWT_EXPIRES_IN=24h
 ```
 The schema (tables, columns, indexes) is created automatically on first backend start — no manual migration step is required.
 
-### 3. Seed an initial admin account
+### 3. Seed test accounts (optional)
 ```bash
 cd backend
 node create-users.js
 cd ..
 ```
+This creates a demo teacher and student account. It's optional — teachers can also just use "Create Account" on the login screen instead.
 
 ### 4. Run the app
 ```bash
@@ -448,7 +439,7 @@ To silence the prompt permanently (optional), right-click the `.exe` → **Prope
 
 When the app opens for the first time:
 
-- **Admins / Teachers:** log in with your registered email + password (or use the password-reset flow if `must_change_password` is set).
+- **Teachers:** click **Create Account** on the login screen the first time (name, email, password) — you're signed in immediately, no approval needed. Already have an account? Just log in.
 - **Students:** enter the **room code** provided by your invigilator along with your **name** and **roll number** — no account required.
 - The app spawns its own local backend on `http://localhost:5000` automatically; you do **not** need to start it manually.
 - During an active exam the window is forced into fullscreen and the proctoring monitor is active — closing or switching windows will be recorded.
@@ -481,9 +472,9 @@ Base URL: `http://localhost:5000/api`
 ### Auth (`/api/auth`)
 | Method | Endpoint | Access | Description |
 |---|---|---|---|
-| POST | `/login` | Public | Email + password login (Teacher/Admin) |
-| POST | `/register` | Admin | Create a Teacher/Admin account with an initial password |
-| POST | `/change-password` | Authenticated | Change own password (clears `must_change_password`) |
+| POST | `/login` | Public | Email + password login (Teacher) |
+| POST | `/register-teacher` | Public | Teacher self-registration (name, email, password) — logs in immediately |
+| POST | `/change-password` | Authenticated | Change own password |
 | GET | `/me` | Authenticated | Get current user profile |
 
 ### Exams (`/api/exams`)
@@ -519,7 +510,11 @@ Base URL: `http://localhost:5000/api`
 ## Database Schema
 
 ```sql
--- Users: students, teachers, and admins in one table, disambiguated by role
+-- Users: students and teachers in one table, disambiguated by role.
+-- 'admin' remains a legal value in the CHECK constraint for backward
+-- compatibility with already-existing rows, but no application code,
+-- route, or UI grants that role any special access anymore — there is no
+-- admin panel and nothing creates admin accounts.
 CREATE TABLE users (
   id SERIAL PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
@@ -611,7 +606,7 @@ CREATE TABLE exam_participants (
 
 ## Roadmap
 
-- [ ] Admin analytics dashboard (exam/participation reporting)
+- [ ] Analytics dashboard for teachers (exam/participation reporting)
 - [ ] Bulk student roster import (CSV)
 - [ ] Video/screen recording during exams
 - [ ] Stronger code-execution isolation (containerized sandbox)
