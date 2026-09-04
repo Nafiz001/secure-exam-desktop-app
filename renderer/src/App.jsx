@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FaArrowLeft } from "react-icons/fa";
+import ProfileMenu from "./components/ProfileMenu";
+import IconButton from "./components/IconButton";
 import { ModalProvider, useModal } from "./components/modals/ModalProvider";
 import { setUnauthorizedHandler } from "./api";
 import StudentDashboard from "./features/student/StudentDashboard";
@@ -24,10 +27,12 @@ function AppShell() {
     }
   });
   const [studentMode, setStudentMode] = useState(false);
-  const [studentInExam, setStudentInExam] = useState(false);
+  const [studentView, setStudentView] = useState("dashboard");
+  const [teacherView, setTeacherView] = useState("list");
+  const teacherDashboardRef = useRef(null);
 
   const handleStudentViewChange = useCallback((view) => {
-    setStudentInExam(view === "exam");
+    setStudentView(view);
   }, []);
 
   function handleLogin(nextToken, nextUser) {
@@ -78,27 +83,23 @@ function AppShell() {
   if (isStudent) {
     return (
       <main className="page">
-        {user ? (
-          <header className="topbar">
-            <div>
-              <p className="muted">Logged in as</p>
-              <h1>{user.name}</h1>
-            </div>
-            {/* Hidden during an active exam so a student can't abandon it via
-                Logout instead of submitting. */}
-            {!studentInExam ? (
-              <button className="danger" onClick={handleLogout}>
-                Logout
-              </button>
-            ) : null}
-          </header>
-        ) : (
-          <div className="student-join-topbar">
-            <button className="secondary" onClick={handleLogout}>
-              Back
-            </button>
-          </div>
-        )}
+        <header className="topbar">
+          <div>{user ? <h1>{user.name}</h1> : null}</div>
+          {/* Students join with a room code rather than signing in, so there's
+              no logout. This is only shown on the join screen, where it is the
+              sole route back to the start screen — once they're in the waiting
+              room or an exam, the only ways out are that screen's own Leave
+              button, submitting, or the timer running out. */}
+          {studentView === "dashboard" ? (
+            <IconButton
+              icon={<FaArrowLeft size={20} />}
+              label="Back"
+              variant="ghost"
+              className="topbar-back-button"
+              onClick={handleLogout}
+            />
+          ) : null}
+        </header>
 
         <div className="content-stack">
           <StudentDashboard token={token} user={user} onAuthenticated={handleLogin} onViewChange={handleStudentViewChange} />
@@ -119,17 +120,26 @@ function AppShell() {
     <main className="page">
       <header className="topbar">
         <div>
-          <p className="muted">Logged in as</p>
-          <h1>{user.name}</h1>
-          <p className="muted small">{user.email}</p>
+          {teacherView !== "list" ? (
+            <IconButton
+              icon={<FaArrowLeft size={20} />}
+              label="Back"
+              variant="ghost"
+              className="topbar-back-button"
+              onClick={() => teacherDashboardRef.current?.goBack()}
+            />
+          ) : (
+            <>
+              <h1>{user.name}</h1>
+              <p className="muted small">{user.email}</p>
+            </>
+          )}
         </div>
-        <button className="danger" onClick={handleLogout}>
-          Logout
-        </button>
+        <ProfileMenu user={user} onLogout={handleLogout} />
       </header>
 
       <div className="content-stack">
-        <TeacherDashboard token={token} />
+        <TeacherDashboard ref={teacherDashboardRef} token={token} onViewChange={setTeacherView} />
       </div>
     </main>
   );

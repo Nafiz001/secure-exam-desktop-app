@@ -108,8 +108,6 @@ function buildFormattedAnswers(answerSource, codingSource) {
 export default function StudentDashboard({ token, user, onAuthenticated, onViewChange }) {
   const { showAlert, showConfirm } = useModal();
   const [view, setView] = useState("dashboard");
-  const [activeExams, setActiveExams] = useState([]);
-  const [loadingActiveExams, setLoadingActiveExams] = useState(false);
   const [studentNameInput, setStudentNameInput] = useState("");
   const [rollNumberInput, setRollNumberInput] = useState("");
   const [roomCodeInput, setRoomCodeInput] = useState("");
@@ -118,6 +116,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
   const [waitingExam, setWaitingExam] = useState(null);
   const [waitingParticipantCount, setWaitingParticipantCount] = useState(0);
   const [examData, setExamData] = useState(null);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [examAnswers, setExamAnswers] = useState({});
   const [timerText, setTimerText] = useState("--:--");
   const [examLoading, setExamLoading] = useState(false);
@@ -132,6 +131,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
   const tokenRef = useRef(token);
   const waitingPollIntervalRef = useRef(null);
   const examTimerIntervalRef = useRef(null);
+  const examControlPollIntervalRef = useRef(null);
   const warningTimeoutRef = useRef(null);
   const submissionInProgressRef = useRef(false);
   const viewRef = useRef(view);
@@ -194,6 +194,13 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
     }
   }, []);
 
+  const clearExamControlPolling = useCallback(() => {
+    if (examControlPollIntervalRef.current) {
+      clearInterval(examControlPollIntervalRef.current);
+      examControlPollIntervalRef.current = null;
+    }
+  }, []);
+
   const clearWarningTimer = useCallback(() => {
     if (warningTimeoutRef.current) {
       clearTimeout(warningTimeoutRef.current);
@@ -201,28 +208,12 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
     }
   }, []);
 
-  const loadActiveExams = useCallback(async () => {
-    if (!token) {
-      return;
-    }
-    setLoadingActiveExams(true);
-    try {
-      const result = await apiRequest("/exams/my-active", {}, tokenRef.current);
-      setActiveExams(result.data.exams || []);
-    } catch (err) {
-      await showAlert({
-        title: "Error",
-        message: err.message || "Failed to load active exams."
-      });
-    } finally {
-      setLoadingActiveExams(false);
-    }
-  }, [showAlert, token]);
-
   const resetExamState = useCallback(() => {
     clearExamTimer();
+    clearExamControlPolling();
     clearWarningTimer();
     setExamData(null);
+    setCurrentQuestionIndex(0);
     setExamAnswers({});
     setCodingState({});
     setExamViolations([]);
@@ -231,7 +222,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
     setWarningMessage("");
     setWarningSeverity("medium");
     setExamSubmitMessage("");
-  }, [clearExamTimer, clearWarningTimer]);
+  }, [clearExamControlPolling, clearExamTimer, clearWarningTimer]);
 
   const forceAutoSubmitExam = useCallback(
     async (examId, autoSubmitReason) => {
@@ -242,6 +233,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
       submissionInProgressRef.current = true;
       setSubmittingExam(true);
       clearExamTimer();
+      clearExamControlPolling();
       clearWaitingPolling();
 
       const activeExam = examDataRef.current;
@@ -287,7 +279,6 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
         setWaitingExam(null);
         setWaitingParticipantCount(0);
         setView("dashboard");
-        await loadActiveExams();
         return true;
       } catch (err) {
         const messageText = String(err?.message || "");
@@ -305,14 +296,13 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
         setWaitingExam(null);
         setWaitingParticipantCount(0);
         setView("dashboard");
-        await loadActiveExams();
         return alreadySubmitted;
       } finally {
         submissionInProgressRef.current = false;
         setSubmittingExam(false);
       }
     },
-    [clearExamTimer, clearWaitingPolling, loadActiveExams, resetExamState, showAlert, token]
+    [clearExamControlPolling, clearExamTimer, clearWaitingPolling, resetExamState, showAlert, token]
   );
 
   const submitExam = useCallback(
@@ -344,6 +334,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
       submissionInProgressRef.current = true;
       setSubmittingExam(true);
       clearExamTimer();
+      clearExamControlPolling();
       clearWaitingPolling();
 
       const formattedAnswers = buildFormattedAnswers(examAnswersRef.current, codingStateRef.current);
@@ -382,7 +373,6 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
 
         resetExamState();
         setView("dashboard");
-        await loadActiveExams();
       } catch (err) {
         setExamSubmitMessage(err.message || "Failed to submit exam. Please try again.");
       } finally {
@@ -391,10 +381,10 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
       }
     },
     [
+      clearExamControlPolling,
       clearExamTimer,
       clearWaitingPolling,
       forceAutoSubmitExam,
-      loadActiveExams,
       resetExamState,
       showAlert,
       showConfirm,
@@ -418,7 +408,6 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
             title: "Already Submitted",
             message: "You have already submitted this exam. You cannot take it again."
           });
-          await loadActiveExams();
           return;
         }
 
@@ -495,7 +484,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
         setExamLoading(false);
       }
     },
-    [clearWaitingPolling, forceAutoSubmitExam, loadActiveExams, resetExamState, showAlert, showConfirm, token, user]
+    [clearWaitingPolling, forceAutoSubmitExam, resetExamState, showAlert, showConfirm, token, user]
   );
 
   const checkExamStatus = useCallback(
@@ -527,6 +516,36 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
       }
     },
     [clearWaitingPolling, forceAutoSubmitExam, startExamSession, token]
+  );
+
+  // Polled while actively taking an exam (not the waiting room) — catches
+  // the two things the local countdown alone can't: the teacher manually
+  // ending the exam early, and a proctoring violation-count threshold being
+  // reached server-side (force_submit_requested).
+  const checkExamControl = useCallback(
+    async (examId) => {
+      try {
+        const result = await apiRequest(`/exams/${examId}/status`, {}, tokenRef.current);
+        const data = result.data || {};
+
+        if (data.status === "completed") {
+          clearExamControlPolling();
+          await forceAutoSubmitExam(examId, "Your teacher ended the exam. Your answers were submitted automatically.");
+          return;
+        }
+
+        if (data.force_submit_requested) {
+          clearExamControlPolling();
+          await forceAutoSubmitExam(
+            examId,
+            "Exam auto-submitted due to repeated proctoring violations."
+          );
+        }
+      } catch (err) {
+        console.error("Exam control check error:", err);
+      }
+    },
+    [clearExamControlPolling, forceAutoSubmitExam]
   );
 
   const enterWaitingRoom = useCallback(
@@ -623,12 +642,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
     setWaitingExam(null);
     setWaitingParticipantCount(0);
     setView("dashboard");
-    await loadActiveExams();
-  }, [clearWaitingPolling, loadActiveExams, showConfirm]);
-
-  useEffect(() => {
-    loadActiveExams();
-  }, [loadActiveExams]);
+  }, [clearWaitingPolling, showConfirm]);
 
   useEffect(() => {
     if (!examData?.questions) {
@@ -706,6 +720,21 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
   }, [clearExamTimer, examData, view]);
 
   useEffect(() => {
+    if (view !== "exam" || !examData) {
+      return undefined;
+    }
+
+    checkExamControl(examData.id);
+    examControlPollIntervalRef.current = setInterval(() => {
+      checkExamControl(examData.id);
+    }, 5000);
+
+    return () => {
+      clearExamControlPolling();
+    };
+  }, [checkExamControl, clearExamControlPolling, examData, view]);
+
+  useEffect(() => {
     if (!window.electronAPI) {
       return;
     }
@@ -760,9 +789,10 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
     return () => {
       clearWaitingPolling();
       clearExamTimer();
+      clearExamControlPolling();
       clearWarningTimer();
     };
-  }, [clearExamTimer, clearWaitingPolling, clearWarningTimer]);
+  }, [clearExamControlPolling, clearExamTimer, clearWaitingPolling, clearWarningTimer]);
 
   function handleMcqAnswerChange(questionId, selectedOption) {
     setExamAnswers((prev) => ({
@@ -935,7 +965,9 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
       <section className="card student-panel student-panel-waiting">
         <p className="student-kicker">Standby</p>
         <h2 className="student-title">Waiting Room</h2>
-        <p className="muted student-subtitle">Please wait for your teacher to start the exam.</p>
+        <p className="muted student-subtitle">
+          Waiting for your teacher to start the exam. This screen updates on its own — the exam opens automatically.
+        </p>
 
         {waitingExam ? (
           <div className="waiting-grid student-waiting-grid">
@@ -962,9 +994,137 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
           <button className="secondary" onClick={handleLeaveWaitingRoom}>
             Leave Waiting Room
           </button>
-          <button onClick={() => waitingExam && checkExamStatus(waitingExam.id)}>Check Now</button>
         </div>
       </section>
+    );
+  }
+
+  function renderQuestionCard(question, index) {
+    const qType = normalizeQuestionType(question.question_type);
+    const answerState = examAnswers[question.id] || {};
+    const codeState = codingState[Number(question.id)] || {
+      language: "javascript",
+      code: question.starter_code || defaultCodeForLanguage("javascript"),
+      stdin: question.sample_input || "",
+      stdout: "",
+      stderr: "",
+      running: false
+    };
+    return (
+      <article key={question.id} className="question-card student-question-card">
+        <p className="question-title question-text-block">
+          {index + 1}. {question.question_text}
+        </p>
+        {question.image_url ? (
+          <img
+            className="question-inline-image"
+            src={resolveUploadUrl(question.image_url)}
+            alt={`Question ${index + 1}`}
+          />
+        ) : null}
+        <p className="muted small student-question-meta">
+          Type: {qType === "written" ? "Written" : qType === "coding" ? "Coding" : "MCQ"} | Marks: {question.marks}
+        </p>
+
+        {qType === "written" ? (
+          <label className="form-stack">
+            <span>Your Answer</span>
+            <textarea
+              className="answer-textarea"
+              value={answerState.written_answer || ""}
+              onChange={(event) => handleWrittenAnswerChange(question.id, event.target.value)}
+              placeholder="Write your answer here..."
+            />
+          </label>
+        ) : qType === "coding" ? (
+          <div className="form-stack">
+            <label>
+              <span>Language</span>
+              <select
+                value={codeState.language}
+                onChange={(event) =>
+                  handleCodingStateChange(question, { language: event.target.value })
+                }
+              >
+                <option value="javascript">JavaScript</option>
+                <option value="python">Python</option>
+                <option value="c">C</option>
+                <option value="cpp">C++</option>
+              </select>
+            </label>
+
+            {question.sample_input || question.sample_output ? (
+              <div className="written-preview">
+                <p className="muted small">Sample Input:</p>
+                <pre>{question.sample_input || "(none)"}</pre>
+                <p className="muted small">Sample Output:</p>
+                <pre>{question.sample_output || "(none)"}</pre>
+              </div>
+            ) : null}
+
+            <label>
+              <span>Code Editor</span>
+              <Editor
+                height="320px"
+                path={`question-${question.id}.${LANGUAGE_FILE_EXTENSIONS[codeState.language] || "js"}`}
+                language={MONACO_LANGUAGE_IDS[codeState.language] || "javascript"}
+                value={codeState.code}
+                options={monacoEditorOptions}
+                keepCurrentModel
+                loading={<div className="muted small">Loading editor...</div>}
+                onChange={(value) =>
+                  handleCodingStateChange(question, { code: value || "" })
+                }
+              />
+            </label>
+
+            <label>
+              <span>Custom Input (stdin)</span>
+              <textarea
+                className="answer-textarea"
+                value={codeState.stdin}
+                onChange={(event) =>
+                  handleCodingStateChange(question, { stdin: event.target.value })
+                }
+                placeholder="Provide input for your program..."
+              />
+            </label>
+
+            <div className="actions-row">
+              <button
+                type="button"
+                onClick={() => handleRunCode(question)}
+                disabled={codeState.running}
+              >
+                {codeState.running ? "Running..." : "Run"}
+              </button>
+            </div>
+
+            <div className="written-preview">
+              <p className="muted small">stdout:</p>
+              <pre>{codeState.stdout || "(empty)"}</pre>
+              <p className="muted small">stderr:</p>
+              <pre>{codeState.stderr || "(empty)"}</pre>
+            </div>
+          </div>
+        ) : (
+          <div className="option-stack">
+            {(question.options || []).map((option, optIndex) => (
+              <label key={`${question.id}-${optIndex}`} className="option-row">
+                <input
+                  type="radio"
+                  name={`question-${question.id}`}
+                  checked={answerState.selected_answer === optIndex}
+                  onChange={() => handleMcqAnswerChange(question.id, optIndex)}
+                />
+                <span>
+                  {String.fromCharCode(65 + optIndex)}. {option}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+      </article>
     );
   }
 
@@ -973,13 +1133,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
       return (
         <section className="card student-panel">
           <p>Exam data not found.</p>
-          <button
-            className="secondary"
-            onClick={() => {
-              setView("dashboard");
-              loadActiveExams();
-            }}
-          >
+          <button className="secondary" onClick={() => setView("dashboard")}>
             Back to Dashboard
           </button>
         </section>
@@ -1013,136 +1167,41 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
           <h3 className="student-title">Questions</h3>
           {!examData.questions || examData.questions.length === 0 ? (
             <p className="muted">No questions available.</p>
+          ) : examData.question_flow_mode === "one_by_one" ? (
+            (() => {
+              const total = examData.questions.length;
+              const safeIndex = Math.min(Math.max(currentQuestionIndex, 0), total - 1);
+              const question = examData.questions[safeIndex];
+              return (
+                <div className="question-stack student-question-stack">
+                  <p className="muted small">
+                    Question {safeIndex + 1} of {total}
+                  </p>
+                  {renderQuestionCard(question, safeIndex)}
+                  <div className="actions-row">
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => setCurrentQuestionIndex((i) => Math.max(0, i - 1))}
+                      disabled={safeIndex === 0}
+                    >
+                      Previous
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => setCurrentQuestionIndex((i) => Math.min(total - 1, i + 1))}
+                      disabled={safeIndex === total - 1}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              );
+            })()
           ) : (
             <div className="question-stack student-question-stack">
-              {examData.questions.map((question, index) => {
-                const qType = normalizeQuestionType(question.question_type);
-                const answerState = examAnswers[question.id] || {};
-                const codeState = codingState[Number(question.id)] || {
-                  language: "javascript",
-                  code: question.starter_code || defaultCodeForLanguage("javascript"),
-                  stdin: question.sample_input || "",
-                  stdout: "",
-                  stderr: "",
-                  running: false
-                };
-                return (
-                  <article key={question.id} className="question-card student-question-card">
-                    <p className="question-title">
-                      {index + 1}. {question.question_text}
-                    </p>
-                    {question.image_url ? (
-                      <img
-                        className="question-inline-image"
-                        src={resolveUploadUrl(question.image_url)}
-                        alt={`Question ${index + 1}`}
-                      />
-                    ) : null}
-                    <p className="muted small student-question-meta">
-                      Type: {qType === "written" ? "Written" : qType === "coding" ? "Coding" : "MCQ"} | Marks: {question.marks}
-                    </p>
-
-                    {qType === "written" ? (
-                      <label className="form-stack">
-                        <span>Your Answer</span>
-                        <textarea
-                          className="answer-textarea"
-                          value={answerState.written_answer || ""}
-                          onChange={(event) => handleWrittenAnswerChange(question.id, event.target.value)}
-                          placeholder="Write your answer here..."
-                        />
-                      </label>
-                    ) : qType === "coding" ? (
-                      <div className="form-stack">
-                        <label>
-                          <span>Language</span>
-                          <select
-                            value={codeState.language}
-                            onChange={(event) =>
-                              handleCodingStateChange(question, { language: event.target.value })
-                            }
-                          >
-                            <option value="javascript">JavaScript</option>
-                            <option value="python">Python</option>
-                            <option value="c">C</option>
-                            <option value="cpp">C++</option>
-                          </select>
-                        </label>
-
-                        {question.sample_input || question.sample_output ? (
-                          <div className="written-preview">
-                            <p className="muted small">Sample Input:</p>
-                            <pre>{question.sample_input || "(none)"}</pre>
-                            <p className="muted small">Sample Output:</p>
-                            <pre>{question.sample_output || "(none)"}</pre>
-                          </div>
-                        ) : null}
-
-                        <label>
-                          <span>Code Editor</span>
-                          <Editor
-                            height="320px"
-                            path={`question-${question.id}.${LANGUAGE_FILE_EXTENSIONS[codeState.language] || "js"}`}
-                            language={MONACO_LANGUAGE_IDS[codeState.language] || "javascript"}
-                            value={codeState.code}
-                            options={monacoEditorOptions}
-                            keepCurrentModel
-                            loading={<div className="muted small">Loading editor...</div>}
-                            onChange={(value) =>
-                              handleCodingStateChange(question, { code: value || "" })
-                            }
-                          />
-                        </label>
-
-                        <label>
-                          <span>Custom Input (stdin)</span>
-                          <textarea
-                            className="answer-textarea"
-                            value={codeState.stdin}
-                            onChange={(event) =>
-                              handleCodingStateChange(question, { stdin: event.target.value })
-                            }
-                            placeholder="Provide input for your program..."
-                          />
-                        </label>
-
-                        <div className="actions-row">
-                          <button
-                            type="button"
-                            onClick={() => handleRunCode(question)}
-                            disabled={codeState.running}
-                          >
-                            {codeState.running ? "Running..." : "Run"}
-                          </button>
-                        </div>
-
-                        <div className="written-preview">
-                          <p className="muted small">stdout:</p>
-                          <pre>{codeState.stdout || "(empty)"}</pre>
-                          <p className="muted small">stderr:</p>
-                          <pre>{codeState.stderr || "(empty)"}</pre>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="option-stack">
-                        {(question.options || []).map((option, optIndex) => (
-                          <label key={`${question.id}-${optIndex}`} className="option-row">
-                            <input
-                              type="radio"
-                              name={`question-${question.id}`}
-                              checked={answerState.selected_answer === optIndex}
-                              onChange={() => handleMcqAnswerChange(question.id, optIndex)}
-                            />
-                            <span>
-                              {String.fromCharCode(65 + optIndex)}. {option}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
+              {examData.questions.map((question, index) => renderQuestionCard(question, index))}
             </div>
           )}
         </section>
@@ -1150,17 +1209,6 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
         <section className="card student-panel actions-row student-submit-row">
           <button onClick={() => submitExam()} disabled={submittingExam}>
             {submittingExam ? "Submitting..." : "Submit Exam"}
-          </button>
-          <button
-            className="secondary"
-            onClick={() =>
-              showAlert({
-                title: "Exam Protection",
-                message: "Leaving exam is disabled during exam mode."
-              })
-            }
-          >
-            Exit Disabled
           </button>
         </section>
 

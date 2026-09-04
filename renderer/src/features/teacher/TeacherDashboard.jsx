@@ -1,7 +1,25 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { apiRequest, apiUpload, resolveUploadUrl, API_BASE_URL } from "../../api";
 import { useModal } from "../../components/modals/ModalProvider";
 import AIAssistant from "./AIAssistant";
+import {
+  FaPlay,
+  FaStop,
+  FaSyncAlt,
+  FaPlus,
+  FaEdit,
+  FaTrash,
+  FaCopy,
+  FaDownload,
+  FaVideo,
+  FaClipboardList,
+  FaListUl,
+  FaTimes,
+  FaSave,
+  FaUndo,
+  FaRedo
+} from "react-icons/fa";
+import IconButton from "../../components/IconButton";
 
 function normalizeOptionsForEditing(rawOptions) {
   const base = Array.isArray(rawOptions) && rawOptions.length > 0 ? rawOptions : ["", "", "", ""];
@@ -12,11 +30,24 @@ function normalizeOptionsForEditing(rawOptions) {
   });
 }
 
+function formatTimerDisplay(totalSeconds) {
+  const safeSeconds = Math.max(0, totalSeconds);
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 function normalizeQuestionType(rawType) {
   const normalized = String(rawType || "mcq").toLowerCase();
   if (normalized === "written") return "written";
   if (normalized === "coding") return "coding";
   return "mcq";
+}
+
+// MCQs are scored automatically; written and coding answers both need the
+// teacher to award marks by hand.
+function isManuallyGraded(rawType) {
+  return normalizeQuestionType(rawType) !== "mcq";
 }
 
 function getEffectiveExamStatus(status, startedAt, durationMinutes) {
@@ -35,6 +66,14 @@ function getEffectiveExamStatus(status, startedAt, durationMinutes) {
   }
 
   return Date.now() >= startedAtMs + durationMs ? "completed" : "in_progress";
+}
+
+function getRemainingSeconds(startedAt, durationMinutes, referenceNow) {
+  if (!startedAt) return 0;
+  const startedAtMs = new Date(startedAt).getTime();
+  const durationMs = Number(durationMinutes || 0) * 60 * 1000;
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(durationMs)) return 0;
+  return Math.max(0, Math.floor((startedAtMs + durationMs - referenceNow) / 1000));
 }
 
 function normalizeViolations(violationsValue) {
@@ -79,7 +118,7 @@ function getProctoringToneClass(status) {
   return "proctor-tone-unknown";
 }
 
-export default function TeacherDashboard({ token }) {
+const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewChange }, ref) {
   const { showAlert, showConfirm } = useModal();
   const [view, setView] = useState("list");
   const [exams, setExams] = useState([]);
@@ -100,8 +139,14 @@ export default function TeacherDashboard({ token }) {
   const [formWebcamRequired, setFormWebcamRequired] = useState(false);
   const [formAllowMultipleAttempts, setFormAllowMultipleAttempts] = useState(false);
   const [formShowResultsToStudents, setFormShowResultsToStudents] = useState(false);
+  const [formQuestionFlowMode, setFormQuestionFlowMode] = useState("all_at_once");
+  const [formRandomizeQuestionOrder, setFormRandomizeQuestionOrder] = useState(false);
+  const [examFormSnapshot, setExamFormSnapshot] = useState(null);
   const [restartingExam, setRestartingExam] = useState(false);
   const [duplicatingExam, setDuplicatingExam] = useState(false);
+  const [liveTimerText, setLiveTimerText] = useState("--:--");
+  const [busyExamId, setBusyExamId] = useState(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   const [proctoringStudents, setProctoringStudents] = useState([]);
   const [loadingProctoring, setLoadingProctoring] = useState(false);
@@ -136,6 +181,28 @@ export default function TeacherDashboard({ token }) {
   const [writtenCommentDraft, setWrittenCommentDraft] = useState({});
 
   const clearParticipantPolling = useCallback(() => {}, []);
+
+  useEffect(() => {
+    if (onViewChange) onViewChange(view);
+  }, [view, onViewChange]);
+
+  useImperativeHandle(ref, () => ({
+    goBack() {
+      if (view === "submissions" && selectedSubmissionSheet) {
+        setSelectedSubmissionSheet(null);
+      } else if (view === "proctoring") {
+        clearProctoringPolling();
+        setSelectedProctoringStudent(null);
+        setProctoringEvents([]);
+        setView("room");
+        if (currentExamId) startParticipantPolling(currentExamId);
+      } else if (view !== "list") {
+        clearParticipantPolling();
+        setView("list");
+        loadExams();
+      }
+    }
+  }));
 
   const loadExams = useCallback(async () => {
     setLoadingExams(true);
@@ -294,6 +361,42 @@ export default function TeacherDashboard({ token }) {
     };
   }, [clearParticipantPolling]);
 
+  // Live countdown for the teacher while an exam is running — mirrors the
+  // student-side timer so the teacher can see how much time is left without
+  // switching screens.
+  useEffect(() => {
+    const status = getEffectiveExamStatus(examStatus, examStartedAt, formDuration);
+    if (status !== "in_progress" || !examStartedAt) {
+      setLiveTimerText("--:--");
+      return undefined;
+    }
+
+    const startTime = new Date(examStartedAt);
+    const endTime = new Date(startTime.getTime() + Number(formDuration || 0) * 60 * 1000);
+
+    const tick = () => {
+      const remaining = Math.floor((endTime - new Date()) / 1000);
+      setLiveTimerText(formatTimerDisplay(remaining));
+    };
+
+    tick();
+    const intervalId = setInterval(tick, 1000);
+    return () => clearInterval(intervalId);
+  }, [examStatus, examStartedAt, formDuration]);
+
+  // Ticks once a second while the exam list is showing at least one running
+  // exam, so per-card "Time Left" badges update without opening Edit.
+  useEffect(() => {
+    if (view !== "list") return undefined;
+    const hasActiveExam = exams.some(
+      (exam) => getEffectiveExamStatus(exam.status, exam.started_at, exam.duration) === "in_progress"
+    );
+    if (!hasActiveExam) return undefined;
+
+    const intervalId = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(intervalId);
+  }, [view, exams]);
+
   async function openCreateForm() {
     clearParticipantPolling();
     clearProctoringPolling();
@@ -311,10 +414,23 @@ export default function TeacherDashboard({ token }) {
     setFormWebcamRequired(false);
     setFormAllowMultipleAttempts(false);
     setFormShowResultsToStudents(false);
+    setFormQuestionFlowMode("all_at_once");
+    setFormRandomizeQuestionOrder(false);
+    setExamFormSnapshot({
+      formTitle: "",
+      formDescription: "",
+      formExamType: "lab_quiz",
+      formDuration: "60",
+      formWebcamRequired: false,
+      formAllowMultipleAttempts: false,
+      formShowResultsToStudents: false,
+      formQuestionFlowMode: "all_at_once",
+      formRandomizeQuestionOrder: false
+    });
     setView("form");
   }
 
-  async function openEditForm(examId) {
+  async function loadExamIntoEditor(examId, targetView) {
     clearParticipantPolling();
     clearProctoringPolling();
     try {
@@ -333,7 +449,20 @@ export default function TeacherDashboard({ token }) {
       setFormWebcamRequired(Boolean(exam.webcam_required));
       setFormAllowMultipleAttempts(Boolean(exam.allow_multiple_attempts));
       setFormShowResultsToStudents(Boolean(exam.show_results_to_students));
-      setView("form");
+      setFormQuestionFlowMode(exam.question_flow_mode === "one_by_one" ? "one_by_one" : "all_at_once");
+      setFormRandomizeQuestionOrder(Boolean(exam.randomize_question_order));
+      setExamFormSnapshot({
+        formTitle: exam.title || "",
+        formDescription: exam.description || "",
+        formExamType: exam.exam_type || "lab_quiz",
+        formDuration: String(exam.duration || 60),
+        formWebcamRequired: Boolean(exam.webcam_required),
+        formAllowMultipleAttempts: Boolean(exam.allow_multiple_attempts),
+        formShowResultsToStudents: Boolean(exam.show_results_to_students),
+        formQuestionFlowMode: exam.question_flow_mode === "one_by_one" ? "one_by_one" : "all_at_once",
+        formRandomizeQuestionOrder: Boolean(exam.randomize_question_order)
+      });
+      setView(targetView);
 
       if (exam.room_code) {
         startParticipantPolling(exam.id);
@@ -348,17 +477,33 @@ export default function TeacherDashboard({ token }) {
     }
   }
 
+  async function openEditForm(examId) {
+    return loadExamIntoEditor(examId, "form");
+  }
+
+  async function openLiveRoom(examId) {
+    return loadExamIntoEditor(examId, "room");
+  }
+
   async function handleDeleteExam(examId, title) {
     const confirmed = await showConfirm({
       title: "Delete Exam",
       message: `Delete "${title}"? This action cannot be undone.`,
       confirmText: "Delete",
-      cancelText: "Cancel"
+      cancelText: "Cancel",
+      danger: true
     });
     if (!confirmed) return;
 
     try {
       await apiRequest(`/exams/${examId}`, { method: "DELETE" }, token);
+      if (examId === currentExamId) {
+        clearParticipantPolling();
+        clearProctoringPolling();
+        setCurrentExamId(null);
+        setCurrentExamTitle("");
+        setView("list");
+      }
       await loadExams();
     } catch (err) {
       await showAlert({ title: "Error", message: err.message || "Failed to delete exam." });
@@ -395,7 +540,9 @@ export default function TeacherDashboard({ token }) {
             duration,
             webcam_required: formWebcamRequired,
             allow_multiple_attempts: formAllowMultipleAttempts,
-            show_results_to_students: formShowResultsToStudents
+            show_results_to_students: formShowResultsToStudents,
+            question_flow_mode: formQuestionFlowMode,
+            randomize_question_order: formRandomizeQuestionOrder
           })
         },
         token
@@ -411,13 +558,15 @@ export default function TeacherDashboard({ token }) {
       setFormWebcamRequired(Boolean(exam.webcam_required));
       setFormAllowMultipleAttempts(Boolean(exam.allow_multiple_attempts));
       setFormShowResultsToStudents(Boolean(exam.show_results_to_students));
+      setFormQuestionFlowMode(exam.question_flow_mode === "one_by_one" ? "one_by_one" : "all_at_once");
+      setFormRandomizeQuestionOrder(Boolean(exam.randomize_question_order));
       await loadExams();
 
       if (isNewExam) {
         await openQuestionManager(exam.id, exam.title || title);
       } else {
-        setView("form");
-        if (exam.id) startParticipantPolling(exam.id);
+        clearParticipantPolling();
+        setView("list");
       }
     } catch (err) {
       await showAlert({ title: "Error", message: err.message || "Failed to save exam." });
@@ -426,8 +575,20 @@ export default function TeacherDashboard({ token }) {
     }
   }
 
-  async function handleStartExamNow() {
-    if (!currentExamId) return;
+  function handleUndoExamForm() {
+    if (!examFormSnapshot) return;
+    setFormTitle(examFormSnapshot.formTitle);
+    setFormDescription(examFormSnapshot.formDescription);
+    setFormExamType(examFormSnapshot.formExamType);
+    setFormDuration(examFormSnapshot.formDuration);
+    setFormWebcamRequired(examFormSnapshot.formWebcamRequired);
+    setFormAllowMultipleAttempts(examFormSnapshot.formAllowMultipleAttempts);
+    setFormShowResultsToStudents(examFormSnapshot.formShowResultsToStudents);
+    setFormQuestionFlowMode(examFormSnapshot.formQuestionFlowMode);
+    setFormRandomizeQuestionOrder(examFormSnapshot.formRandomizeQuestionOrder);
+  }
+
+  async function handleStartExamById(examId) {
     const confirmed = await showConfirm({
       title: "Start Exam",
       message: "Are you sure you want to start the exam? All joined students will begin immediately.",
@@ -436,14 +597,41 @@ export default function TeacherDashboard({ token }) {
     });
     if (!confirmed) return;
 
+    setBusyExamId(examId);
     try {
-      const result = await apiRequest(`/exams/${currentExamId}/start`, { method: "POST" }, token);
-      setExamStatus("in_progress");
-      setExamStartedAt(result?.data?.exam?.started_at || new Date().toISOString());
+      await apiRequest(`/exams/${examId}/start`, { method: "POST" }, token);
       await loadExams();
-      await showAlert({ title: "Success", message: "Exam started successfully." });
+      if (examId === currentExamId) {
+        setExamStatus("in_progress");
+      }
     } catch (err) {
       await showAlert({ title: "Error", message: err.message || "Failed to start exam." });
+    } finally {
+      setBusyExamId(null);
+    }
+  }
+
+  async function handleStopExamById(examId) {
+    const confirmed = await showConfirm({
+      title: "Stop Exam",
+      message: "End this exam right now for everyone? Students still taking it will be auto-submitted with their current answers.",
+      confirmText: "Stop Exam",
+      cancelText: "Cancel",
+      danger: true
+    });
+    if (!confirmed) return;
+
+    setBusyExamId(examId);
+    try {
+      await apiRequest(`/exams/${examId}/stop`, { method: "POST" }, token);
+      await loadExams();
+      if (examId === currentExamId) {
+        setExamStatus("completed");
+      }
+    } catch (err) {
+      await showAlert({ title: "Error", message: err.message || "Failed to stop exam." });
+    } finally {
+      setBusyExamId(null);
     }
   }
 
@@ -735,7 +923,8 @@ export default function TeacherDashboard({ token }) {
       title: "Delete Question",
       message: "Delete this question?",
       confirmText: "Delete",
-      cancelText: "Cancel"
+      cancelText: "Cancel",
+      danger: true
     });
     if (!confirmed) return;
 
@@ -767,8 +956,8 @@ export default function TeacherDashboard({ token }) {
   async function saveWrittenEvaluation() {
     if (!selectedSubmissionSheet || !currentExamId) return;
 
-    const writtenItems = (selectedSubmissionSheet.answer_sheet || []).filter(
-      (item) => normalizeQuestionType(item.question_type) === "written"
+    const writtenItems = (selectedSubmissionSheet.answer_sheet || []).filter((item) =>
+      isManuallyGraded(item.question_type)
     );
 
     const evaluations = writtenItems.map((item) => ({
@@ -813,10 +1002,13 @@ export default function TeacherDashboard({ token }) {
             <p className="teacher-mode-line">Command Center | Assessments</p>
           </div>
           <div className="actions-row teacher-toolbar">
-            <button className="secondary" onClick={loadExams} disabled={loadingExams}>
-              Refresh
-            </button>
-            <button onClick={openCreateForm}>Create New Exam</button>
+            <IconButton
+              icon={<FaSyncAlt className={loadingExams ? "spin" : ""} />}
+              label="Refresh"
+              onClick={loadExams}
+              disabled={loadingExams}
+            />
+            <IconButton icon={<FaPlus />} label="Create New Exam" variant="primary" onClick={openCreateForm} />
           </div>
         </div>
         <p className="muted teacher-subtitle">Create, launch, and evaluate exams from one unified control center.</p>
@@ -840,15 +1032,10 @@ export default function TeacherDashboard({ token }) {
           </article>
         </div>
 
-        <div className="teacher-quick-actions" aria-hidden="true">
-          <span>Create</span>
-          <span>Question Bank</span>
-          <span>Evaluation Desk</span>
-          <span>Live Room</span>
-        </div>
-
         {loadingExams ? <p>Loading exams...</p> : null}
-        {!loadingExams && exams.length === 0 ? <p className="muted">No exams found.</p> : null}
+        {!loadingExams && exams.length === 0 ? (
+          <p className="muted">No exams yet — use the + button above to create your first one.</p>
+        ) : null}
 
         <ul className="list teacher-list">
           {exams.map((exam) => {
@@ -856,10 +1043,61 @@ export default function TeacherDashboard({ token }) {
             return (
             <li key={exam.id} className="teacher-list-item">
               <div className="teacher-list-head">
-                <strong>{exam.title}</strong>
-                <span className={`teacher-chip ${getStatusToneClass(effectiveStatus)}`}>
-                  {String(effectiveStatus || "created").replace("_", " ")}
-                </span>
+                <strong
+                  className="teacher-exam-title-link"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openLiveRoom(exam.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openLiveRoom(exam.id);
+                    }
+                  }}
+                >
+                  {exam.title}
+                </strong>
+                <div className="teacher-list-head-right">
+                  {effectiveStatus === "in_progress" ? (
+                    <span className="teacher-meta-chip teacher-live-chip">
+                      Time Left: {formatTimerDisplay(getRemainingSeconds(exam.started_at, exam.duration, nowTick))}
+                    </span>
+                  ) : null}
+                  {effectiveStatus === "in_progress" ? (
+                    <button
+                      type="button"
+                      className="exam-run-toggle exam-run-toggle-stop"
+                      onClick={() => handleStopExamById(exam.id)}
+                      disabled={busyExamId === exam.id}
+                      title="Stop Exam"
+                      aria-label="Stop Exam"
+                    >
+                      {busyExamId === exam.id ? (
+                        <span className="exam-run-toggle-spinner" aria-hidden="true" />
+                      ) : (
+                        <FaStop size={22} />
+                      )}
+                    </button>
+                  ) : effectiveStatus === "created" || effectiveStatus === "waiting" ? (
+                    <button
+                      type="button"
+                      className="exam-run-toggle exam-run-toggle-play"
+                      onClick={() => handleStartExamById(exam.id)}
+                      disabled={busyExamId === exam.id || !exam.room_code}
+                      title="Start Exam"
+                      aria-label="Start Exam"
+                    >
+                      {busyExamId === exam.id ? (
+                        <span className="exam-run-toggle-spinner" aria-hidden="true" />
+                      ) : (
+                        <FaPlay size={22} />
+                      )}
+                    </button>
+                  ) : null}
+                  <span className={`teacher-chip ${getStatusToneClass(effectiveStatus)}`}>
+                    {String(effectiveStatus || "created").replace("_", " ")}
+                  </span>
+                </div>
               </div>
               <div className="teacher-meta-row">
                 <span className="teacher-meta-chip">{exam.duration} mins</span>
@@ -872,25 +1110,33 @@ export default function TeacherDashboard({ token }) {
                 <span className="teacher-meta-chip">Room {exam.room_code || "n/a"}</span>
               </div>
               <div className="actions-row teacher-actions">
-                <button className="secondary btn-inline" onClick={() => openEditForm(exam.id)}>
-                  Edit
-                </button>
-                <button className="secondary btn-inline" onClick={() => openQuestionManager(exam.id, exam.title)}>
-                  Questions
-                </button>
-                <button className="secondary btn-inline" onClick={() => openSubmissionsView(exam.id, exam.title)}>
-                  Evaluation
-                </button>
-                <button
-                  className="secondary btn-inline"
+                <IconButton
+                  icon={<FaEdit />}
+                  label="Edit Exam"
+                  onClick={() => openEditForm(exam.id)}
+                />
+                <IconButton
+                  icon={<FaListUl />}
+                  label="Questions"
+                  onClick={() => openQuestionManager(exam.id, exam.title)}
+                />
+                <IconButton
+                  icon={<FaClipboardList />}
+                  label="Evaluation"
+                  onClick={() => openSubmissionsView(exam.id, exam.title)}
+                />
+                <IconButton
+                  icon={<FaCopy />}
+                  label="Duplicate Exam"
                   onClick={() => handleDuplicateExam(exam.id, exam.title)}
                   disabled={duplicatingExam}
-                >
-                  Duplicate
-                </button>
-                <button className="btn-inline" onClick={() => handleDeleteExam(exam.id, exam.title)}>
-                  Delete
-                </button>
+                />
+                <IconButton
+                  icon={<FaTrash />}
+                  label="Delete Exam"
+                  variant="danger"
+                  onClick={() => handleDeleteExam(exam.id, exam.title)}
+                />
               </div>
             </li>
             );
@@ -901,8 +1147,6 @@ export default function TeacherDashboard({ token }) {
   }
 
   function renderExamFormView() {
-    const effectiveExamStatus = getEffectiveExamStatus(examStatus, examStartedAt, formDuration);
-
     return (
       <div className="content-stack teacher-stack">
         <section className="card teacher-panel">
@@ -912,16 +1156,6 @@ export default function TeacherDashboard({ token }) {
           </div>
           <div className="card-head">
             <h2 className="teacher-title">{currentExamId ? "Edit Exam" : "Create Exam"}</h2>
-            <button
-              className="secondary"
-              onClick={() => {
-                clearParticipantPolling();
-                setView("list");
-                loadExams();
-              }}
-            >
-              Back to Exams
-            </button>
           </div>
 
           <form className="form-stack" onSubmit={handleSaveExam}>
@@ -991,90 +1225,175 @@ export default function TeacherDashboard({ token }) {
               </span>
             </label>
 
-            <button type="submit" disabled={savingExam}>
-              {savingExam ? "Saving..." : "Save Exam"}
-            </button>
+            <label>
+              <span>Question Flow</span>
+              <select
+                value={formQuestionFlowMode}
+                onChange={(event) => setFormQuestionFlowMode(event.target.value)}
+              >
+                <option value="all_at_once">Show all questions at once</option>
+                <option value="one_by_one">Show one question at a time</option>
+              </select>
+            </label>
+
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={formRandomizeQuestionOrder}
+                onChange={(event) => setFormRandomizeQuestionOrder(event.target.checked)}
+              />
+              <span>
+                <strong>Randomize question order per student</strong>
+                <small>Each student gets a shuffled but consistent question order, to discourage copying.</small>
+              </span>
+            </label>
+
+            <div className="actions-row centered top-spaced">
+              <IconButton
+                type="submit"
+                icon={savingExam ? <span className="exam-run-toggle-spinner" aria-hidden="true" /> : <FaSave />}
+                label={savingExam ? "Saving..." : "Save Exam"}
+                variant="primary"
+                disabled={savingExam}
+              />
+              <IconButton
+                type="button"
+                icon={<FaUndo />}
+                label="Undo Changes"
+                onClick={handleUndoExamForm}
+                disabled={savingExam || !examFormSnapshot}
+              />
+            </div>
           </form>
         </section>
+      </div>
+    );
+  }
 
-        {currentExamId ? (
-          <section className="card teacher-panel">
-            <div className="teacher-section-strip">
-              <span className="teacher-section-tag">Live Room</span>
-              <span className="teacher-section-note">Share code, track participants, and launch.</span>
-            </div>
-            <div className="card-head">
-              <h3 className="teacher-title">Room & Participants</h3>
-              <div className="actions-row">
-                <button className="secondary" onClick={() => loadParticipants(currentExamId)}>
-                  Refresh Participants
-                </button>
-                <button className="secondary" onClick={() => openQuestionManager(currentExamId, currentExamTitle)}>
-                  Manage Questions
-                </button>
-                {formWebcamRequired ? (
-                  <button className="secondary" onClick={() => openProctoringView(currentExamId, currentExamTitle)}>
-                    Proctoring
-                  </button>
-                ) : null}
-                <button className="secondary" onClick={() => downloadResultsCsv(currentExamId)}>
-                  Export Results (CSV)
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() => handleDuplicateExam(currentExamId, currentExamTitle || formTitle || "Exam")}
-                  disabled={duplicatingExam}
-                >
-                  {duplicatingExam ? "Duplicating..." : "Duplicate Exam"}
-                </button>
-                <button className="btn-inline" onClick={() => handleDeleteExam(currentExamId, currentExamTitle || formTitle || "Exam")}>
-                  Delete Exam
-                </button>
-              </div>
-            </div>
+  function renderLiveRoomView() {
+    const effectiveExamStatus = getEffectiveExamStatus(examStatus, examStartedAt, formDuration);
 
-            <div className="room-code-row top-spaced teacher-room-row">
-              <span className="muted">Room Code:</span>
-              <span className="room-code">{roomCode || "N/A"}</span>
-              <button className="secondary" onClick={copyRoomCodeToClipboard} disabled={!roomCode}>
-                Copy Code
+    return (
+      <div className="content-stack teacher-stack">
+        <section className="card teacher-panel">
+          <div className="teacher-section-strip">
+            <span className="teacher-section-tag">Live Room</span>
+            <span className="teacher-section-note">Share code, track participants, and launch.</span>
+          </div>
+          <div className="card-head">
+            <h3 className="teacher-title">Room & Participants: {currentExamTitle}</h3>
+            <div className="actions-row">
+              <IconButton
+                icon={<FaSyncAlt />}
+                label="Refresh Participants"
+                onClick={() => loadParticipants(currentExamId)}
+              />
+              <IconButton
+                icon={<FaListUl />}
+                label="Manage Questions"
+                onClick={() => openQuestionManager(currentExamId, currentExamTitle)}
+              />
+              {formWebcamRequired ? (
+                <IconButton
+                  icon={<FaVideo />}
+                  label="Proctoring"
+                  onClick={() => openProctoringView(currentExamId, currentExamTitle)}
+                />
+              ) : null}
+              <IconButton
+                icon={<FaDownload />}
+                label="Export Results (CSV)"
+                onClick={() => downloadResultsCsv(currentExamId)}
+              />
+              <IconButton
+                icon={<FaCopy />}
+                label={duplicatingExam ? "Duplicating..." : "Duplicate Exam"}
+                onClick={() => handleDuplicateExam(currentExamId, currentExamTitle || formTitle || "Exam")}
+                disabled={duplicatingExam}
+              />
+              <IconButton
+                icon={<FaTrash />}
+                label="Delete Exam"
+                variant="danger"
+                onClick={() => handleDeleteExam(currentExamId, currentExamTitle || formTitle || "Exam")}
+              />
+            </div>
+          </div>
+
+          <div className="room-code-row top-spaced teacher-room-row">
+            <span className="muted">Room Code:</span>
+            <span className="room-code">{roomCode || "N/A"}</span>
+            <IconButton
+              icon={<FaCopy />}
+              label="Copy Code"
+              onClick={copyRoomCodeToClipboard}
+              disabled={!roomCode}
+            />
+            <span className="badge">Status: {effectiveExamStatus || "created"}</span>
+            <span className="badge">Type: {currentExamType || "lab_quiz"}</span>
+            {effectiveExamStatus === "in_progress" ? (
+              <span className="badge">Time Left: {liveTimerText}</span>
+            ) : null}
+            {effectiveExamStatus === "completed" ? (
+              <IconButton
+                icon={restartingExam ? <span className="exam-run-toggle-spinner" aria-hidden="true" /> : <FaRedo />}
+                label={restartingExam ? "Restarting..." : "Restart Exam"}
+                variant="primary"
+                onClick={handleRestartExam}
+                disabled={restartingExam}
+              />
+            ) : effectiveExamStatus === "in_progress" ? (
+              <button
+                type="button"
+                className="exam-run-toggle exam-run-toggle-stop"
+                onClick={() => handleStopExamById(currentExamId)}
+                disabled={busyExamId === currentExamId}
+                title="Stop Exam"
+                aria-label="Stop Exam"
+              >
+                {busyExamId === currentExamId ? (
+                  <span className="exam-run-toggle-spinner" aria-hidden="true" />
+                ) : (
+                  <FaStop size={22} />
+                )}
               </button>
-              <span className="badge">Status: {effectiveExamStatus || "created"}</span>
-              <span className="badge">Type: {currentExamType || "lab_quiz"}</span>
-              {effectiveExamStatus === "completed" ? (
-                <button onClick={handleRestartExam} disabled={restartingExam}>
-                  {restartingExam ? "Restarting..." : "Restart Exam"}
-                </button>
-              ) : (
-                <button
-                  onClick={handleStartExamNow}
-                  disabled={!roomCode || effectiveExamStatus === "in_progress"}
-                >
-                  {effectiveExamStatus === "in_progress" ? "Exam In Progress" : "Start Exam"}
-                </button>
-              )}
-            </div>
+            ) : (
+              <button
+                type="button"
+                className="exam-run-toggle exam-run-toggle-play"
+                onClick={() => handleStartExamById(currentExamId)}
+                disabled={busyExamId === currentExamId || !roomCode}
+                title="Start Exam"
+                aria-label="Start Exam"
+              >
+                {busyExamId === currentExamId ? (
+                  <span className="exam-run-toggle-spinner" aria-hidden="true" />
+                ) : (
+                  <FaPlay size={22} />
+                )}
+              </button>
+            )}
+          </div>
 
-            {loadingParticipants ? <p className="muted top-spaced">Loading participants...</p> : null}
-            {!loadingParticipants && participants.length === 0 ? (
-              <p className="muted top-spaced">No students joined yet.</p>
-            ) : null}
+          {loadingParticipants ? <p className="muted top-spaced">Loading participants...</p> : null}
+          {!loadingParticipants && participants.length === 0 ? (
+            <p className="muted top-spaced">No students joined yet.</p>
+          ) : null}
 
-            {!loadingParticipants && participants.length > 0 ? (
-              <ul className="list top-spaced teacher-list">
-                {participants.map((participant) => (
-                  <li key={participant.id} className="teacher-list-item">
-                    <strong>{participant.student_name}</strong>
-                    <span>{participant.student_email}</span>
-                    <span>
-                      Joined: {formatDateTime(participant.joined_at)} | Status: {participant.status}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </section>
-        ) : null}
+          {!loadingParticipants && participants.length > 0 ? (
+            <ul className="list top-spaced teacher-list">
+              {participants.map((participant) => (
+                <li key={participant.id} className="teacher-list-item">
+                  <strong>{participant.student_name}</strong>
+                  <span>{participant.student_email}</span>
+                  <span>
+                    Joined: {formatDateTime(participant.joined_at)} | Status: {participant.status}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
       </div>
     );
   }
@@ -1082,86 +1401,6 @@ export default function TeacherDashboard({ token }) {
   function renderQuestionManagerView() {
     return (
       <div className="content-stack teacher-stack">
-        <section className="card teacher-panel">
-          <div className="teacher-section-strip">
-            <span className="teacher-section-tag">Question Studio</span>
-            <span className="teacher-section-note">Author and maintain your question set.</span>
-          </div>
-          <div className="card-head">
-            <h2 className="teacher-title">Questions: {currentExamTitle}</h2>
-            <div className="actions-row">
-              <button className="secondary" onClick={() => currentExamId && loadQuestionsForExam(currentExamId)}>
-                Refresh
-              </button>
-              <button
-                className="secondary"
-                onClick={() => {
-                  setView("list");
-                  loadExams();
-                }}
-              >
-                Back to Exams
-              </button>
-            </div>
-          </div>
-
-          <div className="actions-row top-spaced">
-            <button onClick={openAddQuestionForm}>Add Question</button>
-          </div>
-
-          {loadingQuestions ? <p className="muted top-spaced">Loading questions...</p> : null}
-          {!loadingQuestions && questions.length === 0 ? (
-            <p className="muted top-spaced">No questions found. Add your first question.</p>
-          ) : null}
-
-          {!loadingQuestions && questions.length > 0 ? (
-            <ul className="list top-spaced teacher-list">
-              {questions.map((question, index) => {
-                const qType = normalizeQuestionType(question.question_type);
-                return (
-                  <li key={question.id} className="teacher-list-item">
-                    <strong>
-                      {index + 1}. {question.question_text}
-                    </strong>
-                    {question.image_url ? (
-                      <img
-                        className="question-inline-image"
-                        src={resolveUploadUrl(question.image_url)}
-                        alt={`Question ${index + 1}`}
-                      />
-                    ) : null}
-                    <span>
-                      Type: {qType === "written" ? "Written" : qType === "coding" ? "Coding" : "MCQ"} | Marks: {question.marks}
-                    </span>
-                    {qType === "mcq" ? (
-                      <span>
-                        Options: {(question.options || []).join(" | ")} | Correct:{" "}
-                        {question.correct_answer !== undefined && question.correct_answer !== null
-                          ? Number(question.correct_answer) + 1
-                          : "N/A"}
-                      </span>
-                    ) : qType === "coding" ? (
-                      <span>
-                        Sample Input: {question.sample_input || "(none)"} | Sample Output: {question.sample_output || "(none)"}
-                      </span>
-                    ) : (
-                      <span>Reference: {question.reference_answer || "No reference answer provided."}</span>
-                    )}
-                    <div className="actions-row teacher-actions">
-                      <button className="secondary btn-inline" onClick={() => openEditQuestionForm(question)}>
-                        Edit
-                      </button>
-                      <button className="btn-inline" onClick={() => handleDeleteQuestion(question.id)}>
-                        Delete
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-        </section>
-
         {questionFormVisible ? (
           <section className="card teacher-panel">
             <div className="teacher-section-strip">
@@ -1204,10 +1443,11 @@ export default function TeacherDashboard({ token }) {
 
               <label>
                 <span>Question Text</span>
-                <input
-                  type="text"
+                <textarea
+                  className="question-text-input"
                   value={questionText}
                   onChange={(event) => setQuestionText(event.target.value)}
+                  rows={6}
                   required
                 />
               </label>
@@ -1215,9 +1455,12 @@ export default function TeacherDashboard({ token }) {
               {questionImage ? (
                 <div className="option-image-preview">
                   <img src={resolveUploadUrl(questionImage)} alt="Question preview" />
-                  <button type="button" className="secondary btn-inline" onClick={handleRemoveQuestionImage}>
-                    Remove Image
-                  </button>
+                  <IconButton
+                    icon={<FaTrash />}
+                    label="Remove Image"
+                    variant="danger"
+                    onClick={handleRemoveQuestionImage}
+                  />
                 </div>
               ) : (
                 <label>
@@ -1332,6 +1575,80 @@ export default function TeacherDashboard({ token }) {
             </form>
           </section>
         ) : null}
+
+        <section className="card teacher-panel">
+          <div className="teacher-section-strip">
+            <span className="teacher-section-tag">Question Studio</span>
+            <span className="teacher-section-note">Author and maintain your question set.</span>
+          </div>
+          <div className="card-head">
+            <h2 className="teacher-title">Questions: {currentExamTitle}</h2>
+            <div className="actions-row">
+              <IconButton
+                icon={<FaSyncAlt className={loadingQuestions ? "spin" : ""} />}
+                label="Refresh"
+                onClick={() => currentExamId && loadQuestionsForExam(currentExamId)}
+              />
+            </div>
+          </div>
+
+          <div className="actions-row top-spaced">
+            <IconButton icon={<FaPlus />} label="Add Question" variant="primary" onClick={openAddQuestionForm} />
+          </div>
+
+          {loadingQuestions ? <p className="muted top-spaced">Loading questions...</p> : null}
+          {!loadingQuestions && questions.length === 0 ? (
+            <p className="muted top-spaced">No questions found. Add your first question.</p>
+          ) : null}
+
+          {!loadingQuestions && questions.length > 0 ? (
+            <ul className="list top-spaced teacher-list">
+              {questions.map((question, index) => {
+                const qType = normalizeQuestionType(question.question_type);
+                return (
+                  <li key={question.id} className="teacher-list-item">
+                    <strong className="question-text-block">
+                      {index + 1}. {question.question_text}
+                    </strong>
+                    {question.image_url ? (
+                      <img
+                        className="question-inline-image"
+                        src={resolveUploadUrl(question.image_url)}
+                        alt={`Question ${index + 1}`}
+                      />
+                    ) : null}
+                    <span>
+                      Type: {qType === "written" ? "Written" : qType === "coding" ? "Coding" : "MCQ"} | Marks: {question.marks}
+                    </span>
+                    {qType === "mcq" ? (
+                      <span>
+                        Options: {(question.options || []).join(" | ")} | Correct:{" "}
+                        {question.correct_answer !== undefined && question.correct_answer !== null
+                          ? Number(question.correct_answer) + 1
+                          : "N/A"}
+                      </span>
+                    ) : qType === "coding" ? (
+                      <span>
+                        Sample Input: {question.sample_input || "(none)"} | Sample Output: {question.sample_output || "(none)"}
+                      </span>
+                    ) : (
+                      <span>Reference: {question.reference_answer || "No reference answer provided."}</span>
+                    )}
+                    <div className="actions-row teacher-actions">
+                      <IconButton icon={<FaEdit />} label="Edit Question" onClick={() => openEditQuestionForm(question)} />
+                      <IconButton
+                        icon={<FaTrash />}
+                        label="Delete Question"
+                        variant="danger"
+                        onClick={() => handleDeleteQuestion(question.id)}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </section>
       </div>
     );
   }
@@ -1346,21 +1663,11 @@ export default function TeacherDashboard({ token }) {
         <div className="card-head">
           <h2 className="teacher-title">Evaluation: {currentExamTitle}</h2>
           <div className="actions-row">
-            <button
-              className="secondary"
+            <IconButton
+              icon={<FaSyncAlt className={loadingEvaluationParticipants ? "spin" : ""} />}
+              label="Refresh"
               onClick={() => currentExamId && loadEvaluationParticipants(currentExamId)}
-            >
-              Refresh
-            </button>
-            <button
-              className="secondary"
-              onClick={() => {
-                setView("list");
-                loadExams();
-              }}
-            >
-              Back to Exams
-            </button>
+            />
           </div>
         </div>
 
@@ -1385,24 +1692,21 @@ export default function TeacherDashboard({ token }) {
                   </span>
                 </div>
                 <span>{participant.student_email}</span>
-                <span>
-                  Joined: {formatDateTime(participant.joined_at)} | Submission:{" "}
-                  {submitted ? "Submitted" : "Not Submitted"}
-                </span>
-                <span>
-                  Status: {participant.evaluation_status || "pending"} | Auto:{" "}
-                  {participant.auto_score ?? 0} | Manual: {participant.manual_score ?? 0} | Total:{" "}
-                  {participant.score ?? 0}
-                </span>
-                <div className="actions-row">
-                  <button
-                    className="secondary"
-                    disabled={!submitted}
-                    onClick={() => loadSubmissionSheet(participant.submission_id)}
-                  >
-                    {submitted ? "Open Answer Sheet" : "Awaiting Submission"}
-                  </button>
-                </div>
+                <span>Joined: {formatDateTime(participant.joined_at)}</span>
+                {submitted ? (
+                  <span>
+                    Marking: {participant.evaluation_status || "pending"} | Auto:{" "}
+                    {participant.auto_score ?? 0} | Manual: {participant.manual_score ?? 0} | Total:{" "}
+                    {participant.score ?? 0}
+                  </span>
+                ) : null}
+                {submitted ? (
+                  <div className="actions-row">
+                    <button className="secondary" onClick={() => loadSubmissionSheet(participant.submission_id)}>
+                      Open Answer Sheet
+                    </button>
+                  </div>
+                ) : null}
               </li>
             );
           })}
@@ -1415,8 +1719,8 @@ export default function TeacherDashboard({ token }) {
     if (!selectedSubmissionSheet) return null;
 
     const violations = normalizeViolations(selectedSubmissionSheet.violations);
-    const writtenItems = (selectedSubmissionSheet.answer_sheet || []).filter(
-      (item) => normalizeQuestionType(item.question_type) === "written"
+    const writtenItems = (selectedSubmissionSheet.answer_sheet || []).filter((item) =>
+      isManuallyGraded(item.question_type)
     );
 
     return (
@@ -1430,9 +1734,6 @@ export default function TeacherDashboard({ token }) {
             <h2>
               Answer Sheet: {selectedSubmissionSheet.student_name} ({selectedSubmissionSheet.student_email})
             </h2>
-            <button className="secondary" onClick={() => setSelectedSubmissionSheet(null)}>
-              Back to Participant List
-            </button>
           </div>
 
           <div className="actions-row">
@@ -1462,7 +1763,7 @@ export default function TeacherDashboard({ token }) {
 
                 return (
                   <article key={item.question_id} className="question-card teacher-question-card">
-                    <p className="question-title">
+                    <p className="question-title question-text-block">
                       {index + 1}. {item.question_text}
                     </p>
                     {item.image_url ? (
@@ -1473,7 +1774,9 @@ export default function TeacherDashboard({ token }) {
                       />
                     ) : null}
                     <p className="muted small">
-                      Type: {qType === "written" ? "Written" : "MCQ"} | Max Marks: {maxMarks}
+                      Type: {qType === "written" ? "Written" : qType === "coding" ? "Coding" : "MCQ"} | Max Marks:{" "}
+                      {maxMarks}
+                      {qType === "coding" && item.language ? ` | Language: ${item.language}` : ""}
                     </p>
 
                     {qType === "mcq" ? (
@@ -1503,13 +1806,23 @@ export default function TeacherDashboard({ token }) {
                     ) : (
                       <>
                         <div className="written-preview">
-                          <p className="muted small">Student answer:</p>
-                          <p>{item.written_answer || "No answer provided."}</p>
+                          <p className="muted small">{qType === "coding" ? "Student code:" : "Student answer:"}</p>
+                          {qType === "coding" ? (
+                            <pre>{item.written_answer || "No code submitted."}</pre>
+                          ) : (
+                            <p className="question-text-block">{item.written_answer || "No answer provided."}</p>
+                          )}
                         </div>
 
                         <div className="written-preview">
                           <p className="muted small">Reference answer:</p>
-                          <p>{item.reference_answer || "No reference answer provided."}</p>
+                          {qType === "coding" ? (
+                            <pre>{item.reference_answer || "No reference answer provided."}</pre>
+                          ) : (
+                            <p className="question-text-block">
+                              {item.reference_answer || "No reference answer provided."}
+                            </p>
+                          )}
                         </div>
 
                         <div className="evaluation-box">
@@ -1546,16 +1859,22 @@ export default function TeacherDashboard({ token }) {
             </div>
 
             {writtenItems.length > 0 ? (
-              <div className="actions-row top-spaced">
-                <button onClick={saveWrittenEvaluation} disabled={savingEvaluation}>
-                  {savingEvaluation ? "Saving..." : "Save Written Evaluation"}
-                </button>
-                <button className="secondary" onClick={() => loadSubmissionSheet(selectedSubmissionSheet.id)}>
-                  Reload Sheet
-                </button>
+              <div className="actions-row centered top-spaced">
+                <IconButton
+                  icon={savingEvaluation ? <span className="exam-run-toggle-spinner" aria-hidden="true" /> : <FaSave />}
+                  label={savingEvaluation ? "Saving..." : "Save Evaluation"}
+                  variant="primary"
+                  onClick={saveWrittenEvaluation}
+                  disabled={savingEvaluation}
+                />
+                <IconButton
+                  icon={<FaSyncAlt className={loadingSubmissionSheet ? "spin" : ""} />}
+                  label="Reload Sheet"
+                  onClick={() => loadSubmissionSheet(selectedSubmissionSheet.id)}
+                />
               </div>
             ) : (
-              <p className="muted top-spaced">No written questions in this exam. MCQ evaluation is automatic.</p>
+              <p className="muted top-spaced">This exam is all MCQ — scoring is automatic, nothing to grade by hand.</p>
             )}
           </section>
         ) : null}
@@ -1582,18 +1901,6 @@ export default function TeacherDashboard({ token }) {
           </div>
           <div className="card-head">
             <h2 className="teacher-title">Proctoring: {currentExamTitle}</h2>
-            <button
-              className="secondary"
-              onClick={() => {
-                clearProctoringPolling();
-                setSelectedProctoringStudent(null);
-                setProctoringEvents([]);
-                setView("form");
-                if (currentExamId) startParticipantPolling(currentExamId);
-              }}
-            >
-              Back to Exam
-            </button>
           </div>
 
           <div className="actions-row top-spaced">
@@ -1662,9 +1969,7 @@ export default function TeacherDashboard({ token }) {
           <section className="card teacher-panel">
             <div className="card-head">
               <h3 className="teacher-title">Event log: {selectedProctoringStudent.student_name}</h3>
-              <button className="secondary btn-inline" onClick={() => setSelectedProctoringStudent(null)}>
-                Close
-              </button>
+              <IconButton icon={<FaTimes />} label="Close" onClick={() => setSelectedProctoringStudent(null)} />
             </div>
             {loadingProctoringEvents ? (
               <p className="muted top-spaced">Loading events...</p>
@@ -1690,6 +1995,7 @@ export default function TeacherDashboard({ token }) {
   return (
     <section className={`teacher-ui teacher-view-${view}`}>
       {view === "form" ? renderExamFormView() : null}
+      {view === "room" ? renderLiveRoomView() : null}
       {view === "questions" ? renderQuestionManagerView() : null}
       {view === "submissions" ? renderSubmissionsView() : null}
       {view === "proctoring" ? renderProctoringView() : null}
@@ -1707,4 +2013,6 @@ export default function TeacherDashboard({ token }) {
       />
     </section>
   );
-}
+});
+
+export default TeacherDashboard;

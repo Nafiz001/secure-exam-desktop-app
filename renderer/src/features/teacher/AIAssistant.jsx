@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { FaRobot } from "react-icons/fa";
 import { apiRequest } from "../../api";
 
 const WELCOME_MESSAGE = {
@@ -384,8 +385,8 @@ export default function AIAssistant({
       </div>
 
       {!isOpen ? (
-        <button type="button" className="ai-fab" onClick={() => setIsOpen(true)} aria-label="Open AI teaching assistant">
-          AI Assistant
+        <button type="button" className="ai-fab" onClick={() => setIsOpen(true)} aria-label="AI Assistant" title="AI Assistant">
+          <FaRobot size={24} />
         </button>
       ) : null}
     </>

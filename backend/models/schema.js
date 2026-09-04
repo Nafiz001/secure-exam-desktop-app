@@ -35,6 +35,24 @@ const initializeSchema = async () => {
       ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE;
     `);
 
+    // Email verification (teacher self-signup) + password reset via emailed codes
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT TRUE;
+
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS verification_code VARCHAR(10);
+
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS verification_code_expires TIMESTAMPTZ;
+
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS reset_code VARCHAR(10);
+
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS reset_code_expires TIMESTAMPTZ;
+    `);
+
     // Exams table
     await client.query(`
       CREATE TABLE IF NOT EXISTS exams (
@@ -207,6 +225,15 @@ const initializeSchema = async () => {
 
       ALTER TABLE exams
       ADD COLUMN IF NOT EXISTS show_results_to_students BOOLEAN DEFAULT FALSE;
+    `);
+
+    // Question flow: one-at-a-time pagination + per-student stable shuffle
+    await client.query(`
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS question_flow_mode VARCHAR(20) NOT NULL DEFAULT 'all_at_once';
+
+      ALTER TABLE exams
+      ADD COLUMN IF NOT EXISTS randomize_question_order BOOLEAN DEFAULT FALSE;
     `);
 
     // Backfill score fields for old rows

@@ -39,7 +39,9 @@ export async function apiRequest(path, options = {}, token = null) {
     if (response.status === 401 && token) {
       handleUnauthorized(data.message);
     }
-    throw new Error(data.message || "Request failed");
+    const error = new Error(data.message || "Request failed");
+    error.data = data.data;
+    throw error;
   }
 
   return data;

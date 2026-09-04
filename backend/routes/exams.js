@@ -13,6 +13,7 @@ const {
   joinExam,
   getExamParticipants,
   startExam,
+  stopExam,
   getExamStatus,
   getMyActiveExams,
   exportExamResultsCsv
@@ -44,6 +45,7 @@ router.get('/:id/export-results.csv', protect, authorize('teacher'), exportExamR
 router.post('/join', joinExam);
 router.get('/:id/participants', protect, authorize('teacher'), getExamParticipants);
 router.post('/:id/start', protect, authorize('teacher'), startExam);
+router.post('/:id/stop', protect, authorize('teacher'), stopExam);
 router.get('/:id/status', protect, getExamStatus);
 
 // Question routes

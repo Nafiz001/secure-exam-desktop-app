@@ -15,7 +15,8 @@ function normalizeModalInput(input, fallbackMessage = "") {
     title: input?.title || "Notice",
     message: input?.message || fallbackMessage,
     confirmText: input?.confirmText,
-    cancelText: input?.cancelText
+    cancelText: input?.cancelText,
+    danger: Boolean(input?.danger)
   };
 }
 
@@ -82,7 +83,8 @@ export function ModalProvider({ children }) {
         title: normalized.title || "Confirm",
         message: normalized.message || fallbackMessage,
         confirmText: normalized.confirmText || "OK",
-        cancelText: normalized.cancelText || "Cancel"
+        cancelText: normalized.cancelText || "Cancel",
+        danger: normalized.danger
       });
     },
     [openModal]
@@ -106,6 +108,7 @@ export function ModalProvider({ children }) {
         confirmText={modalState.confirmText}
         cancelText={modalState.cancelText}
         showCancel={modalState.type === "confirm"}
+        danger={modalState.danger}
         onConfirm={() => closeModal(true)}
         onCancel={() => closeModal(false)}
         onClose={() => closeModal(false)}

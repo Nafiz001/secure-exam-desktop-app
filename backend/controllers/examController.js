@@ -42,6 +42,33 @@ function normalizeBoolean(rawValue, fallback) {
   return rawValue === 'true' || rawValue === '1' || rawValue === 1 || rawValue === true;
 }
 
+function normalizeQuestionFlowMode(rawValue) {
+  return String(rawValue || 'all_at_once').toLowerCase() === 'one_by_one' ? 'one_by_one' : 'all_at_once';
+}
+
+// Deterministic per-student shuffle: same student always sees the same
+// order for a given exam (stable across reloads/rejoins), but different
+// students get different orders. Not cryptographically random — doesn't
+// need to be, it's just a fair per-student ordering.
+function shuffleQuestionsForStudent(questions, seedKey) {
+  let seed = 0;
+  for (let i = 0; i < seedKey.length; i += 1) {
+    seed = (seed * 31 + seedKey.charCodeAt(i)) >>> 0;
+  }
+
+  const rng = () => {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    return seed / 0xffffffff;
+  };
+
+  const shuffled = [...questions];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
 async function syncExpiredExamStatuses() {
   const expiredExamResult = await pool.query(
     `UPDATE exams
@@ -79,13 +106,17 @@ const createExam = async (req, res) => {
     exam_type,
     webcam_required,
     allow_multiple_attempts,
-    show_results_to_students
+    show_results_to_students,
+    question_flow_mode,
+    randomize_question_order
   } = req.body;
   const teacherId = req.user.userId;
   const normalizedExamType = normalizeExamType(exam_type);
   const webcamRequired = normalizeBoolean(webcam_required, false);
   const allowMultipleAttempts = normalizeBoolean(allow_multiple_attempts, false);
   const showResultsToStudents = normalizeBoolean(show_results_to_students, false);
+  const questionFlowMode = normalizeQuestionFlowMode(question_flow_mode);
+  const randomizeQuestionOrder = normalizeBoolean(randomize_question_order, false);
 
   if (!title || !duration) {
     return res.status(400).json({
@@ -107,9 +138,10 @@ const createExam = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO exams (
          title, description, exam_type, duration, created_by, room_code, status,
-         webcam_required, allow_multiple_attempts, show_results_to_students
+         webcam_required, allow_multiple_attempts, show_results_to_students,
+         question_flow_mode, randomize_question_order
        )
-       VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8, $9)
+       VALUES ($1, $2, $3, $4, $5, $6, 'created', $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         title,
@@ -120,7 +152,9 @@ const createExam = async (req, res) => {
         roomCode,
         webcamRequired,
         allowMultipleAttempts,
-        showResultsToStudents
+        showResultsToStudents,
+        questionFlowMode,
+        randomizeQuestionOrder
       ]
     );
 
@@ -276,13 +310,20 @@ const getExamById = async (req, res) => {
     }
 
     const questionsResult = await pool.query(questionsQuery, [examId]);
+    let questions = questionsResult.rows;
+
+    // Randomize per student, not per teacher preview — and stable across
+    // reloads (same student always sees the same order for this exam).
+    if (role === 'student' && exam.randomize_question_order) {
+      questions = shuffleQuestionsForStudent(questions, `${examId}:${userId}`);
+    }
 
     res.status(200).json({
       success: true,
       data: {
         exam: {
           ...exam,
-          questions: questionsResult.rows,
+          questions,
           has_submitted: hasSubmitted
         }
       }
@@ -309,7 +350,9 @@ const updateExam = async (req, res) => {
     exam_type,
     webcam_required,
     allow_multiple_attempts,
-    show_results_to_students
+    show_results_to_students,
+    question_flow_mode,
+    randomize_question_order
   } = req.body;
   const teacherId = req.user.userId;
   const normalizedExamType = exam_type === undefined ? null : normalizeExamType(exam_type);
@@ -320,6 +363,10 @@ const updateExam = async (req, res) => {
   const showResultsToStudents = show_results_to_students === undefined
     ? null
     : normalizeBoolean(show_results_to_students, false);
+  const questionFlowMode = question_flow_mode === undefined ? null : normalizeQuestionFlowMode(question_flow_mode);
+  const randomizeQuestionOrder = randomize_question_order === undefined
+    ? null
+    : normalizeBoolean(randomize_question_order, false);
 
   try {
     const checkResult = await pool.query(
@@ -343,8 +390,10 @@ const updateExam = async (req, res) => {
            webcam_required = COALESCE($5, webcam_required),
            allow_multiple_attempts = COALESCE($6, allow_multiple_attempts),
            show_results_to_students = COALESCE($7, show_results_to_students),
+           question_flow_mode = COALESCE($8, question_flow_mode),
+           randomize_question_order = COALESCE($9, randomize_question_order),
            updated_at = CURRENT_TIMESTAMP
-         WHERE id = $8 AND created_by = $9
+         WHERE id = $10 AND created_by = $11
        RETURNING *`,
         [
           title,
@@ -354,6 +403,8 @@ const updateExam = async (req, res) => {
           webcamRequired,
           allowMultipleAttempts,
           showResultsToStudents,
+          questionFlowMode,
+          randomizeQuestionOrder,
           examId,
           teacherId
         ]
@@ -986,6 +1037,59 @@ const startExam = async (req, res) => {
 };
 
 /**
+ * Teacher manually ends an in-progress exam early, for everyone at once.
+ * Students still taking it are picked up by their in-exam status poll
+ * (status flips to 'completed') and auto-submitted client-side.
+ * POST /api/exams/:id/stop
+ */
+const stopExam = async (req, res) => {
+  const examId = req.params.id;
+  const teacherId = req.user.userId;
+
+  try {
+    const examCheck = await pool.query(
+      'SELECT id, status FROM exams WHERE id = $1 AND created_by = $2',
+      [examId, teacherId]
+    );
+
+    if (examCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam not found or you do not have permission'
+      });
+    }
+
+    if (examCheck.rows[0].status !== 'in_progress') {
+      return res.status(400).json({
+        success: false,
+        message: 'Exam is not currently in progress'
+      });
+    }
+
+    await pool.query(
+      `UPDATE exams SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      [examId]
+    );
+
+    await pool.query(
+      `UPDATE exam_participants SET status = 'completed' WHERE exam_id = $1 AND status = 'taking'`,
+      [examId]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: 'Exam stopped. Students still taking it will be auto-submitted.'
+    });
+  } catch (error) {
+    console.error('Stop exam error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while stopping exam'
+    });
+  }
+};
+
+/**
  * Get exam status and timer info
  * GET /api/exams/:id/status
  */
@@ -1010,10 +1114,11 @@ const getExamStatus = async (req, res) => {
     }
 
     const exam = examResult.rows[0];
+    let forceSubmitRequested = false;
 
     if (userRole === 'student') {
       const participantCheck = await pool.query(
-        'SELECT id FROM exam_participants WHERE exam_id = $1 AND student_id = $2',
+        'SELECT id, force_submit_requested FROM exam_participants WHERE exam_id = $1 AND student_id = $2',
         [examId, userId]
       );
 
@@ -1023,6 +1128,8 @@ const getExamStatus = async (req, res) => {
           message: 'You have not joined this exam'
         });
       }
+
+      forceSubmitRequested = Boolean(participantCheck.rows[0].force_submit_requested);
     } else if (userRole === 'teacher' && exam.created_by !== userId) {
       return res.status(403).json({
         success: false,
@@ -1043,7 +1150,9 @@ const getExamStatus = async (req, res) => {
         status: exam.status,
         started_at: exam.started_at,
         duration: exam.duration,
-        participants_count: parseInt(participantCount.rows[0].count, 10)
+        participants_count: parseInt(participantCount.rows[0].count, 10),
+        // Only meaningful for the requesting student; omitted/false for teachers.
+        force_submit_requested: forceSubmitRequested
       }
     });
   } catch (error) {
@@ -1226,6 +1335,7 @@ module.exports = {
   joinExam,
   getExamParticipants,
   startExam,
+  stopExam,
   getExamStatus,
   getMyActiveExams,
   exportExamResultsCsv

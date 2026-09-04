@@ -1,6 +1,9 @@
 const Groq = require('groq-sdk');
 
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+// Groq retired the old llama-3.3-70b-versatile model. Verified against
+// Groq's live /models endpoint + a real completions call (chat and JSON
+// mode) on 2026-09-05 — update here if Groq retires this one too.
+const GROQ_MODEL = 'openai/gpt-oss-120b';
 
 const SYSTEM_INSTRUCTION = `You are an expert educational assistant helping university teachers create and manage exams at KUET (Khulna University of Engineering & Technology).
 

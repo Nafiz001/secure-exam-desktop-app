@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { FaTimes } from "react-icons/fa";
 
 export default function ModalDialog({
   open,
@@ -7,6 +8,7 @@ export default function ModalDialog({
   confirmText,
   cancelText,
   showCancel,
+  danger,
   onConfirm,
   onCancel,
   onClose
@@ -44,7 +46,7 @@ export default function ModalDialog({
         <div className="modal-head">
           <h3 id="modal-title">{title}</h3>
           <button type="button" className="modal-close" onClick={onClose} aria-label="Close modal">
-            x
+            <FaTimes />
           </button>
         </div>
 
@@ -56,7 +58,7 @@ export default function ModalDialog({
               {cancelText}
             </button>
           ) : null}
-          <button type="button" onClick={onConfirm}>
+          <button type="button" className={danger ? "danger" : undefined} onClick={onConfirm}>
             {confirmText}
           </button>
         </div>
