@@ -20,6 +20,7 @@ import {
   FaRedo
 } from "react-icons/fa";
 import IconButton from "../../components/IconButton";
+import { ExamListSkeleton, FormSkeleton, ListSkeleton } from "../../components/Skeletons";
 
 function normalizeOptionsForEditing(rawOptions) {
   const base = Array.isArray(rawOptions) && rawOptions.length > 0 ? rawOptions : ["", "", "", ""];
@@ -142,6 +143,7 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
   const [formQuestionFlowMode, setFormQuestionFlowMode] = useState("all_at_once");
   const [formRandomizeQuestionOrder, setFormRandomizeQuestionOrder] = useState(false);
   const [examFormSnapshot, setExamFormSnapshot] = useState(null);
+  const [loadingExamDetails, setLoadingExamDetails] = useState(false);
   const [restartingExam, setRestartingExam] = useState(false);
   const [duplicatingExam, setDuplicatingExam] = useState(false);
   const [liveTimerText, setLiveTimerText] = useState("--:--");
@@ -433,6 +435,10 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
   async function loadExamIntoEditor(examId, targetView) {
     clearParticipantPolling();
     clearProctoringPolling();
+    // Switch screens first so the click feels instant and the skeleton covers
+    // the fetch, instead of sitting on the old screen until it resolves.
+    setLoadingExamDetails(true);
+    setView(targetView);
     try {
       const result = await apiRequest(`/exams/${examId}`, {}, token);
       const exam = result.data.exam;
@@ -462,18 +468,20 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
         formQuestionFlowMode: exam.question_flow_mode === "one_by_one" ? "one_by_one" : "all_at_once",
         formRandomizeQuestionOrder: Boolean(exam.randomize_question_order)
       });
-      setView(targetView);
-
       if (exam.room_code) {
         startParticipantPolling(exam.id);
       } else {
         setParticipants([]);
       }
     } catch (err) {
+      // Nothing loaded, so don't strand the user on an empty editor.
+      setView("list");
       await showAlert({
         title: "Error",
         message: err.message || "Failed to load exam details."
       });
+    } finally {
+      setLoadingExamDetails(false);
     }
   }
 
@@ -996,11 +1004,7 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
       <section className="card teacher-panel teacher-panel-hero">
         <div className="teacher-panel-glow" aria-hidden="true" />
         <div className="card-head">
-          <div>
-            <p className="teacher-kicker">Teaching Workspace</p>
-            <h2 className="teacher-title">Teacher Dashboard</h2>
-            <p className="teacher-mode-line">Command Center | Assessments</p>
-          </div>
+          <h2 className="teacher-title">Teacher Dashboard</h2>
           <div className="actions-row teacher-toolbar">
             <IconButton
               icon={<FaSyncAlt className={loadingExams ? "spin" : ""} />}
@@ -1011,7 +1015,6 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
             <IconButton icon={<FaPlus />} label="Create New Exam" variant="primary" onClick={openCreateForm} />
           </div>
         </div>
-        <p className="muted teacher-subtitle">Create, launch, and evaluate exams from one unified control center.</p>
 
         <div className="teacher-stats-grid">
           <article className="teacher-stat-card">
@@ -1032,7 +1035,9 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
           </article>
         </div>
 
-        {loadingExams ? <p>Loading exams...</p> : null}
+        {/* Only on first load — during a refresh the existing list stays put
+            and the spinning refresh icon signals the activity. */}
+        {loadingExams && exams.length === 0 ? <ExamListSkeleton /> : null}
         {!loadingExams && exams.length === 0 ? (
           <p className="muted">No exams yet — use the + button above to create your first one.</p>
         ) : null}
@@ -1158,7 +1163,9 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
             <h2 className="teacher-title">{currentExamId ? "Edit Exam" : "Create Exam"}</h2>
           </div>
 
-          <form className="form-stack" onSubmit={handleSaveExam}>
+          {loadingExamDetails ? <FormSkeleton fields={6} /> : null}
+
+          <form className="form-stack" hidden={loadingExamDetails} onSubmit={handleSaveExam}>
             <label>
               <span>Exam Title</span>
               <input value={formTitle} onChange={(event) => setFormTitle(event.target.value)} required />
@@ -1166,7 +1173,12 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
 
             <label>
               <span>Description</span>
-              <input value={formDescription} onChange={(event) => setFormDescription(event.target.value)} />
+              <textarea
+                className="question-text-input"
+                value={formDescription}
+                onChange={(event) => setFormDescription(event.target.value)}
+                rows={4}
+              />
             </label>
 
             <label>
@@ -1189,42 +1201,6 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
               />
             </label>
 
-            <label className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={formWebcamRequired}
-                onChange={(event) => setFormWebcamRequired(event.target.checked)}
-              />
-              <span>
-                <strong>Require webcam proctoring</strong>
-                <small>Face detection will monitor for suspicious activity during the exam.</small>
-              </span>
-            </label>
-
-            <label className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={formAllowMultipleAttempts}
-                onChange={(event) => setFormAllowMultipleAttempts(event.target.checked)}
-              />
-              <span>
-                <strong>Allow multiple attempts</strong>
-                <small>Students can submit again, replacing their previous attempt (e.g. after you restart the exam).</small>
-              </span>
-            </label>
-
-            <label className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={formShowResultsToStudents}
-                onChange={(event) => setFormShowResultsToStudents(event.target.checked)}
-              />
-              <span>
-                <strong>Show results to students</strong>
-                <small>Off by default — students see "submitted successfully" only, no score, until you turn this on.</small>
-              </span>
-            </label>
-
             <label>
               <span>Question Flow</span>
               <select
@@ -1236,17 +1212,55 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
               </select>
             </label>
 
-            <label className="checkbox-field">
-              <input
-                type="checkbox"
-                checked={formRandomizeQuestionOrder}
-                onChange={(event) => setFormRandomizeQuestionOrder(event.target.checked)}
-              />
-              <span>
-                <strong>Randomize question order per student</strong>
-                <small>Each student gets a shuffled but consistent question order, to discourage copying.</small>
-              </span>
-            </label>
+            <div className="settings-grid">
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={formWebcamRequired}
+                  onChange={(event) => setFormWebcamRequired(event.target.checked)}
+                />
+                <span>
+                  <strong>Require webcam proctoring</strong>
+                  <small>Face detection will monitor for suspicious activity during the exam.</small>
+                </span>
+              </label>
+
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={formAllowMultipleAttempts}
+                  onChange={(event) => setFormAllowMultipleAttempts(event.target.checked)}
+                />
+                <span>
+                  <strong>Allow multiple attempts</strong>
+                  <small>Students can submit again, replacing their previous attempt (e.g. after you restart the exam).</small>
+                </span>
+              </label>
+
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={formShowResultsToStudents}
+                  onChange={(event) => setFormShowResultsToStudents(event.target.checked)}
+                />
+                <span>
+                  <strong>Show results to students</strong>
+                  <small>Off by default — students see "submitted successfully" only, no score, until you turn this on.</small>
+                </span>
+              </label>
+
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={formRandomizeQuestionOrder}
+                  onChange={(event) => setFormRandomizeQuestionOrder(event.target.checked)}
+                />
+                <span>
+                  <strong>Randomize question order per student</strong>
+                  <small>Each student gets a shuffled but consistent question order, to discourage copying.</small>
+                </span>
+              </label>
+            </div>
 
             <div className="actions-row centered top-spaced">
               <IconButton
@@ -1272,6 +1286,21 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
 
   function renderLiveRoomView() {
     const effectiveExamStatus = getEffectiveExamStatus(examStatus, examStartedAt, formDuration);
+
+    if (loadingExamDetails) {
+      return (
+        <div className="content-stack teacher-stack">
+          <section className="card teacher-panel">
+            <div className="teacher-section-strip">
+              <span className="teacher-section-tag">Live Room</span>
+              <span className="teacher-section-note">Share code, track participants, and launch.</span>
+            </div>
+            <FormSkeleton fields={2} />
+            <ListSkeleton rows={2} />
+          </section>
+        </div>
+      );
+    }
 
     return (
       <div className="content-stack teacher-stack">
@@ -1375,7 +1404,7 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
             )}
           </div>
 
-          {loadingParticipants ? <p className="muted top-spaced">Loading participants...</p> : null}
+          {loadingParticipants ? <ListSkeleton rows={2} lines={2} /> : null}
           {!loadingParticipants && participants.length === 0 ? (
             <p className="muted top-spaced">No students joined yet.</p>
           ) : null}
@@ -1596,7 +1625,7 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
             <IconButton icon={<FaPlus />} label="Add Question" variant="primary" onClick={openAddQuestionForm} />
           </div>
 
-          {loadingQuestions ? <p className="muted top-spaced">Loading questions...</p> : null}
+          {loadingQuestions ? <ListSkeleton rows={3} lines={2} /> : null}
           {!loadingQuestions && questions.length === 0 ? (
             <p className="muted top-spaced">No questions found. Add your first question.</p>
           ) : null}
@@ -1675,7 +1704,7 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
           Step 1: Choose a student from participants. Step 2: Evaluate written answers in their answer sheet.
         </p>
 
-        {loadingEvaluationParticipants ? <p>Loading participants...</p> : null}
+        {loadingEvaluationParticipants ? <ListSkeleton rows={3} lines={2} /> : null}
         {!loadingEvaluationParticipants && evaluationParticipants.length === 0 ? (
           <p className="muted">No participants found.</p>
         ) : null}
@@ -1747,7 +1776,7 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
           <p className="muted small">Violations: {violations.length}</p>
         </section>
 
-        {loadingSubmissionSheet ? <section className="card teacher-panel">Loading answer sheet...</section> : null}
+        {loadingSubmissionSheet ? (<section className="card teacher-panel"><ListSkeleton rows={3} lines={3} /></section>) : null}
 
         {!loadingSubmissionSheet ? (
           <section className="card teacher-panel">
@@ -1912,7 +1941,7 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
         </section>
 
         {loadingProctoring && proctoringStudents.length === 0 ? (
-          <p className="muted">Loading proctoring data...</p>
+          <ListSkeleton rows={2} lines={1} />
         ) : proctoringStudents.length === 0 ? (
           <section className="card teacher-panel">
             <p className="muted">No students are in this exam yet. Once students join, their live feeds appear here.</p>

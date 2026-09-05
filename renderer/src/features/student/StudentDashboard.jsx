@@ -1151,7 +1151,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
                 <span className="badge">Violations: {violationCount}</span>
                 {examData.webcam_required ? <span className="badge">Proctored</span> : null}
               </div>
-              <p className="muted">{examData.description || "No description"}</p>
+              <p className="muted question-text-block">{examData.description || "No description"}</p>
             </div>
             <ProctoringCamera token={tokenRef.current} examId={examData.id} enabled={Boolean(examData.webcam_required)} />
           </div>
