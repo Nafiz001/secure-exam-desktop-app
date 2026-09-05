@@ -22,6 +22,13 @@ const SEVERITY_BY_EVENT = {
   fullscreen_exit: 'high',
   alt_f4_blocked: 'high',
   f11_blocked: 'medium',
+  windows_key_blocked: 'high',
+  alt_tab_blocked: 'high',
+  start_menu_blocked: 'high',
+  close_tab_blocked: 'high',
+  reload_blocked: 'medium',
+  devtools_blocked: 'high',
+  minimize_blocked: 'medium',
 };
 
 const HUMAN_LABEL_BY_EVENT = {
@@ -33,6 +40,13 @@ const HUMAN_LABEL_BY_EVENT = {
   fullscreen_exit: 'Exited fullscreen',
   alt_f4_blocked: 'Tried to close the app (Alt+F4)',
   f11_blocked: 'Pressed F11',
+  windows_key_blocked: 'Pressed the Windows key',
+  alt_tab_blocked: 'Tried to switch apps (Alt+Tab)',
+  start_menu_blocked: 'Tried to open the Start menu',
+  close_tab_blocked: 'Tried to close the window (Ctrl+W)',
+  reload_blocked: 'Tried to reload the app',
+  devtools_blocked: 'Tried to open developer tools',
+  minimize_blocked: 'Tried to minimize the window',
 };
 
 const reportEvent = async (req, res) => {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
+import { FaLock } from "react-icons/fa";
 import { apiRequest, resolveUploadUrl } from "../../api";
 import { useModal } from "../../components/modals/ModalProvider";
 import ProctoringCamera from "./ProctoringCamera";
@@ -59,7 +60,14 @@ const PROCTORING_EVENT_BY_VIOLATION = {
   WINDOW_BLUR: "window_blur",
   FULLSCREEN_EXIT: "fullscreen_exit",
   ALT_F4_BLOCKED: "alt_f4_blocked",
-  F11_BLOCKED: "f11_blocked"
+  F11_BLOCKED: "f11_blocked",
+  WINDOWS_KEY_BLOCKED: "windows_key_blocked",
+  ALT_TAB_BLOCKED: "alt_tab_blocked",
+  START_MENU_BLOCKED: "start_menu_blocked",
+  CLOSE_TAB_BLOCKED: "close_tab_blocked",
+  RELOAD_BLOCKED: "reload_blocked",
+  DEVTOOLS_BLOCKED: "devtools_blocked",
+  MINIMIZE_BLOCKED: "minimize_blocked"
 };
 
 // Starter code that came through a JSON round-trip (the AI generator, mostly)
@@ -70,8 +78,29 @@ function normalizeStarterCode(raw) {
   return raw.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\t/g, "  ");
 }
 
-function starterCodeFor(question, language) {
-  return normalizeStarterCode(question?.starter_code) || defaultCodeForLanguage(language);
+// Questions carry starter code but no language, so work out which language it
+// was written for. Otherwise the dropdown says JavaScript while the editor
+// shows a Python "#" comment, and running it fails on the first line.
+function inferLanguageFromCode(code) {
+  if (!code) return "javascript";
+  if (/^\s*#\s*include/m.test(code)) {
+    return /iostream|using namespace std|bits\/stdc\+\+|cout|cin\b/.test(code) ? "cpp" : "c";
+  }
+  if (/^\s*#(?!include)/m.test(code) || /\bdef\s+\w+\s*\(|\bprint\s*\(/.test(code)) return "python";
+  return "javascript";
+}
+
+function initialCodingStateFor(question) {
+  const starter = normalizeStarterCode(question?.starter_code);
+  const language = starter ? inferLanguageFromCode(starter) : "javascript";
+  return {
+    language,
+    code: starter || defaultCodeForLanguage(language),
+    stdin: question?.sample_input || "",
+    stdout: "",
+    stderr: "",
+    running: false
+  };
 }
 
 function defaultCodeForLanguage(language) {
@@ -671,14 +700,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
       }
 
       const questionId = Number(question.id);
-      nextCodingState[questionId] = {
-        language: "javascript",
-        code: starterCodeFor(question, "javascript"),
-        stdin: question.sample_input || "",
-        stdout: "",
-        stderr: "",
-        running: false
-      };
+      nextCodingState[questionId] = initialCodingStateFor(question);
     });
 
     setCodingState(nextCodingState);
@@ -834,14 +856,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
     let nextForAnswer = null;
 
     setCodingState((prev) => {
-      const current = prev[questionId] || {
-        language: "javascript",
-        code: starterCodeFor(question, "javascript"),
-        stdin: question.sample_input || "",
-        stdout: "",
-        stderr: "",
-        running: false
-      };
+      const current = prev[questionId] || initialCodingStateFor(question);
 
       const next = { ...current, ...patch };
       if (patch.language && patch.code === undefined) {
@@ -882,14 +897,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
     }
 
     const questionId = Number(question.id);
-    const current = codingState[questionId] || {
-      language: "javascript",
-      code: starterCodeFor(question, "javascript"),
-      stdin: question.sample_input || "",
-      stdout: "",
-      stderr: "",
-      running: false
-    };
+    const current = codingState[questionId] || initialCodingStateFor(question);
 
     handleCodingStateChange(question, { running: true, stdout: "", stderr: "" });
 
@@ -1018,14 +1026,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
   function renderQuestionCard(question, index) {
     const qType = normalizeQuestionType(question.question_type);
     const answerState = examAnswers[question.id] || {};
-    const codeState = codingState[Number(question.id)] || {
-      language: "javascript",
-      code: starterCodeFor(question, "javascript"),
-      stdin: question.sample_input || "",
-      stdout: "",
-      stderr: "",
-      running: false
-    };
+    const codeState = codingState[Number(question.id)] || initialCodingStateFor(question);
     return (
       <article key={question.id} className="question-card student-question-card">
         <p className="question-title question-text-block">
@@ -1166,6 +1167,20 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
 
     return (
       <>
+        {/* Covers the whole viewport, blurring everything behind it, so a
+            frozen student can't read or answer anything until the teacher
+            lifts it. Rendered outside the scroll flow on purpose. */}
+        {isExamFrozen ? (
+          <div className="exam-freeze-overlay" role="alertdialog" aria-modal="true" aria-label="Exam paused">
+            <FaLock className="exam-freeze-icon" aria-hidden="true" />
+            <h2>Exam Paused</h2>
+            <p>Your teacher has locked your screen.</p>
+            <p className="exam-freeze-hint">
+              You can't view or answer questions until they unlock it. The exam timer is still running.
+            </p>
+          </div>
+        ) : null}
+
         <section className="card student-panel student-panel-exam-header sticky-exam-header">
           <div className="card-head">
             <div>
@@ -1178,14 +1193,6 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
           </div>
         </section>
 
-        {isExamFrozen ? (
-          <section className="card student-panel exam-frozen-notice">
-            <strong>Your teacher has paused your exam.</strong>
-            <p className="muted">
-              You can't change answers until they unfreeze you. The exam timer is still running.
-            </p>
-          </section>
-        ) : null}
 
         {examData.description ? (
           <section className="card student-panel">

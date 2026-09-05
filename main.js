@@ -192,6 +192,41 @@ function createWindow() {
 /* =========================
    EXAM MODE CONTROL
 ========================= */
+
+// Registered only while an exam is running — globalShortcut is system-wide, so
+// holding these for the app's whole lifetime would swallow the Windows key and
+// friends even when nobody is sitting an exam. Alt+Tab and the Windows key are
+// reserved by the OS and often refuse to register; the window 'blur' handler is
+// the reliable backstop for those, since either one drops focus.
+const EXAM_BLOCKED_SHORTCUTS = [
+  ["Super", "WINDOWS_KEY_BLOCKED", "high"],
+  ["Alt+Tab", "ALT_TAB_BLOCKED", "high"],
+  ["Control+Escape", "START_MENU_BLOCKED", "high"],
+  ["Alt+F4", "ALT_F4_BLOCKED", "high"],
+  ["Control+W", "CLOSE_TAB_BLOCKED", "high"],
+  ["Control+R", "RELOAD_BLOCKED", "medium"],
+  ["F5", "RELOAD_BLOCKED", "medium"],
+  ["F11", "F11_BLOCKED", "medium"],
+  ["Control+Shift+I", "DEVTOOLS_BLOCKED", "high"],
+  ["Control+M", "MINIMIZE_BLOCKED", "medium"]
+];
+
+function registerExamShortcuts() {
+  EXAM_BLOCKED_SHORTCUTS.forEach(([accelerator, type, severity]) => {
+    try {
+      const ok = globalShortcut.register(accelerator, () => {
+        registerViolation(type, severity);
+        refocusIfExam();
+      });
+      if (!ok) {
+        console.log(`[EXAM MODE] Could not register ${accelerator} (OS reserved) — blur will catch it`);
+      }
+    } catch (error) {
+      console.log(`[EXAM MODE] ${accelerator} registration failed:`, error.message);
+    }
+  });
+}
+
 function enableExamMode() {
   console.log("[EXAM MODE] ========================================");
   console.log("[EXAM MODE] ENABLING EXAM MODE");
@@ -248,11 +283,16 @@ function enableExamMode() {
     }
   }, 500);
   
+  registerExamShortcuts();
+
   console.log("[EXAM MODE] Exam mode setup complete");
 }
 
 function disableExamMode() {
   examRunning = false;
+
+  // Hand the keys back to the OS now the exam is over.
+  globalShortcut.unregisterAll();
 
   // Restore window controls after exam
   mainWindow.setResizable(true);
@@ -354,18 +394,8 @@ app.whenReady().then(() => {
     createWindow();
   });
 
-  globalShortcut.register("Alt+F4", () => {
-    if (!examRunning) return;
-    registerViolation("ALT_F4_BLOCKED", "high");
-  });
-
-  globalShortcut.register("F11", () => {
-    if (!examRunning) return;
-    registerViolation("F11_BLOCKED", "medium");
-  });
-
-  // Windows key - Use CommandOrControl instead of Super for cross-platform
-  // Note: Windows key blocking is limited on some systems
+  // Shortcut blocking is set up in enableExamMode() and torn down in
+  // disableExamMode(), so it only applies while an exam is actually running.
 });
 
 app.on("will-quit", () => {

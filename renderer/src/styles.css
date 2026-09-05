@@ -501,14 +501,45 @@ label,
   min-width: 0;
 }
 
-.exam-frozen-notice {
-  border-color: #f59e0b;
-  background: #fffbeb;
-  color: #92400e;
+/* Full-viewport lock. The blur sits on this layer (not the page) so the exam
+   behind stays mounted — answers and the running timer are untouched. */
+.exam-freeze-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  text-align: center;
+  padding: 2rem;
+  color: #0f2e26;
+  background: rgba(236, 245, 243, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
-.exam-frozen-notice .muted {
-  color: #a16207;
+.exam-freeze-icon {
+  width: 5.5rem;
+  height: 5.5rem;
+  margin-bottom: 0.75rem;
+  color: #14532d;
+}
+
+.exam-freeze-overlay h2 {
+  margin: 0;
+  font-size: 1.9rem;
+}
+
+.exam-freeze-overlay p {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.exam-freeze-hint {
+  max-width: 34ch;
+  color: #40706a;
 }
 
 .code-editor-shell {
