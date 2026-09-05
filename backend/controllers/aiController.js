@@ -115,10 +115,13 @@ Rules: correct_answer is the 0-based index of the correct option. options must h
   "question_type": "coding",
   "sample_input": "5\\n1 2 3 4 5",
   "sample_output": "15",
-  "starter_code": "# Write your solution here\\n",
+  "starter_code": "",
   "reference_answer": "Complete reference solution code",
   "marks": 10
-}`
+}
+Rules: leave starter_code as an empty string. Students pick their own language
+(JavaScript, Python, C or C++) and the app supplies the right boilerplate for
+whichever they choose — starter code written for one language breaks the others.`
   };
 
   const prompt = `Generate exactly ${normalizedCount} ${normalizedDifficulty}-difficulty ${normalizedType} question(s) about "${topic.trim()}"${examCtx}.

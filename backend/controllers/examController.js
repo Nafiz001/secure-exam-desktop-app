@@ -985,6 +985,105 @@ const getExamParticipants = async (req, res) => {
 };
 
 /**
+ * Teacher submits one student's exam on their behalf.
+ * POST /api/exams/:id/participants/:participantId/force-submit
+ */
+const forceSubmitParticipant = async (req, res) => {
+  const examId = req.params.id;
+  const participantId = req.params.participantId;
+  const teacherId = req.user.userId;
+
+  try {
+    const examCheck = await pool.query(
+      'SELECT id FROM exams WHERE id = $1 AND created_by = $2',
+      [examId, teacherId]
+    );
+
+    if (examCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam not found or you do not have permission'
+      });
+    }
+
+    // Unfreeze at the same time, otherwise a frozen student can't act on the
+    // submit request their app is about to receive.
+    const result = await pool.query(
+      `UPDATE exam_participants
+       SET force_submit_requested = TRUE, is_frozen = FALSE
+       WHERE id = $1 AND exam_id = $2
+       RETURNING id, student_id, student_name, status, force_submit_requested, is_frozen`,
+      [participantId, examId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Participant not found' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Force submit requested for participant',
+      data: { participant: result.rows[0] }
+    });
+  } catch (error) {
+    console.error('Force submit participant error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while forcing participant submission'
+    });
+  }
+};
+
+/**
+ * Teacher freezes/unfreezes one student's exam screen.
+ * POST /api/exams/:id/participants/:participantId/toggle-freeze
+ */
+const toggleParticipantFreeze = async (req, res) => {
+  const examId = req.params.id;
+  const participantId = req.params.participantId;
+  const teacherId = req.user.userId;
+
+  try {
+    const examCheck = await pool.query(
+      'SELECT id FROM exams WHERE id = $1 AND created_by = $2',
+      [examId, teacherId]
+    );
+
+    if (examCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Exam not found or you do not have permission'
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE exam_participants
+       SET is_frozen = NOT COALESCE(is_frozen, FALSE)
+       WHERE id = $1 AND exam_id = $2
+       RETURNING id, student_id, student_name, status, is_frozen`,
+      [participantId, examId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Participant not found' });
+    }
+
+    const participant = result.rows[0];
+    res.status(200).json({
+      success: true,
+      message: participant.is_frozen ? 'Participant exam frozen' : 'Participant exam unfrozen',
+      data: { participant }
+    });
+  } catch (error) {
+    console.error('Toggle participant freeze error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while toggling participant freeze'
+    });
+  }
+};
+
+/**
  * Teacher starts the exam
  * POST /api/exams/:id/start
  */
@@ -1138,10 +1237,12 @@ const getExamStatus = async (req, res) => {
 
     const exam = examResult.rows[0];
     let forceSubmitRequested = false;
+    let isFrozen = false;
 
     if (userRole === 'student') {
       const participantCheck = await pool.query(
-        'SELECT id, force_submit_requested FROM exam_participants WHERE exam_id = $1 AND student_id = $2',
+        `SELECT id, force_submit_requested, COALESCE(is_frozen, FALSE) AS is_frozen
+         FROM exam_participants WHERE exam_id = $1 AND student_id = $2`,
         [examId, userId]
       );
 
@@ -1153,6 +1254,7 @@ const getExamStatus = async (req, res) => {
       }
 
       forceSubmitRequested = Boolean(participantCheck.rows[0].force_submit_requested);
+      isFrozen = Boolean(participantCheck.rows[0].is_frozen);
     } else if (userRole === 'teacher' && exam.created_by !== userId) {
       return res.status(403).json({
         success: false,
@@ -1175,7 +1277,8 @@ const getExamStatus = async (req, res) => {
         duration: exam.duration,
         participants_count: parseInt(participantCount.rows[0].count, 10),
         // Only meaningful for the requesting student; omitted/false for teachers.
-        force_submit_requested: forceSubmitRequested
+        force_submit_requested: forceSubmitRequested,
+        is_frozen: isFrozen
       }
     });
   } catch (error) {
@@ -1357,6 +1460,8 @@ module.exports = {
   submitExam,
   joinExam,
   getExamParticipants,
+  forceSubmitParticipant,
+  toggleParticipantFreeze,
   startExam,
   stopExam,
   getExamStatus,

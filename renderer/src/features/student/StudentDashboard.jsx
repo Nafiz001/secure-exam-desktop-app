@@ -52,6 +52,28 @@ function normalizeQuestionType(rawType) {
   return "mcq";
 }
 
+// Maps the Electron shell's violation names onto the proctoring event types
+// the backend records, so window/shortcut events show up in the teacher's
+// live proctoring view next to the webcam ones.
+const PROCTORING_EVENT_BY_VIOLATION = {
+  WINDOW_BLUR: "window_blur",
+  FULLSCREEN_EXIT: "fullscreen_exit",
+  ALT_F4_BLOCKED: "alt_f4_blocked",
+  F11_BLOCKED: "f11_blocked"
+};
+
+// Starter code that came through a JSON round-trip (the AI generator, mostly)
+// can arrive with the escape sequences still literal, so "\n" shows up as a
+// backslash and an n on line 1 and the compiler chokes on it.
+function normalizeStarterCode(raw) {
+  if (typeof raw !== "string" || raw.trim() === "") return "";
+  return raw.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\t/g, "  ");
+}
+
+function starterCodeFor(question, language) {
+  return normalizeStarterCode(question?.starter_code) || defaultCodeForLanguage(language);
+}
+
 function defaultCodeForLanguage(language) {
   if (language === "python") {
     return "# Write your Python solution here\n";
@@ -128,6 +150,8 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
   // no counts, no risk banners, no auto-submit. The teacher decides what to
   // do about a flagged student.
   const [examViolations, setExamViolations] = useState([]);
+  // Teacher can freeze a student's screen mid-exam; the timer keeps running.
+  const [isExamFrozen, setIsExamFrozen] = useState(false);
 
   const tokenRef = useRef(token);
   const waitingPollIntervalRef = useRef(null);
@@ -148,9 +172,11 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
       wordWrap: "on",
       smoothScrolling: true,
       scrollBeyondLastLine: false,
-      automaticLayout: true
+      automaticLayout: true,
+      readOnly: isExamFrozen,
+      domReadOnly: isExamFrozen
     }),
-    []
+    [isExamFrozen]
   );
 
   useEffect(() => {
@@ -209,6 +235,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
     setExamAnswers({});
     setCodingState({});
     setExamViolations([]);
+    setIsExamFrozen(false);
     setTimerText("--:--");
     setExamSubmitMessage("");
   }, [clearExamControlPolling, clearExamTimer]);
@@ -507,18 +534,26 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
     [clearWaitingPolling, forceAutoSubmitExam, startExamSession, token]
   );
 
-  // Polled while actively taking an exam (not the waiting room) — catches
-  // the one thing the local countdown alone can't: the teacher manually
-  // ending the exam early.
+  // Polled while actively taking an exam (not the waiting room) — carries the
+  // things the local countdown can't know about: the teacher ending the exam,
+  // freezing this student's screen, or submitting on their behalf.
   const checkExamControl = useCallback(
     async (examId) => {
       try {
         const result = await apiRequest(`/exams/${examId}/status`, {}, tokenRef.current);
         const data = result.data || {};
 
+        setIsExamFrozen(Boolean(data.is_frozen));
+
         if (data.status === "completed") {
           clearExamControlPolling();
           await forceAutoSubmitExam(examId, "Your teacher ended the exam. Your answers were submitted automatically.");
+          return;
+        }
+
+        if (data.force_submit_requested) {
+          clearExamControlPolling();
+          await forceAutoSubmitExam(examId, "Your teacher submitted your exam.");
         }
       } catch (err) {
         console.error("Exam control check error:", err);
@@ -638,7 +673,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
       const questionId = Number(question.id);
       nextCodingState[questionId] = {
         language: "javascript",
-        code: question.starter_code || defaultCodeForLanguage("javascript"),
+        code: starterCodeFor(question, "javascript"),
         stdin: question.sample_input || "",
         stdout: "",
         stderr: "",
@@ -723,14 +758,31 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
         return;
       }
 
+      const rawType = data.type || "UNKNOWN";
+
       setExamViolations((prev) => [
         ...prev,
         {
-          type: data.type || "UNKNOWN",
+          type: rawType,
           severity: data.severity || "medium",
           timestamp: new Date().toISOString()
         }
       ]);
+
+      // Also report it to the server so it lands in the teacher's proctoring
+      // view live. Without this these only travelled with the submission, so
+      // the teacher couldn't see them while the exam was still running.
+      const examId = examDataRef.current?.id;
+      const eventType = PROCTORING_EVENT_BY_VIOLATION[rawType];
+      if (examId && eventType) {
+        apiRequest(
+          `/proctoring/${examId}/event`,
+          { method: "POST", body: JSON.stringify({ event_type: eventType, details: rawType }) },
+          tokenRef.current
+        ).catch(() => {
+          // Never let a proctoring hiccup disturb the exam.
+        });
+      }
     });
 
     return () => {
@@ -749,6 +801,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
   }, [clearExamControlPolling, clearExamTimer, clearWaitingPolling]);
 
   function handleMcqAnswerChange(questionId, selectedOption) {
+    if (isExamFrozen) return;
     setExamAnswers((prev) => ({
       ...prev,
       [questionId]: {
@@ -760,6 +813,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
   }
 
   function handleWrittenAnswerChange(questionId, writtenText) {
+    if (isExamFrozen) return;
     setExamAnswers((prev) => ({
       ...prev,
       [questionId]: {
@@ -771,13 +825,18 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
   }
 
   function handleCodingStateChange(question, patch) {
+    // "running"/output updates are internal bookkeeping, not student edits,
+    // so they still flow through while frozen.
+    const isStudentEdit = patch.code !== undefined || patch.language !== undefined || patch.stdin !== undefined;
+    if (isExamFrozen && isStudentEdit) return;
+
     const questionId = Number(question.id);
     let nextForAnswer = null;
 
     setCodingState((prev) => {
       const current = prev[questionId] || {
         language: "javascript",
-        code: question.starter_code || defaultCodeForLanguage("javascript"),
+        code: starterCodeFor(question, "javascript"),
         stdin: question.sample_input || "",
         stdout: "",
         stderr: "",
@@ -788,7 +847,10 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
       if (patch.language && patch.code === undefined) {
         const hasUserCode = (next.code || "").trim().length > 0;
         if (!hasUserCode || next.code === current.code) {
-          next.code = question.starter_code || defaultCodeForLanguage(patch.language);
+          // Always the boilerplate for the language just picked. A question's
+          // starter_code is written for one language, so reusing it here hands
+          // (say) a Python comment to a C++ compiler.
+          next.code = defaultCodeForLanguage(patch.language);
         }
       }
 
@@ -815,14 +877,14 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
   }
 
   async function handleRunCode(question) {
-    if (!examData) {
+    if (!examData || isExamFrozen) {
       return;
     }
 
     const questionId = Number(question.id);
     const current = codingState[questionId] || {
       language: "javascript",
-      code: question.starter_code || defaultCodeForLanguage("javascript"),
+      code: starterCodeFor(question, "javascript"),
       stdin: question.sample_input || "",
       stdout: "",
       stderr: "",
@@ -958,7 +1020,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
     const answerState = examAnswers[question.id] || {};
     const codeState = codingState[Number(question.id)] || {
       language: "javascript",
-      code: question.starter_code || defaultCodeForLanguage("javascript"),
+      code: starterCodeFor(question, "javascript"),
       stdin: question.sample_input || "",
       stdout: "",
       stderr: "",
@@ -988,6 +1050,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
               value={answerState.written_answer || ""}
               onChange={(event) => handleWrittenAnswerChange(question.id, event.target.value)}
               placeholder="Write your answer here..."
+              disabled={isExamFrozen}
             />
           </label>
         ) : qType === "coding" ? (
@@ -999,6 +1062,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
                 onChange={(event) =>
                   handleCodingStateChange(question, { language: event.target.value })
                 }
+                disabled={isExamFrozen}
               >
                 <option value="javascript">JavaScript</option>
                 <option value="python">Python</option>
@@ -1016,21 +1080,25 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
               </div>
             ) : null}
 
-            <label>
+            {/* Deliberately not a <label>: a label forwards clicks to its
+                form control, which steals focus from Monaco's hidden textarea
+                and leaves the editor untypable. */}
+            <div className="form-stack-field">
               <span>Code Editor</span>
-              <Editor
-                height="320px"
-                path={`question-${question.id}.${LANGUAGE_FILE_EXTENSIONS[codeState.language] || "js"}`}
-                language={MONACO_LANGUAGE_IDS[codeState.language] || "javascript"}
-                value={codeState.code}
-                options={monacoEditorOptions}
-                keepCurrentModel
-                loading={<div className="muted small">Loading editor...</div>}
-                onChange={(value) =>
-                  handleCodingStateChange(question, { code: value || "" })
-                }
-              />
-            </label>
+              <div className="code-editor-shell">
+                <Editor
+                  height="320px"
+                  path={`question-${question.id}.${LANGUAGE_FILE_EXTENSIONS[codeState.language] || "js"}`}
+                  language={MONACO_LANGUAGE_IDS[codeState.language] || "javascript"}
+                  value={codeState.code}
+                  options={monacoEditorOptions}
+                  loading={<div className="muted small">Loading editor...</div>}
+                  onChange={(value) =>
+                    handleCodingStateChange(question, { code: value || "" })
+                  }
+                />
+              </div>
+            </div>
 
             <label>
               <span>Custom Input (stdin)</span>
@@ -1041,6 +1109,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
                   handleCodingStateChange(question, { stdin: event.target.value })
                 }
                 placeholder="Provide input for your program..."
+                disabled={isExamFrozen}
               />
             </label>
 
@@ -1048,7 +1117,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
               <button
                 type="button"
                 onClick={() => handleRunCode(question)}
-                disabled={codeState.running}
+                disabled={codeState.running || isExamFrozen}
               >
                 {codeState.running ? "Running..." : "Run"}
               </button>
@@ -1070,6 +1139,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
                   name={`question-${question.id}`}
                   checked={answerState.selected_answer === optIndex}
                   onChange={() => handleMcqAnswerChange(question.id, optIndex)}
+                  disabled={isExamFrozen}
                 />
                 <span>
                   {String.fromCharCode(65 + optIndex)}. {option}
@@ -1107,6 +1177,15 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
             <ProctoringCamera token={tokenRef.current} examId={examData.id} enabled={Boolean(examData.webcam_required)} />
           </div>
         </section>
+
+        {isExamFrozen ? (
+          <section className="card student-panel exam-frozen-notice">
+            <strong>Your teacher has paused your exam.</strong>
+            <p className="muted">
+              You can't change answers until they unfreeze you. The exam timer is still running.
+            </p>
+          </section>
+        ) : null}
 
         {examData.description ? (
           <section className="card student-panel">
@@ -1158,7 +1237,7 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
         </section>
 
         <section className="card student-panel actions-row student-submit-row">
-          <button onClick={() => submitExam()} disabled={submittingExam}>
+          <button onClick={() => submitExam()} disabled={submittingExam || isExamFrozen}>
             {submittingExam ? "Submitting..." : "Submit Exam"}
           </button>
         </section>

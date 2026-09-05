@@ -15,6 +15,13 @@ const SEVERITY_BY_EVENT = {
   no_face: 'medium',
   looking_away: 'low',
   looking_down: 'low',
+  // Desktop-app events (window focus / blocked shortcuts) reported by the
+  // Electron shell, so the teacher sees them live alongside webcam events
+  // instead of only after the student submits.
+  window_blur: 'high',
+  fullscreen_exit: 'high',
+  alt_f4_blocked: 'high',
+  f11_blocked: 'medium',
 };
 
 const HUMAN_LABEL_BY_EVENT = {
@@ -22,6 +29,10 @@ const HUMAN_LABEL_BY_EVENT = {
   no_face: 'No face detected',
   looking_away: 'Looking away from screen',
   looking_down: 'Looking down',
+  window_blur: 'Switched away from the exam window',
+  fullscreen_exit: 'Exited fullscreen',
+  alt_f4_blocked: 'Tried to close the app (Alt+F4)',
+  f11_blocked: 'Pressed F11',
 };
 
 const reportEvent = async (req, res) => {
@@ -29,8 +40,7 @@ const reportEvent = async (req, res) => {
   const studentId = req.user.userId;
   const { event_type, details } = req.body;
 
-  const allowed = ['no_face', 'multiple_faces', 'looking_away', 'looking_down'];
-  if (!allowed.includes(event_type)) {
+  if (!Object.prototype.hasOwnProperty.call(SEVERITY_BY_EVENT, event_type)) {
     return res.status(400).json({ success: false, message: 'Invalid event_type' });
   }
 

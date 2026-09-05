@@ -12,6 +12,8 @@ const {
   submitExam,
   joinExam,
   getExamParticipants,
+  forceSubmitParticipant,
+  toggleParticipantFreeze,
   startExam,
   stopExam,
   getExamStatus,
@@ -44,6 +46,8 @@ router.get('/:id/export-results.csv', protect, authorize('teacher'), exportExamR
 // Public: students join with room code + name + roll number, no prior login
 router.post('/join', joinExam);
 router.get('/:id/participants', protect, authorize('teacher'), getExamParticipants);
+router.post('/:id/participants/:participantId/force-submit', protect, authorize('teacher'), forceSubmitParticipant);
+router.post('/:id/participants/:participantId/toggle-freeze', protect, authorize('teacher'), toggleParticipantFreeze);
 router.post('/:id/start', protect, authorize('teacher'), startExam);
 router.post('/:id/stop', protect, authorize('teacher'), stopExam);
 router.get('/:id/status', protect, getExamStatus);

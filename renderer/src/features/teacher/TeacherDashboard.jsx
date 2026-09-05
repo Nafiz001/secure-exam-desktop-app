@@ -17,7 +17,10 @@ import {
   FaTimes,
   FaSave,
   FaUndo,
-  FaRedo
+  FaRedo,
+  FaLock,
+  FaLockOpen,
+  FaPaperPlane
 } from "react-icons/fa";
 import IconButton from "../../components/IconButton";
 import { ExamListSkeleton, FormSkeleton, ListSkeleton } from "../../components/Skeletons";
@@ -148,6 +151,7 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
   const [duplicatingExam, setDuplicatingExam] = useState(false);
   const [liveTimerText, setLiveTimerText] = useState("--:--");
   const [busyExamId, setBusyExamId] = useState(null);
+  const [busyParticipantId, setBusyParticipantId] = useState(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
   const [proctoringStudents, setProctoringStudents] = useState([]);
@@ -617,6 +621,61 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
       await showAlert({ title: "Error", message: err.message || "Failed to start exam." });
     } finally {
       setBusyExamId(null);
+    }
+  }
+
+  async function handleForceSubmitParticipant(participant) {
+    if (!currentExamId || !participant?.id) return;
+    const confirmed = await showConfirm({
+      title: "Force Submit",
+      message: `Submit ${participant.student_name}'s exam for them? Their current answers are saved and they can't continue.`,
+      confirmText: "Force Submit",
+      cancelText: "Cancel",
+      danger: true
+    });
+    if (!confirmed) return;
+
+    setBusyParticipantId(participant.id);
+    try {
+      await apiRequest(
+        `/exams/${currentExamId}/participants/${participant.id}/force-submit`,
+        { method: "POST" },
+        token
+      );
+      await loadParticipants(currentExamId);
+    } catch (err) {
+      await showAlert({ title: "Error", message: err.message || "Failed to force submit." });
+    } finally {
+      setBusyParticipantId(null);
+    }
+  }
+
+  async function handleToggleFreezeParticipant(participant) {
+    if (!currentExamId || !participant?.id) return;
+    const freezing = !participant.is_frozen;
+    const confirmed = await showConfirm({
+      title: freezing ? "Freeze Screen" : "Unfreeze Screen",
+      message: freezing
+        ? `Lock ${participant.student_name}'s exam screen? They can't answer anything until you unfreeze them.`
+        : `Let ${participant.student_name} carry on with their exam?`,
+      confirmText: freezing ? "Freeze" : "Unfreeze",
+      cancelText: "Cancel",
+      danger: freezing
+    });
+    if (!confirmed) return;
+
+    setBusyParticipantId(participant.id);
+    try {
+      await apiRequest(
+        `/exams/${currentExamId}/participants/${participant.id}/toggle-freeze`,
+        { method: "POST" },
+        token
+      );
+      await loadParticipants(currentExamId);
+    } catch (err) {
+      await showAlert({ title: "Error", message: err.message || "Failed to update freeze state." });
+    } finally {
+      setBusyParticipantId(null);
     }
   }
 
@@ -1412,15 +1471,42 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
 
           {!loadingParticipants && participants.length > 0 ? (
             <ul className="list top-spaced teacher-list">
-              {participants.map((participant) => (
-                <li key={participant.id} className="teacher-list-item">
-                  <strong>{participant.student_name}</strong>
-                  <span>{participant.student_email}</span>
-                  <span>
-                    Joined: {formatDateTime(participant.joined_at)} | Status: {participant.status}
-                  </span>
-                </li>
-              ))}
+              {participants.map((participant) => {
+                const isFrozen = Boolean(participant.is_frozen);
+                const isDone = String(participant.status || "").toLowerCase() === "completed";
+                return (
+                  <li key={participant.id} className="teacher-list-item">
+                    <div className="teacher-list-head">
+                      <strong>{participant.student_name}</strong>
+                      <div className="teacher-list-head-right">
+                        {isFrozen ? <span className="teacher-chip teacher-chip-created">frozen</span> : null}
+                        <span className={`teacher-chip ${isDone ? "teacher-chip-done" : "teacher-chip-wait"}`}>
+                          {participant.status}
+                        </span>
+                      </div>
+                    </div>
+                    <span>{participant.student_email}</span>
+                    <span>Joined: {formatDateTime(participant.joined_at)}</span>
+                    {!isDone ? (
+                      <div className="actions-row teacher-actions">
+                        <IconButton
+                          icon={isFrozen ? <FaLockOpen /> : <FaLock />}
+                          label={isFrozen ? "Unfreeze Screen" : "Freeze Screen"}
+                          onClick={() => handleToggleFreezeParticipant(participant)}
+                          disabled={busyParticipantId === participant.id}
+                        />
+                        <IconButton
+                          icon={<FaPaperPlane />}
+                          label="Force Submit"
+                          variant="danger"
+                          onClick={() => handleForceSubmitParticipant(participant)}
+                          disabled={busyParticipantId === participant.id}
+                        />
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           ) : null}
         </section>
