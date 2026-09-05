@@ -607,10 +607,11 @@ const TeacherDashboard = forwardRef(function TeacherDashboard({ token, onViewCha
 
     setBusyExamId(examId);
     try {
-      await apiRequest(`/exams/${examId}/start`, { method: "POST" }, token);
+      const result = await apiRequest(`/exams/${examId}/start`, { method: "POST" }, token);
       await loadExams();
       if (examId === currentExamId) {
         setExamStatus("in_progress");
+        setExamStartedAt(result?.data?.started_at || new Date().toISOString());
       }
     } catch (err) {
       await showAlert({ title: "Error", message: err.message || "Failed to start exam." });

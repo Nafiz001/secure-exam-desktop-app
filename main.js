@@ -6,34 +6,21 @@
 console.log("[MAIN] ====== main.js loading ======");
 
 const { app, BrowserWindow, ipcMain, globalShortcut } = require("electron");
-const psList = require("ps-list");
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const { spawn } = require("child_process");
 
 console.log("[MAIN] Electron modules loaded");
-console.log("[MAIN] psList type:", typeof psList);
-console.log("[MAIN] psList.default type:", typeof psList.default);
 
 let mainWindow = null;
 let violationCount = 0;
 let examRunning = false;
-let processScanInterval = null;
 let currentUser = null; // Store logged-in user data
 let backendProcess = null;
 const REACT_RENDERER_PATH = path.join(__dirname, "renderer", "dist", "index.html");
 
 const sessionLog = [];
-const MAX_VIOLATIONS = 3;
-
-// Browsers handled via blur (focus loss)
-const FORBIDDEN_PROCESSES = [
-  "obs",
-  "bandicam",
-  "anydesk",
-  "teamviewer"
-];
 
 /* =========================
    LOGGING
@@ -276,11 +263,6 @@ function disableExamMode() {
   mainWindow.setFullScreen(false);
   mainWindow.setAlwaysOnTop(false);
   mainWindow.setVisibleOnAllWorkspaces(false);
-
-  if (processScanInterval) {
-    clearInterval(processScanInterval);
-    processScanInterval = null;
-  }
 }
 
 function refocusIfExam() {
@@ -310,29 +292,6 @@ function registerViolation(type, severity) {
 }
 
 /* =========================
-   PROCESS DETECTION
-========================= */
-async function detectForbiddenProcesses() {
-  if (!examRunning) return;
-
-  try {
-    // Handle both CommonJS and ES module exports
-    const psListFn = psList.default || psList;
-    const processes = await psListFn();
-    
-    for (const proc of processes) {
-      const name = proc.name.toLowerCase();
-      if (FORBIDDEN_PROCESSES.some(p => name.includes(p))) {
-        registerViolation(`FORBIDDEN_PROCESS:${proc.name}`, "high");
-        return;
-      }
-    }
-  } catch (error) {
-    console.error("[PROCESS DETECTION] Error:", error.message);
-  }
-}
-
-/* =========================
    IPC HANDLERS
 ========================= */
 ipcMain.on("start-exam", (event, examData) => {
@@ -352,9 +311,6 @@ ipcMain.on("start-exam", (event, examData) => {
   }
 
   enableExamMode();
-
-  if (processScanInterval) clearInterval(processScanInterval);
-  processScanInterval = setInterval(detectForbiddenProcesses, 1000);
 });
 
 ipcMain.on("set-user-data", (event, userData) => {

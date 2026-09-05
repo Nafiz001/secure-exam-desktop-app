@@ -70,27 +70,36 @@ function shuffleQuestionsForStudent(questions, seedKey) {
 }
 
 async function syncExpiredExamStatuses() {
-  const expiredExamResult = await pool.query(
+  await pool.query(
     `UPDATE exams
      SET status = 'completed',
          updated_at = CURRENT_TIMESTAMP
      WHERE status = 'in_progress'
        AND started_at IS NOT NULL
-       AND started_at + (duration * INTERVAL '1 minute') <= CURRENT_TIMESTAMP
-     RETURNING id`
+       AND started_at + (duration * INTERVAL '1 minute') <= CURRENT_TIMESTAMP`
   );
 
-  const expiredExamIds = expiredExamResult.rows.map((row) => Number(row.id)).filter(Number.isInteger);
-  if (expiredExamIds.length === 0) {
-    return;
-  }
-
+  // Nobody is still 'taking' an exam that has ended. Keyed off the exam's
+  // current status rather than only the ones that just expired, so rows left
+  // behind by an earlier run (or a submit that raced the clock) get repaired.
   await pool.query(
-    `UPDATE exam_participants
+    `UPDATE exam_participants ep
      SET status = 'completed'
-     WHERE exam_id = ANY($1::INT[])
-       AND status = 'taking'`,
-    [expiredExamIds]
+     FROM exams e
+     WHERE ep.exam_id = e.id
+       AND e.status = 'completed'
+       AND ep.status = 'taking'`
+  );
+
+  // A student who already handed in is done, even if the exam is still open
+  // for everyone else.
+  await pool.query(
+    `UPDATE exam_participants ep
+     SET status = 'completed'
+     FROM submissions s
+     WHERE s.exam_id = ep.exam_id
+       AND s.student_id = ep.student_id
+       AND ep.status = 'taking'`
   );
 }
 
@@ -741,6 +750,15 @@ const submitExam = async (req, res) => {
       ]
     );
 
+    // The participant row is what the teacher's lists read, so mark this
+    // student done — otherwise they stay 'taking' after handing in.
+    await pool.query(
+      `UPDATE exam_participants
+       SET status = 'completed'
+       WHERE exam_id = $1 AND student_id = $2`,
+      [examId, studentId]
+    );
+
     const submission = result.rows[0];
     const responseSubmission = showResultsToStudents
       ? { ...submission, results_hidden: false }
@@ -1008,11 +1026,16 @@ const startExam = async (req, res) => {
       });
     }
 
-    const startedAt = new Date();
-    await pool.query(
-      'UPDATE exams SET status = $1, started_at = $2 WHERE id = $3',
-      ['in_progress', startedAt, examId]
+    // Stamp from the database clock, the same clock the expiry check compares
+    // against, so an exam can't drift out of sync with its own deadline.
+    const startResult = await pool.query(
+      `UPDATE exams
+       SET status = 'in_progress', started_at = CURRENT_TIMESTAMP
+       WHERE id = $1
+       RETURNING started_at`,
+      [examId]
     );
+    const startedAt = startResult.rows[0].started_at;
 
     await pool.query(
       'UPDATE exam_participants SET status = $1 WHERE exam_id = $2',

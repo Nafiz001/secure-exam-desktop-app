@@ -7,10 +7,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("violation", callback);
     return () => ipcRenderer.removeListener("violation", callback);
   },
-  onForceSubmit: (callback) => {
-    ipcRenderer.on("force-submit", callback);
-    return () => ipcRenderer.removeListener("force-submit", callback);
-  },
   startExam: (examData) => {
     console.log("[PRELOAD] startExam called with:", examData);
     ipcRenderer.send("start-exam", examData);

@@ -123,16 +123,16 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
   const [submittingExam, setSubmittingExam] = useState(false);
   const [examSubmitMessage, setExamSubmitMessage] = useState("");
   const [codingState, setCodingState] = useState({});
-  const [warningMessage, setWarningMessage] = useState("");
-  const [warningSeverity, setWarningSeverity] = useState("medium");
-  const [violationCount, setViolationCount] = useState(0);
+  // Violations are still recorded and sent with the submission for the
+  // teacher's proctoring view, but the student's own screen stays quiet —
+  // no counts, no risk banners, no auto-submit. The teacher decides what to
+  // do about a flagged student.
   const [examViolations, setExamViolations] = useState([]);
 
   const tokenRef = useRef(token);
   const waitingPollIntervalRef = useRef(null);
   const examTimerIntervalRef = useRef(null);
   const examControlPollIntervalRef = useRef(null);
-  const warningTimeoutRef = useRef(null);
   const submissionInProgressRef = useRef(false);
   const viewRef = useRef(view);
   const examDataRef = useRef(examData);
@@ -201,28 +201,17 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
     }
   }, []);
 
-  const clearWarningTimer = useCallback(() => {
-    if (warningTimeoutRef.current) {
-      clearTimeout(warningTimeoutRef.current);
-      warningTimeoutRef.current = null;
-    }
-  }, []);
-
   const resetExamState = useCallback(() => {
     clearExamTimer();
     clearExamControlPolling();
-    clearWarningTimer();
     setExamData(null);
     setCurrentQuestionIndex(0);
     setExamAnswers({});
     setCodingState({});
     setExamViolations([]);
-    setViolationCount(0);
     setTimerText("--:--");
-    setWarningMessage("");
-    setWarningSeverity("medium");
     setExamSubmitMessage("");
-  }, [clearExamControlPolling, clearExamTimer, clearWarningTimer]);
+  }, [clearExamControlPolling, clearExamTimer]);
 
   const forceAutoSubmitExam = useCallback(
     async (examId, autoSubmitReason) => {
@@ -519,9 +508,8 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
   );
 
   // Polled while actively taking an exam (not the waiting room) — catches
-  // the two things the local countdown alone can't: the teacher manually
-  // ending the exam early, and a proctoring violation-count threshold being
-  // reached server-side (force_submit_requested).
+  // the one thing the local countdown alone can't: the teacher manually
+  // ending the exam early.
   const checkExamControl = useCallback(
     async (examId) => {
       try {
@@ -531,15 +519,6 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
         if (data.status === "completed") {
           clearExamControlPolling();
           await forceAutoSubmitExam(examId, "Your teacher ended the exam. Your answers were submitted automatically.");
-          return;
-        }
-
-        if (data.force_submit_requested) {
-          clearExamControlPolling();
-          await forceAutoSubmitExam(
-            examId,
-            "Exam auto-submitted due to repeated proctoring violations."
-          );
         }
       } catch (err) {
         console.error("Exam control check error:", err);
@@ -744,9 +723,6 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
         return;
       }
 
-      setViolationCount(data.count || 0);
-      setWarningSeverity(data.severity || "medium");
-      setWarningMessage(`${String(data.severity || "medium").toUpperCase()} RISK: ${data.type}`);
       setExamViolations((prev) => [
         ...prev,
         {
@@ -755,44 +731,22 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
           timestamp: new Date().toISOString()
         }
       ]);
-
-      clearWarningTimer();
-      warningTimeoutRef.current = setTimeout(() => {
-        setWarningMessage("");
-      }, 4000);
-    });
-
-    const unsubscribeForceSubmit = window.electronAPI.onForceSubmit(() => {
-      if (viewRef.current !== "exam") {
-        return;
-      }
-
-      if (submitExamRef.current) {
-        submitExamRef.current({
-          autoSubmit: true,
-          autoSubmitReason: "Exam auto-submitted due to forbidden application."
-        });
-      }
     });
 
     return () => {
       if (typeof unsubscribeViolation === "function") {
         unsubscribeViolation();
       }
-      if (typeof unsubscribeForceSubmit === "function") {
-        unsubscribeForceSubmit();
-      }
     };
-  }, [clearWarningTimer]);
+  }, []);
 
   useEffect(() => {
     return () => {
       clearWaitingPolling();
       clearExamTimer();
       clearExamControlPolling();
-      clearWarningTimer();
     };
-  }, [clearExamControlPolling, clearExamTimer, clearWaitingPolling, clearWarningTimer]);
+  }, [clearExamControlPolling, clearExamTimer, clearWaitingPolling]);
 
   function handleMcqAnswerChange(questionId, selectedOption) {
     setExamAnswers((prev) => ({
@@ -1142,24 +1096,21 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
 
     return (
       <>
-        <section className="card student-panel student-panel-exam-header">
+        <section className="card student-panel student-panel-exam-header sticky-exam-header">
           <div className="card-head">
             <div>
               <h2 className="student-title">{examData.title}</h2>
               <div className="badge-row">
                 <span className="badge">Time Left: {timerText}</span>
-                <span className="badge">Violations: {violationCount}</span>
-                {examData.webcam_required ? <span className="badge">Proctored</span> : null}
               </div>
-              <p className="muted question-text-block">{examData.description || "No description"}</p>
             </div>
             <ProctoringCamera token={tokenRef.current} examId={examData.id} enabled={Boolean(examData.webcam_required)} />
           </div>
         </section>
 
-        {warningMessage ? (
-          <section className={`card warning-card ${warningSeverity === "high" ? "warning-high" : "warning-medium"}`}>
-            <strong>{warningMessage}</strong>
+        {examData.description ? (
+          <section className="card student-panel">
+            <p className="muted question-text-block">{examData.description}</p>
           </section>
         ) : null}
 

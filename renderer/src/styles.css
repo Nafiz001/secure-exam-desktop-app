@@ -640,20 +640,13 @@ button.danger:hover {
   font-weight: 600;
 }
 
-.warning-card {
-  border-width: 2px;
-}
-
-.warning-medium {
-  border-color: #f59e0b;
-  background: #fffbeb;
-  color: #92400e;
-}
-
-.warning-high {
-  border-color: #ef4444;
-  background: #fef2f2;
-  color: #991b1b;
+/* Keeps the title, timer, and camera visible while scrolling through a long
+   question list — the only state a student needs to see at a glance. */
+.sticky-exam-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: #ffffff;
 }
 
 .question-stack {
@@ -712,19 +705,28 @@ button.danger:hover {
 .option-row {
   border: 1px solid #dbe2f0;
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 0.6rem 0.75rem;
   display: flex;
-  gap: 8px;
-  align-items: flex-start;
+  gap: 0.6rem;
+  align-items: center;
   cursor: pointer;
 }
 
+/* Fixed px, like the other checkboxes/radios in the app — otherwise the
+   browser's native control balloons alongside a large root font-size. */
 .option-row input[type="radio"] {
-  margin-top: 4px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
 }
 
+/* flex:1 + min-width:0 so the text always claims the leftover width. Without
+   it, anything that makes the radio wide squeezes this to one character per
+   line and the option renders as a vertical stack. */
 .option-row span {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.95rem;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -2020,13 +2022,6 @@ button.danger:hover {
   transition: opacity 160ms ease;
 }
 
-.proctor-cam-overlay {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
 
 .proctor-cam-status {
   position: absolute;

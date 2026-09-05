@@ -55,37 +55,6 @@ function estimateHeadPose(prediction) {
   }
 }
 
-// ─── Draw live face boxes on overlay canvas ───────────────────────────────────
-function drawOverlay(canvas, video, predictions) {
-  if (!canvas || !video) return;
-  if (canvas.width !== DISPLAY_W) canvas.width = DISPLAY_W;
-  if (canvas.height !== DISPLAY_H) canvas.height = DISPLAY_H;
-  const ctx = canvas.getContext("2d");
-  const scaleX = DISPLAY_W / (video.videoWidth || 640);
-  const scaleY = DISPLAY_H / (video.videoHeight || 480);
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  predictions.forEach((pred) => {
-    const [x1, y1] = pred.topLeft;
-    const [x2, y2] = pred.bottomRight;
-    const w = (x2 - x1) * scaleX;
-    const h = (y2 - y1) * scaleY;
-    const x = x1 * scaleX;
-    const y = y1 * scaleY;
-
-    const ok = predictions.length === 1;
-    ctx.strokeStyle = ok ? "#22c55e" : "#ef4444";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, w, h);
-
-    const score = pred.probability?.[0] ?? 0;
-    ctx.fillStyle = ok ? "#22c55e" : "#ef4444";
-    ctx.font = "bold 10px sans-serif";
-    ctx.fillText(`${Math.round(score * 100)}%`, x + 2, y - 3);
-  });
-}
-
 const STATUS_MESSAGES = {
   loading: "Loading detection model...",
   denied: "Camera access denied. Enable camera permission to continue.",
@@ -95,7 +64,6 @@ const STATUS_MESSAGES = {
 
 export default function ProctoringCamera({ token, examId, enabled }) {
   const videoRef = useRef(null);
-  const overlayRef = useRef(null); // live face-box canvas
   const snapshotCanvasRef = useRef(null); // off-screen snapshot canvas
   const streamRef = useRef(null);
   const modelRef = useRef(null);
@@ -163,8 +131,6 @@ export default function ProctoringCamera({ token, examId, enabled }) {
     const predictions = await modelRef.current.estimateFaces(video, false);
     const faceCount = predictions.length;
 
-    drawOverlay(overlayRef.current, video, predictions);
-
     let status = faceCount === 1 ? "ok" : "violation";
     let eventType = null;
     let details = `faces:${faceCount}`;
@@ -227,8 +193,6 @@ export default function ProctoringCamera({ token, examId, enabled }) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
-    const canvas = overlayRef.current;
-    if (canvas) canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
   }, []);
 
   useEffect(() => {
@@ -268,10 +232,6 @@ export default function ProctoringCamera({ token, examId, enabled }) {
         if (video) {
           video.srcObject = stream;
           await video.play();
-          if (overlayRef.current) {
-            overlayRef.current.width = DISPLAY_W;
-            overlayRef.current.height = DISPLAY_H;
-          }
         }
 
         setCameraStatus("ok");
@@ -306,8 +266,6 @@ export default function ProctoringCamera({ token, examId, enabled }) {
         style={{ opacity: cameraStatus === "ok" ? 1 : 0 }}
         aria-label="Webcam proctoring feed"
       />
-
-      <canvas ref={overlayRef} className="proctor-cam-overlay" aria-hidden="true" />
 
       {cameraStatus !== "ok" ? (
         <div className={`proctor-cam-status ${cameraStatus === "loading" ? "proctor-cam-status-loading" : "proctor-cam-status-error"}`}>
