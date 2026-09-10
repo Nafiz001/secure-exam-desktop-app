@@ -615,7 +615,8 @@ CREATE TABLE exam_participants (
 
 ## License
 
-This project is proprietary and confidential, developed as an academic project.
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for more details.
+
 
 ---
 
