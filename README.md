@@ -27,8 +27,10 @@ This document describes the system architecture, the architectural and design pa
 - [API Reference](#api-reference)
 - [Database Schema](#database-schema)
 - [Security Notes](#security-notes)
+- [Webcam Proctoring, Consent & Data Handling](#webcam-proctoring-consent--data-handling)
 - [Roadmap](#roadmap)
 - [License](#license)
+- [Authors](#authors)
 
 ---
 
@@ -603,6 +605,21 @@ CREATE TABLE exam_participants (
 
 ---
 
+## Webcam Proctoring, Consent & Data Handling
+
+Webcam proctoring is **opt-in per exam** (`exams.webcam_required`) and, where enabled, requires explicit student consent before the camera is activated.
+
+- **Consent gate.** Before any camera access, the student is shown a dialog describing exactly what is captured, where it goes, and how long it is kept. Declining aborts the exam launch; the camera is never opened. See `startExamSession` in `renderer/src/features/student/StudentDashboard.jsx`.
+- **On-device inference.** Face and head-pose detection run locally in the renderer via TensorFlow.js (BlazeFace). The video stream is never transmitted or recorded, and no image is sent to any third party.
+- **What leaves the machine.** A single low-resolution JPEG still (320×240, quality 0.5) is posted to the institution's own backend every 3 seconds, together with a face count and status. Violation events (no face, multiple faces, looking away/down, plus window and keyboard events) are logged as rows.
+- **Retention.** `proctoring_snapshots` is keyed by `(exam_id, student_id)` and written with `ON CONFLICT DO UPDATE`, so **only the most recent still per student is retained** — snapshots are overwritten, not accumulated. Both snapshots and events are `ON DELETE CASCADE` from the exam and the user, so deleting an exam or an account removes them.
+- **Access.** Snapshots and event logs are readable only by the teacher who owns the exam; every proctoring read endpoint verifies `exams.created_by` against the requesting teacher.
+- **Self-hosted by design.** The backend and database are operated by the institution, so proctoring data never reaches the software's authors or any external processor.
+
+Institutions deploying Invigilo remain responsible for compliance with their own regulations governing biometric and educational data.
+
+---
+
 ## Roadmap
 
 - [ ] Analytics dashboard for teachers (exam/participation reporting)
@@ -618,7 +635,9 @@ This project is licensed under [MIT License](LICENSE).
 
 ---
 
-## Author
+## Authors
 
 **Md. Nafiz Ahmed**
 **Dewan Salman Rahman Zisan**
+
+**Supervisor:** Waliul Islam Sumon

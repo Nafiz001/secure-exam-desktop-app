@@ -473,11 +473,18 @@ export default function StudentDashboard({ token, user, onAuthenticated, onViewC
 
         if (exam.webcam_required) {
           const agreed = await showConfirm({
-            title: "Webcam Required",
+            title: "Webcam Proctoring — Your Consent",
             message:
-              "This exam requires your webcam for proctoring. Your camera will be active throughout the exam and periodic snapshots will be recorded for the teacher to review. Do you want to allow camera access and proceed?",
-            confirmText: "Allow & Start Exam",
-            cancelText: "Cancel"
+              "This exam is proctored using your webcam.\n\n" +
+              "What happens:\n" +
+              "• Face detection runs on this computer. Your video is not streamed or recorded.\n" +
+              "• Every few seconds a single still image is sent to your teacher's exam server, replacing the previous one. Only the most recent image is kept.\n" +
+              "• Events such as no face, multiple faces, or looking away are logged for your teacher, along with window and keyboard activity.\n" +
+              "• Images and logs are deleted when the exam is deleted, and are visible only to the teacher running this exam.\n\n" +
+              "You can decline, but this exam cannot be taken without webcam proctoring.\n\n" +
+              "Do you consent to webcam proctoring for this exam?",
+            confirmText: "I Consent — Start Exam",
+            cancelText: "Decline"
           });
 
           if (!agreed) {

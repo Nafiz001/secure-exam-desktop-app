@@ -887,8 +887,14 @@ button.danger:hover {
   z-index: 9999;
 }
 
+/* Long content (e.g. the webcam consent notice) must never push the title or
+   the action buttons off-screen, so the card is capped to the viewport and
+   only the message area scrolls. */
 .modal-card {
   width: min(520px, 100%);
+  max-height: calc(100vh - 36px);
+  display: flex;
+  flex-direction: column;
   background: #ffffff;
   border: 1px solid #dbe2f0;
   border-radius: 14px;
@@ -901,6 +907,7 @@ button.danger:hover {
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .modal-head h3 {
@@ -936,6 +943,8 @@ button.danger:hover {
   color: #334155;
   margin-top: 10px;
   margin-bottom: 14px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .modal-actions {
@@ -943,6 +952,7 @@ button.danger:hover {
   justify-content: flex-end;
   gap: 0.625rem;
   margin-top: 0.25rem;
+  flex-shrink: 0;
 }
 
 .modal-actions button {
