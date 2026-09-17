@@ -3,13 +3,12 @@ import * as tf from "@tensorflow/tfjs";
 import "@tensorflow/tfjs-backend-webgl"; // GPU backend — no WASM needed
 import * as blazeface from "@tensorflow-models/blazeface";
 import { apiRequest } from "../../api";
-
-// ─── Thresholds ──────────────────────────────────────────────────────────────
-// Yaw (left-right): (noseTip.x - eyeMid.x) / eyeWidth
-const YAW_THRESHOLD = 0.32;
-// Pitch (up-down):  (noseTip.y - eyeMid.y) / faceHeight
-const PITCH_DOWN_THRESHOLD = 0.70; // head dropped -> phone/notes
-const PITCH_UP_THRESHOLD = 0.05;   // head raised -> looking up/away
+import {
+  YAW_THRESHOLD,
+  PITCH_DOWN_THRESHOLD,
+  PITCH_UP_THRESHOLD,
+  estimateHeadPose
+} from "./headPose";
 
 // Snapshot upload interval — 3s so teacher sees near-live frames
 const SNAPSHOT_INTERVAL_MS = 3000;
@@ -29,31 +28,6 @@ const CAMERA_WARMUP_MS = 5000;
 // After warmup, also discard the first N detection frames silently so the
 // student has a moment to position themselves before any event is reported.
 const STABILIZATION_FRAMES = 8;
-
-// ─── Head pose from BlazeFace keypoints ──────────────────────────────────────
-// BlazeFace landmark order: 0=rightEye, 1=leftEye, 2=noseTip, 3=mouth,
-//                           4=rightEar, 5=leftEar
-function estimateHeadPose(prediction) {
-  try {
-    const lms = prediction.landmarks; // [[x,y], ...]
-    const rightEye = lms[0];
-    const leftEye = lms[1];
-    const noseTip = lms[2];
-
-    const eyeMidX = (leftEye[0] + rightEye[0]) / 2;
-    const eyeMidY = (leftEye[1] + rightEye[1]) / 2;
-    const eyeWidth = Math.abs(rightEye[0] - leftEye[0]);
-    const faceH = prediction.bottomRight[1] - prediction.topLeft[1];
-
-    if (eyeWidth < 1 || faceH < 1) return { yaw: 0, pitch: 0.4 };
-
-    const yaw = (noseTip[0] - eyeMidX) / eyeWidth; // left-right
-    const pitch = (noseTip[1] - eyeMidY) / faceH; // up-down
-    return { yaw, pitch };
-  } catch {
-    return { yaw: 0, pitch: 0.4 };
-  }
-}
 
 const STATUS_MESSAGES = {
   loading: "Loading detection model...",

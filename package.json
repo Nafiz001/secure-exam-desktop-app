@@ -4,12 +4,15 @@
   "description": "Invigilo — a self-hosted Electron desktop application for conducting proctored online examinations, with webcam-based face/gaze detection, OS-level exam lockdown, and offline multi-language code execution.",
   "main": "main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "npm run test:renderer && npm run test:backend",
+    "test:renderer": "node --test renderer/test/**/*.test.js",
+    "test:backend": "npm --prefix backend test",
     "install:backend": "npm --prefix backend install --omit=dev",
     "start": "npm run build:renderer && electron .",
     "dev:renderer": "vite --config renderer/vite.config.mjs",
     "build:renderer": "vite build --config renderer/vite.config.mjs",
     "start:react": "npm run start",
+    "calibrate": "vite --config tools/calibration/vite.config.mjs",
     "pack:win": "npm run build:renderer && npm run install:backend && electron-builder --win nsis portable --config.win.signAndEditExecutable=false"
   },
   "repository": {

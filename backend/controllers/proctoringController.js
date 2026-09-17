@@ -217,4 +217,12 @@ const getStudentEvents = async (req, res) => {
   }
 };
 
-module.exports = { reportEvent, uploadSnapshot, getStudentsStatus, getStudentEvents };
+module.exports = {
+  reportEvent,
+  uploadSnapshot,
+  getStudentsStatus,
+  getStudentEvents,
+  // Exported for unit testing (see backend/test/).
+  SEVERITY_BY_EVENT,
+  HUMAN_LABEL_BY_EVENT
+};

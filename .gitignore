@@ -3,3 +3,4 @@ renderer/dist
 COPILOT_CONTEXT.md
 dist
 systemreport
+headpose-calibration-*.csv

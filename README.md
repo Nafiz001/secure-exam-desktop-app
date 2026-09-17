@@ -57,7 +57,7 @@ flowchart TB
 
         subgraph MainProc["Main Process — main.js"]
             WM["Window Manager<br/>(BrowserWindow, fullscreen/kiosk control)"]
-            Proctor["Proctoring Monitor<br/>(process scan via ps-list, blur/focus events)"]
+            Proctor["Proctoring Monitor<br/>(globalShortcut blocks, window blur/fullscreen-exit events)"]
             Spawner["Backend Supervisor<br/>(spawns & health-checks Express server)"]
         end
 
@@ -369,6 +369,12 @@ npm start
 ```
 This builds the renderer and launches the Electron app, which in turn spawns the backend automatically. For frontend-only iteration, `npm run dev:renderer` starts the Vite dev server independently.
 
+### 5. Run the tests
+```bash
+npm test
+```
+Runs the renderer test suite (`renderer/test/` — pure logic: head-pose estimation and event classification, no browser/TensorFlow needed) followed by the backend suite (`backend/test/` — JWT auth middleware, room-code generation, the violation-severity taxonomy, and `submitExam`'s grading branches against a scripted mock of the database). Both use Node's built-in test runner (`node:test`, Node 22+), so no test framework is an added dependency. Run them independently with `npm run test:renderer` or `npm run test:backend`.
+
 ---
 
 ## Download
@@ -617,6 +623,18 @@ Webcam proctoring is **opt-in per exam** (`exams.webcam_required`) and, where en
 - **Self-hosted by design.** The backend and database are operated by the institution, so proctoring data never reaches the software's authors or any external processor.
 
 Institutions deploying Invigilo remain responsible for compliance with their own regulations governing biometric and educational data.
+
+### Head-pose detection thresholds
+
+`ProctoringCamera.jsx` flags `looking_away` / `looking_down` from three constants defined in `renderer/src/features/student/headPose.js`:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `YAW_THRESHOLD` | 0.32 | abs(noseTip.x - eyeMid.x) / eyeWidth beyond this -> head turned left/right |
+| `PITCH_DOWN_THRESHOLD` | 0.70 | `(noseTip.y - eyeMid.y) / faceHeight` above this -> head dropped (phone/notes) |
+| `PITCH_UP_THRESHOLD` | 0.05 | below this -> head raised / looking above the screen |
+
+**These are currently hand-set from inspecting sample frames, not derived from a labeled dataset** — the same limitation applies to most small deployments of this kind of heuristic, but it means the false-positive/false-negative rate at these exact values is unmeasured. A calibration tool is included to fix this: `npm run calibrate` launches a page (`tools/calibration/`) that runs the exact same `estimateHeadPose()` function against a live webcam, lets you label captured samples (straight / left / right / down / up), and exports them as CSV with per-label percentile summaries. It is never bundled into the packaged app. Collecting labeled samples from several people and recomputing the thresholds from that data — e.g. the midpoint between the 95th percentile of "straight" and the 5th percentile of the deviation class — would let this section report actual precision/recall instead of asserting the constants are reasonable.
 
 ---
 
