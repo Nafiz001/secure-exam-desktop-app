@@ -4,7 +4,7 @@
   <img src="./docs/slides/slide1.png" alt="Invigilo — Cover" width="100%" />
 </p>
 
-A secure desktop application for conducting proctored online examinations, built with **Electron**, **React**, **Express**, and **PostgreSQL**. Invigilo supports multiple-choice, written, and auto-graded coding questions, a passwordless room-code join flow for students, and real-time exam lifecycle management for teachers.
+A secure desktop application for conducting proctored online examinations, built with **Electron**, **React**, **Express**, and **PostgreSQL**. Invigilo supports multiple-choice (auto-graded), written, and coding questions with in-app code execution, a passwordless room-code join flow for students, and real-time exam lifecycle management for teachers.
 
 This document describes the system architecture, the architectural and design patterns applied, and instructions to build and run the project — written to accompany the project's academic/journal submission.
 
@@ -36,7 +36,7 @@ This document describes the system architecture, the architectural and design pa
 
 Invigilo is packaged as a single Electron desktop application with an embedded backend process, so invigilators and students only ever run one executable. Internally it is composed of three cooperating layers:
 
-1. **Desktop shell (Electron main process)** — owns the OS-level window, spawns and supervises the backend API as a child process, and performs local proctoring (forbidden-process detection, window-focus/blur monitoring, forced full-screen during an active exam).
+1. **Desktop shell (Electron main process)** — owns the OS-level window, spawns and supervises the backend API as a child process, and performs local proctoring (window-focus/blur monitoring, blocked keyboard shortcuts, forced full-screen during an active exam).
 2. **Presentation layer (React renderer, built with Vite)** — role-specific single-page dashboards for Teacher and Student, talking to the backend exclusively over a local HTTP REST API.
 3. **Application/data layer (Express + PostgreSQL)** — stateless, JWT-authenticated REST API implementing exam, question, submission, and code-execution logic, backed by a PostgreSQL database (Supabase-hosted).
 
@@ -77,7 +77,7 @@ flowchart TB
         Routes["Routes<br/>/api/auth · /api/exams · /api/uploads"]
         MW["Middleware<br/>JWT auth (protect) · role guard (authorize) · multer upload"]
         Ctrl["Controllers<br/>auth · exam · question · code execution · upload"]
-        Exec["Local Code Execution Sandbox<br/>(spawns node / python / gcc / g++ per temp dir)"]
+        Exec["Local Code Execution Runner<br/>(spawns node / python / gcc / g++ per temp dir)"]
         Routes --> MW --> Ctrl
         Ctrl --> Exec
     end
@@ -107,7 +107,7 @@ The system is best described as a **three-tier client–server architecture**, d
 | Request authorization | **Chain of Responsibility** (`protect` → `authorize(role)` Express middleware chain) | Each request passes through a sequence of independent handlers, any of which can short-circuit the chain (401/403) before it reaches the controller. |
 | Cross-cutting session handling | **Interceptor pattern** (`api.js`'s `apiRequest`/`apiUpload` + registered `unauthorizedHandler`) | Every network call is funneled through one interceptor that centrally detects an expired/invalid session (HTTP 401) and triggers a single, consistent logout — instead of scattering that check across every screen. |
 | Frontend state/UI | **Component-based architecture** (React) with a **Provider pattern** (`ModalProvider` / React Context) for cross-cutting UI concerns (confirm/alert dialogs) | Keeps dashboards declarative and avoids prop-drilling modal state through every feature component. |
-| Proctoring | **Observer pattern** (Electron main process observes OS-level signals — window blur, forbidden processes — and emits IPC events the renderer subscribes to) | Decouples *detection* (main process, privileged) from *reaction* (renderer, e.g. showing a warning or auto-submitting), which is also a security boundary: the renderer cannot be tricked into suppressing a violation it never controls. |
+| Proctoring | **Observer pattern** (Electron main process observes OS-level signals — window blur, full-screen exit, blocked shortcuts — and emits IPC events the renderer subscribes to) | Decouples *detection* (main process, privileged) from *reaction* (renderer, which records the violation and reports it to the server for the teacher's live view), which is also a security boundary: the renderer cannot be tricked into suppressing a violation it never controls. |
 | Code execution | **Strategy pattern** (`normalizeLanguage` + per-language compile/run branch in `codeExecutionController.js`) | Each supported language (JavaScript, Python, C, C++) is an interchangeable execution strategy behind one `runProgram()` entry point, making it straightforward to add a new language without touching call sites. |
 
 **Why this combination, and not an alternative:**
@@ -159,7 +159,7 @@ sequenceDiagram
     opt Coding question
         S->>UI_S: Write code, click Run
         UI_S->>API: POST /api/exams/:id/run-code
-        API->>API: compile/run in sandboxed temp dir (node/python/gcc/g++)
+        API->>API: compile/run in a per-request temp dir (node/python/gcc/g++)
         API-->>UI_S: stdout / stderr
     end
 
@@ -204,12 +204,11 @@ sequenceDiagram
 - Waiting room with live participant count until the teacher starts the exam
 - Live countdown timer with automatic submission at time-out
 - In-browser code editor (Monaco) for coding questions with **offline** Run support for **JavaScript, Python, C, and C++**
-- Automatic re-submission on forbidden-application detection or repeated focus-loss violations
 
 ### Proctoring (Electron main process)
 - Forced full-screen / always-on-top window during an active exam
-- Forbidden-process detection (e.g., screen recorders, remote-desktop tools) via periodic process scanning
-- Window blur/focus-loss violation tracking with configurable severity and an auto-submit threshold
+- Blocked keyboard shortcuts while an exam is running (Alt+F4, Ctrl+W, Ctrl+Shift+I, F11 and others); OS-reserved combinations such as the Windows key and Alt+Tab cannot be intercepted reliably, so window blur acts as the backstop for those
+- Window blur/focus-loss and full-screen-exit violation tracking with per-event severity, reported live to the teacher's proctoring view — violations are never auto-submitted on the student's behalf; the teacher decides how to respond
 
 ### File Uploads
 - Teacher-only question image upload (PNG/JPEG/WEBP/GIF, 5 MB limit) served from a whitelisted `/uploads/questions/` path — upload payloads are validated so a request cannot smuggle in an arbitrary external URL
@@ -234,7 +233,7 @@ sequenceDiagram
 - **JWT (jsonwebtoken)** — stateless authentication
 - **bcrypt** — password hashing
 - **multer** — multipart image upload handling
-- Local **gcc / g++ / node / python** invocations for sandboxed, offline code execution (no external judge/API dependency)
+- Local **gcc / g++ / node / python** invocations for offline code execution in a per-request temporary directory with a bounded timeout (no external judge/API dependency) — see [Security Notes](#security-notes) for the isolation caveat
 
 ---
 
@@ -257,7 +256,7 @@ secure-exam-desktop-app/
 │   │   ├── authController.js     # login, teacher self-registration, change-password
 │   │   ├── examController.js     # exam CRUD, room-code join, start, status
 │   │   ├── questionController.js # question CRUD, submissions, evaluation
-│   │   ├── codeExecutionController.js  # sandboxed JS/Python/C/C++ execution
+│   │   ├── codeExecutionController.js  # local JS/Python/C/C++ execution
 │   │   └── uploadController.js   # question image upload endpoint
 │   └── routes/                   # auth.js · exams.js · uploads.js
 │
@@ -279,7 +278,7 @@ secure-exam-desktop-app/
 
 ## Screenshots
 
-Screenshots of the running application. All images live under [`docs/screenshots/`](./docs/screenshots/).
+Screenshots of the running application, captured from the current build (September 2026). All images live under [`docs/screenshots/`](./docs/screenshots/).
 
 ### App Screens
 
@@ -494,7 +493,7 @@ Base URL: `http://localhost:5000/api`
 | PUT | `/questions/:id` | Teacher | Update a question |
 | DELETE | `/questions/:id` | Teacher | Delete a question |
 | POST | `/:id/submit` | Student | Submit exam answers |
-| POST | `/:id/run-code` | Student | Run code for a coding question (sandboxed) |
+| POST | `/:id/run-code` | Student | Run code for a coding question (local temp dir, bounded timeout) |
 | GET | `/:examId/submissions` | Teacher | List submissions |
 | GET | `/:examId/evaluation/participants` | Teacher | Evaluation participant list |
 | GET | `/:examId/evaluation/submissions/:sid` | Teacher | Get one student's answer sheet |

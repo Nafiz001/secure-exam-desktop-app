@@ -13,8 +13,12 @@
     "security",
     "authentication"
   ],
-  "author": "Dewan",
-  "license": "ISC",
+  "author": "Md. Nafiz Ahmed",
+  "contributors": [
+    "Md. Nafiz Ahmed",
+    "Dewan Salman Rahman Zisan"
+  ],
+  "license": "MIT",
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",

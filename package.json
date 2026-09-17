@@ -1,7 +1,7 @@
 {
   "name": "secure-exam-desktop-app",
   "version": "1.0.0",
-  "description": "",
+  "description": "Invigilo — a self-hosted Electron desktop application for conducting proctored online examinations, with webcam-based face/gaze detection, OS-level exam lockdown, and offline multi-language code execution.",
   "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -16,9 +16,20 @@
     "type": "git",
     "url": "git+https://github.com/Nafiz001/secure-exam-desktop-app.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "exam",
+    "proctoring",
+    "electron",
+    "e-assessment",
+    "face-detection",
+    "code-execution"
+  ],
+  "author": "Md. Nafiz Ahmed",
+  "contributors": [
+    "Md. Nafiz Ahmed",
+    "Dewan Salman Rahman Zisan"
+  ],
+  "license": "MIT",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/Nafiz001/secure-exam-desktop-app/issues"
