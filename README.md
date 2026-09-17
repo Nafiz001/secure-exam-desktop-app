@@ -1,5 +1,7 @@
 # Invigilo — Secure Exam Desktop Application
 
+[![Build & Test](https://github.com/Nafiz001/secure-exam-desktop-app/actions/workflows/build.yml/badge.svg)](https://github.com/Nafiz001/secure-exam-desktop-app/actions/workflows/build.yml)
+
 <p align="center">
   <img src="./docs/slides/slide1.png" alt="Invigilo — Cover" width="100%" />
 </p>

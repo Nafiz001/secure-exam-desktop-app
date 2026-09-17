@@ -1,0 +1,49 @@
+name: Build & Test
+
+# Runs on every push and pull request against main: installs both the root
+# (Electron/renderer) and backend dependency trees, builds the renderer with
+# Vite, and runs the full test suite (renderer/test + backend/test, both
+# node:test — no external test framework). No live database or real secrets
+# are needed: submitExamGrading.test.js mocks the pg Pool, and the JWT tests
+# sign against a throwaway secret written below, never the real backend/.env.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+
+      - name: Build renderer
+        run: npm run build:renderer
+
+      - name: Write a throwaway backend/.env for the test suite
+        # Only JWT_SECRET is read by the tests (authMiddleware.test.js signs
+        # tokens against it). No database is contacted: pg's Pool connects
+        # lazily, and submitExamGrading.test.js mocks it outright.
+        run: echo "JWT_SECRET=ci-test-secret-not-for-production" > backend/.env
+
+      - name: Run renderer tests
+        run: npm run test:renderer
+
+      - name: Run backend tests
+        run: npm run test:backend
